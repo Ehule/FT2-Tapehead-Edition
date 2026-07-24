@@ -1174,6 +1174,17 @@ static void setConfigMiscRadioButtonStates(void)
 
 	showRadioButtonGroup(RB_GROUP_CONFIG_FILESORT);
 	showRadioButtonGroup(RB_GROUP_CONFIG_WIN_SIZE);
+
+	// PATTERN VERTICAL NAVIGATION
+	uncheckRadioButtonGroup(RB_GROUP_CONFIG_PATTNAV);
+	switch (config.dontShowAgainFlags & PATT_NAV_MODE_MASK)
+	{
+		default:
+		case PATT_NAV_WRAP: tmpID = RB_CONFIG_PATTNAV_WRAP; break;
+		case PATT_NAV_STOP: tmpID = RB_CONFIG_PATTNAV_STOP; break;
+		case PATT_NAV_SONG: tmpID = RB_CONFIG_PATTNAV_SONG; break;
+	}
+	radioButtons[tmpID].state = RADIOBUTTON_CHECKED;
 }
 
 void showConfigScreen(void)
@@ -1576,6 +1587,7 @@ void hideConfigScreen(void)
 	// CONFIG MISCELLANEOUS
 	hideRadioButtonGroup(RB_GROUP_CONFIG_FILESORT);
 	hideRadioButtonGroup(RB_GROUP_CONFIG_WIN_SIZE);
+	hideRadioButtonGroup(RB_GROUP_CONFIG_PATTNAV);
 	hidePushButton(PB_CONFIG_QUANTIZE_UP);
 	hidePushButton(PB_CONFIG_QUANTIZE_DOWN);
 	hidePushButton(PB_CONFIG_MIDICHN_UP);
@@ -1663,6 +1675,24 @@ void rbConfigLayout(void)
 
 	hideConfigScreen();
 	showConfigScreen();
+}
+
+void rbConfigPattNavWrap(void)
+{
+	config.dontShowAgainFlags = (config.dontShowAgainFlags & ~PATT_NAV_MODE_MASK) | PATT_NAV_WRAP;
+	checkRadioButton(RB_CONFIG_PATTNAV_WRAP);
+}
+
+void rbConfigPattNavStop(void)
+{
+	config.dontShowAgainFlags = (config.dontShowAgainFlags & ~PATT_NAV_MODE_MASK) | PATT_NAV_STOP;
+	checkRadioButton(RB_CONFIG_PATTNAV_STOP);
+}
+
+void rbConfigPattNavSong(void)
+{
+	config.dontShowAgainFlags = (config.dontShowAgainFlags & ~PATT_NAV_MODE_MASK) | PATT_NAV_SONG;
+	checkRadioButton(RB_CONFIG_PATTNAV_SONG);
 }
 
 void rbConfigMiscellaneous(void)

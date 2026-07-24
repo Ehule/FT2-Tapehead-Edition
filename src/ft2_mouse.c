@@ -607,6 +607,13 @@ static bool testPatternDataMouseDown(void)
 
 void mouseButtonUpHandler(uint8_t mouseButton)
 {
+	if (mouseButton == SDL_BUTTON_MIDDLE)
+	{
+		mouse.middleButtonPressed = false;
+		stopPatternMiddleAudition();
+		return;
+	}
+
 	if (mouseButton == SDL_BUTTON_LEFT)
 	{
 		mouse.leftButtonPressed = false;
@@ -682,6 +689,21 @@ void mouseButtonUpHandler(uint8_t mouseButton)
 
 void mouseButtonDownHandler(uint8_t mouseButton)
 {
+	if (mouseButton == SDL_BUTTON_MIDDLE)
+	{
+		mouse.middleButtonPressed = true;
+
+		if (ui.patternEditorShown)
+		{
+			const int32_t y1 = ui.extendedPatternEditor ? 71 : 176;
+			const int32_t y2 = ui.pattChanScrollShown ? 382 : 396;
+			if (mouse.y >= y1 && mouse.y <= y2 && mouse.x >= 29 && mouse.x <= 602)
+				startPatternMiddleAudition(keyb.leftShiftPressed);
+		}
+
+		return;
+	}
+
 	// if already holding left button and clicking right, don't do mouse down handling
 	if (mouseButton == SDL_BUTTON_RIGHT && mouse.leftButtonPressed)
 	{

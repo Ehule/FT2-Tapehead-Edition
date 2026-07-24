@@ -83,6 +83,8 @@ void exitPatternEditorExtended(void);
 void clearPattMark(void);
 void checkMarkLimits(void);
 void handlePatternDataMouseDown(bool mouseButtonHeld);
+bool startPatternMiddleAudition(bool wholeRow);
+void stopPatternMiddleAudition(void);
 void togglePatternEditorExtended(void);
 void rowOneUpWrap(void);
 void rowOneDownWrap(void);
@@ -164,6 +166,13 @@ void pbSetInstrBank13(void);
 void pbSetInstrBank14(void);
 void pbSetInstrBank15(void);
 void pbSetInstrBank16(void);
+
+// Tapehead vertical-navigation mode popup
+bool patternNavPopupIsShown(void);
+void openPatternNavPopup(void);
+bool handlePatternNavPopupKey(int32_t keycode);
+void drawPatternNavPopup(void);
+
 void setNewInstr(int16_t ins);
 void sampleListScrollUp(void);
 void sampleListScrollDown(void);

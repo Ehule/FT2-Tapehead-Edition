@@ -189,8 +189,21 @@ void keyDownHandler(SDL_Scancode scancode, SDL_Keycode keycode, bool keyWasRepea
 		return;
 	}
 
+	if (patternNavPopupIsShown())
+	{
+		handlePatternNavPopupKey(keycode);
+		return;
+	}
+
 	if (interpolationHandlePreviewKey(scancode, keycode, keyWasRepeated))
 		return;
+
+	if (!keyWasRepeated && scancode == SDL_SCANCODE_SPACE && keyb.leftCtrlPressed &&
+		keyb.leftShiftPressed && !keyb.leftAltPressed)
+	{
+		openPatternNavPopup();
+		return;
+	}
 
 	if (keycode == SDLK_ESCAPE)
 	{
@@ -726,45 +739,11 @@ static void handleKeys(SDL_Keycode keycode, SDL_Scancode scanKey)
 		break;
 
 		case SDLK_PAGEUP:
-		{
-			const bool audioWasntLocked = !audio.locked;
-			if (audioWasntLocked)
-				lockAudio();
-
-			song.row -= 16;
-			if (song.row < 0)
-				song.row = 0;
-
-			if (!songPlaying)
-			{
-				editor.row = (uint8_t)song.row;
-				ui.updatePatternEditor = true;
-			}
-
-			if (audioWasntLocked)
-				unlockAudio();
-		}
+			rowUp(16);
 		break;
 
 		case SDLK_PAGEDOWN:
-		{
-			const bool audioWasntLocked = !audio.locked;
-			if (audioWasntLocked)
-				lockAudio();
-
-			song.row += 16;
-			if (song.row >= song.currNumRows)
-				song.row = song.currNumRows-1;
-
-			if (!songPlaying)
-			{
-				editor.row = (uint8_t)song.row;
-				ui.updatePatternEditor = true;
-			}
-
-			if (audioWasntLocked)
-				unlockAudio();
-		}
+			rowDown(16);
 		break;
 
 		case SDLK_HOME:

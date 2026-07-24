@@ -23,6 +23,7 @@
 #include "ft2_bmp.h"
 #include "ft2_structs.h"
 #include "ft2_interpolation.h"
+#include "ft2_replayer.h"
 
 // for pattern marking w/ keyboard
 static int8_t lastChMark;
@@ -32,6 +33,90 @@ static int16_t lastRowMark;
 static int32_t lastMarkX1 = -1, lastMarkX2 = -1, lastMarkY1 = -1, lastMarkY2 = -1;
 
 static const uint8_t ptnNumRows[8] = { 27, 25, 20, 19, 42, 40, 31, 30 };
+
+
+static bool pattNavPopupShown;
+static uint8_t pattNavPopupSelection;
+static uint8_t pattNavPopupOriginal;
+
+bool patternNavPopupIsShown(void)
+{
+	return pattNavPopupShown;
+}
+
+void openPatternNavPopup(void)
+{
+	if (!ui.patternEditorShown || ui.configScreenShown || ui.helpScreenShown || ui.sysReqShown)
+		return;
+
+	pattNavPopupOriginal = (uint8_t)(config.dontShowAgainFlags & PATT_NAV_MODE_MASK);
+	pattNavPopupSelection = pattNavPopupOriginal;
+	if (pattNavPopupSelection > PATT_NAV_SONG)
+		pattNavPopupSelection = PATT_NAV_WRAP;
+
+	pattNavPopupShown = true;
+	ui.updatePatternEditor = true;
+}
+
+bool handlePatternNavPopupKey(int32_t keycode)
+{
+	if (!pattNavPopupShown)
+		return false;
+
+	switch (keycode)
+	{
+		case SDLK_LEFT:
+			pattNavPopupSelection = pattNavPopupSelection == PATT_NAV_WRAP ? PATT_NAV_SONG : pattNavPopupSelection - 1;
+			ui.updatePatternEditor = true;
+			break;
+
+		case SDLK_RIGHT:
+			pattNavPopupSelection = pattNavPopupSelection == PATT_NAV_SONG ? PATT_NAV_WRAP : pattNavPopupSelection + 1;
+			ui.updatePatternEditor = true;
+			break;
+
+		case SDLK_RETURN:
+		case SDLK_KP_ENTER:
+			config.dontShowAgainFlags = (config.dontShowAgainFlags & ~PATT_NAV_MODE_MASK) | pattNavPopupSelection;
+			pattNavPopupShown = false;
+			ui.updatePatternEditor = true;
+			break;
+
+		case SDLK_ESCAPE:
+			pattNavPopupSelection = pattNavPopupOriginal;
+			pattNavPopupShown = false;
+			ui.updatePatternEditor = true;
+			break;
+
+		default: break;
+	}
+
+	return true; // modal: consume every key until confirmed/cancelled
+}
+
+void drawPatternNavPopup(void)
+{
+	if (!pattNavPopupShown || !ui.patternEditorShown)
+		return;
+
+	const uint16_t x = 218, y = 252, w = 204, h = 31;
+	static const char *labels[3] = { "WRAP", "STOP", "SONG" };
+	static const uint16_t labelX[3] = { 243, 303, 363 };
+
+	drawFramework(x, y, w, h, FRAMEWORK_TYPE1);
+	for (uint8_t i = 0; i < 3; i++)
+	{
+		if (i == pattNavPopupSelection)
+		{
+			fillRect(labelX[i] - 7, y + 8, 47, 13, PAL_BLCKMRK);
+			textOutShadow(labelX[i], y + 11, PAL_BLCKTXT, PAL_BLCKMRK, labels[i]);
+		}
+		else
+		{
+			textOutShadow(labelX[i], y + 11, PAL_FORGRND, PAL_DSKTOP2, labels[i]);
+		}
+	}
+}
 static const uint8_t ptnLineSub[8] = { 13, 12,  9,  9, 20, 19, 15, 14 };
 static const uint8_t iSwitchExtW[4] = { 40, 40, 40, 39 };
 static const uint8_t iSwitchExtY[8] = { 2, 2, 2, 2, 19, 19, 19, 19 };
@@ -964,6 +1049,42 @@ void handlePatternDataMouseDown(bool mouseButtonHeld)
 	}
 }
 
+static uint8_t middleAuditionChannels[MAX_CHANNELS];
+static uint8_t middleAuditionCount;
+
+void stopPatternMiddleAudition(void)
+{
+	for (uint8_t i = 0; i < middleAuditionCount; i++)
+		playTone(middleAuditionChannels[i], 0, NOTE_OFF, -1, 0, 0);
+
+	middleAuditionCount = 0;
+}
+
+bool startPatternMiddleAudition(bool wholeRow)
+{
+	if (!ui.patternEditorShown || pattern[editor.editPattern] == NULL)
+		return false;
+
+	const int16_t row = mouseYToRow();
+	const int8_t clickedCh = mouseXToCh();
+	const int8_t firstCh = wholeRow ? 0 : clickedCh;
+	const int8_t lastCh = wholeRow ? song.numChannels - 1 : clickedCh;
+
+	stopPatternMiddleAudition();
+	for (int8_t ch = firstCh; ch <= lastCh; ch++)
+	{
+		note_t *n = &pattern[editor.editPattern][(row * MAX_CHANNELS) + ch];
+		if (n->note == 0 || n->note > 96)
+			continue;
+
+		const uint8_t ins = n->instr != 0 ? n->instr : editor.curInstr;
+		playTone((uint8_t)ch, ins, n->note, -1, 0, 0);
+		middleAuditionChannels[middleAuditionCount++] = (uint8_t)ch;
+	}
+
+	return middleAuditionCount > 0;
+}
+
 void rowOneUpWrap(void)
 {
 	const bool audioWasntLocked = !audio.locked;
@@ -972,7 +1093,23 @@ void rowOneUpWrap(void)
 
 	if (song.currNumRows > 0)
 	{
-		song.row = (song.row - 1 + song.currNumRows) % song.currNumRows;
+		const uint8_t navMode = config.dontShowAgainFlags & PATT_NAV_MODE_MASK;
+		if (!songPlaying && song.row == 0)
+		{
+			if (navMode == PATT_NAV_STOP || (navMode == PATT_NAV_SONG && song.songPos == 0))
+				song.row = 0;
+			else if (navMode == PATT_NAV_SONG)
+			{
+				setNewSongPos(song.songPos - 1);
+				song.row = song.currNumRows - 1;
+			}
+			else
+				song.row = song.currNumRows - 1;
+		}
+		else
+		{
+			song.row--;
+		}
 
 		if (!songPlaying)
 		{
@@ -997,7 +1134,21 @@ void rowOneDownWrap(void)
 	}
 	else if (song.currNumRows > 0)
 	{
-		song.row = (song.row + 1 + song.currNumRows) % song.currNumRows;
+		const uint8_t navMode = config.dontShowAgainFlags & PATT_NAV_MODE_MASK;
+		if (song.row >= song.currNumRows - 1)
+		{
+			if (navMode == PATT_NAV_STOP || (navMode == PATT_NAV_SONG && song.songPos >= song.songLength - 1))
+				song.row = song.currNumRows - 1;
+			else if (navMode == PATT_NAV_SONG)
+				setNewSongPos(song.songPos + 1);
+			else
+				song.row = 0;
+		}
+		else
+		{
+			song.row++;
+		}
+
 		editor.row = (uint8_t)song.row;
 		ui.updatePatternEditor = true;
 	}
@@ -1012,14 +1163,42 @@ void rowUp(uint16_t amount)
 	if (audioWasntLocked)
 		lockAudio();
 
-	song.row -= amount;
-	if (song.row < 0)
-		song.row = 0;
-
-	if (!songPlaying)
+	if (song.currNumRows > 0)
 	{
-		editor.row = (uint8_t)song.row;
-		ui.updatePatternEditor = true;
+		const uint8_t navMode = config.dontShowAgainFlags & PATT_NAV_MODE_MASK;
+		int32_t targetRow = song.row - amount;
+
+		if (navMode == PATT_NAV_WRAP)
+		{
+			targetRow %= song.currNumRows;
+			if (targetRow < 0)
+				targetRow += song.currNumRows;
+			song.row = (int16_t)targetRow;
+		}
+		else if (navMode == PATT_NAV_SONG)
+		{
+			while (targetRow < 0 && song.songPos > 0)
+			{
+				setNewSongPos(song.songPos - 1);
+				targetRow += song.currNumRows;
+			}
+
+			if (targetRow < 0)
+				targetRow = 0;
+			song.row = (int16_t)targetRow;
+		}
+		else
+		{
+			if (targetRow < 0)
+				targetRow = 0;
+			song.row = (int16_t)targetRow;
+		}
+
+		if (!songPlaying)
+		{
+			editor.row = (uint8_t)song.row;
+			ui.updatePatternEditor = true;
+		}
 	}
 
 	if (audioWasntLocked)
@@ -1032,14 +1211,39 @@ void rowDown(uint16_t amount)
 	if (audioWasntLocked)
 		lockAudio();
 
-	song.row += amount;
-	if (song.row >= song.currNumRows)
-		song.row = song.currNumRows - 1;
-
-	if (!songPlaying)
+	if (song.currNumRows > 0)
 	{
-		editor.row = (uint8_t)song.row;
-		ui.updatePatternEditor = true;
+		const uint8_t navMode = config.dontShowAgainFlags & PATT_NAV_MODE_MASK;
+		int32_t targetRow = song.row + amount;
+
+		if (navMode == PATT_NAV_WRAP)
+		{
+			song.row = (int16_t)(targetRow % song.currNumRows);
+		}
+		else if (navMode == PATT_NAV_SONG)
+		{
+			while (targetRow >= song.currNumRows && song.songPos < song.songLength - 1)
+			{
+				targetRow -= song.currNumRows;
+				setNewSongPos(song.songPos + 1);
+			}
+
+			if (targetRow >= song.currNumRows)
+				targetRow = song.currNumRows - 1;
+			song.row = (int16_t)targetRow;
+		}
+		else
+		{
+			if (targetRow >= song.currNumRows)
+				targetRow = song.currNumRows - 1;
+			song.row = (int16_t)targetRow;
+		}
+
+		if (!songPlaying)
+		{
+			editor.row = (uint8_t)song.row;
+			ui.updatePatternEditor = true;
+		}
 	}
 
 	if (audioWasntLocked)

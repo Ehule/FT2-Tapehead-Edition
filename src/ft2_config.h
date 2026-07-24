@@ -58,6 +58,12 @@ enum
 	DONT_SHOW_IMPORT_WARNING_FLAG = 64,
 	DONT_SHOW_NOT_YET_APPLIED_WARNING_FLAG = 32,
 
+	// low two bits of dontShowAgainFlags (Tapehead Edition)
+	PATT_NAV_MODE_MASK = 3,
+	PATT_NAV_WRAP = 0,
+	PATT_NAV_STOP = 1,
+	PATT_NAV_SONG = 2,
+
 	// specialFlags
 	NO_VOLRAMP_FLAG = 1,
 	BITDEPTH_16 = 2,
@@ -199,6 +205,9 @@ void configMIDISensUp(void);
 void rbConfigAudio(void);
 void rbConfigLayout(void);
 void rbConfigMiscellaneous(void);
+void rbConfigPattNavWrap(void);
+void rbConfigPattNavStop(void);
+void rbConfigPattNavSong(void);
 #ifdef HAS_MIDI
 void rbConfigMidiInput(void);
 #endif

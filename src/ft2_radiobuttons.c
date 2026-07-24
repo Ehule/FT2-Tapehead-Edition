@@ -181,6 +181,11 @@ radioButton_t radioButtons[NUM_RADIOBUTTONS] =
 	{ 114, 86, 31, RB_GROUP_CONFIG_WIN_SIZE, rbWinSize2x },
 	{ 156, 86, 31, RB_GROUP_CONFIG_WIN_SIZE, rbWinSize4x },
 
+	// pattern vertical navigation (Miscellaneous)
+	{ 292,  55, 36, RB_GROUP_CONFIG_PATTNAV, rbConfigPattNavWrap },
+	{ 328,  55, 35, RB_GROUP_CONFIG_PATTNAV, rbConfigPattNavStop },
+	{ 363,  55, 36, RB_GROUP_CONFIG_PATTNAV, rbConfigPattNavSong },
+
 	// ------ DISK OP. ------
 
 	// FILENAME SORTING
