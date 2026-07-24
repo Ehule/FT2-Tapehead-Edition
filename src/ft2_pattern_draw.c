@@ -1124,6 +1124,8 @@ void writePattern(int32_t currRow, int32_t currPattern)
 	// channel numbers must be drawn lastly
 	if (config.ptnChnNumbers)
 		drawChannelNumbering(pattCoord2->upperRowsY+2);
+
+	drawPatternNavPopup();
 }
 
 // ========== CHARACTER DRAWING ROUTINES FOR PATTERN EDITOR ==========

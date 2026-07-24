@@ -16,7 +16,7 @@ enum
 typedef struct mouse_t
 {
 	volatile bool setPosFlag;
-	bool leftButtonPressed, rightButtonPressed, leftButtonReleased, rightButtonReleased;
+	bool leftButtonPressed, rightButtonPressed, middleButtonPressed, leftButtonReleased, rightButtonReleased;
 	bool firstTimePressingButton, mouseOverTextBox;
 	int8_t buttonCounter, mode;
 	int16_t lastUsedObjectID, lastUsedObjectType, lastEditBox;
