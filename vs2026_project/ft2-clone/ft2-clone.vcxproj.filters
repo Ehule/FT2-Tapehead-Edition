@@ -11,6 +11,7 @@
     <ClCompile Include="..\..\src\ft2_events.c" />
     <ClCompile Include="..\..\src\ft2_gui.c" />
     <ClCompile Include="..\..\src\ft2_inst_ed.c" />
+    <ClCompile Include="..\..\src\ft2_interpolation.c" />
     <ClCompile Include="..\..\src\ft2_keyboard.c" />
     <ClCompile Include="..\..\src\ft2_main.c" />
     <ClCompile Include="..\..\src\ft2_midi.c" />
@@ -213,6 +214,7 @@
     <ClInclude Include="..\..\src\ft2_pattern_draw.h">
       <Filter>headers</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\src\ft2_interpolation.h" />
     <ClInclude Include="..\..\src\ft2_pattern_ed.h">
       <Filter>headers</Filter>
     </ClInclude>

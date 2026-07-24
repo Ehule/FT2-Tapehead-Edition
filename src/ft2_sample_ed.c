@@ -30,6 +30,7 @@
 #include "ft2_random.h"
 #include "ft2_replayer.h"
 #include "ft2_smpfx.h"
+#include "ft2_sysreqs.h"
 
 static const char sharpNote1Char[12] = { 'C', 'C', 'D', 'D', 'E', 'F', 'F', 'G', 'G', 'A', 'A', 'B' };
 static const char sharpNote2Char[12] = { '-', '#', '-', '#', '-', '-', '#', '-', '#', '-', '#', '-' };
@@ -1167,6 +1168,113 @@ static void writeWaveform(void)
 	}
 }
 
+static int64_t patternGridPositionToVirtualRow(int32_t order, int32_t row)
+{
+	const int32_t songLength = CLAMP(song.songLength, 1, MAX_ORDERS);
+	order = CLAMP(order, 0, MAX_ORDERS-1);
+
+	int64_t virtualRow = 0;
+	for (int32_t i = 0; i < order; i++)
+	{
+		const uint8_t patt = song.orders[MIN(i, songLength-1)];
+		int32_t rows = patternNumRows[patt];
+		if (rows <= 0)
+			rows = 64;
+
+		virtualRow += rows;
+	}
+
+	return virtualRow + MAX(row, 0);
+}
+
+static void samplePosToPatternGrid(const sample_t *s, int32_t samplePos, int32_t *orderOut, int32_t *rowOut)
+{
+	int32_t originOrder = 0;
+	int32_t originRow = 0;
+	if (editor.curInstr > 0 && editor.curInstr <= MAX_INST && instr[editor.curInstr] != NULL)
+	{
+		originOrder = instr[editor.curInstr]->timelineOriginOrder;
+		originRow = instr[editor.curInstr]->timelineOriginRow;
+	}
+
+	*orderOut = originOrder;
+	*rowOut = originRow;
+
+	if (s == NULL || samplePos <= 0 || song.BPM == 0 || song.speed == 0)
+		return;
+
+	const int32_t c4Hz = getSampleC4Hz((sample_t *)s);
+	if (c4Hz <= 0)
+		return;
+
+	/* The sample editor audition note is 1-based. getSampleC4Hz() already
+	** includes the sample's relative note and finetune, so only transpose it
+	** by the audition-note distance from C-4.
+	*/
+	const int32_t noteDelta = (int32_t)editor.smpEd_NoteNr - (1 + NOTE_C4);
+	const double playbackHz = c4Hz * exp2(noteDelta / 12.0);
+	if (playbackHz <= 0.0)
+		return;
+
+	const double rowSeconds = (song.speed * 2.5) / song.BPM;
+	if (rowSeconds <= 0.0)
+		return;
+
+	int64_t virtualRow = patternGridPositionToVirtualRow(originOrder, originRow);
+	virtualRow += (int64_t)floor((samplePos / playbackHz) / rowSeconds);
+	if (virtualRow < 0)
+		virtualRow = 0;
+
+	int32_t order = 0;
+	const int32_t songLength = CLAMP(song.songLength, 1, MAX_ORDERS);
+	for (; order < songLength; order++)
+	{
+		const uint8_t patt = song.orders[order];
+		int32_t rows = patternNumRows[patt];
+		if (rows <= 0)
+			rows = 64;
+
+		if (virtualRow < rows)
+		{
+			*orderOut = order;
+			*rowOut = (int32_t)virtualRow;
+			return;
+		}
+
+		virtualRow -= rows;
+	}
+
+	/* Keep the ruler useful past the current end of the order list. This is a
+	** virtual continuation using the final order's pattern length; Record+
+	** can later turn these virtual orders into real ones.
+	*/
+	const uint8_t lastPatt = song.orders[songLength-1];
+	int32_t rows = patternNumRows[lastPatt];
+	if (rows <= 0)
+		rows = 64;
+
+	order += (int32_t)(virtualRow / rows);
+	*orderOut = order;
+	*rowOut = (int32_t)(virtualRow % rows);
+}
+
+static void drawPatternGridSampleOffset(const sample_t *s)
+{
+	int32_t order1, row1, order2, row2;
+	samplePosToPatternGrid(s, smpEd_Rx1, &order1, &row1);
+	samplePosToPatternGrid(s, smpEd_Rx2, &order2, &row2);
+
+	char text[64];
+	snprintf(text, sizeof (text), "P %02X | %02X - %02X | %02X", order1, row1, order2, row2);
+
+	/* Compact overlay in the waveform area. Native hexadecimal offsets remain
+	** available in the extended sample editor; this is only another lens.
+	*/
+	const int32_t maskWidth = textWidth(text) + 4; // 2px padding on each side
+	fillRect(3, 176, maskWidth, 10, PAL_BCKGRND);
+	textOut(5, 177, PAL_FORGRND, text);
+}
+
 void writeSample(bool forceSmpRedraw)
 {
 	int32_t tmpRx1, tmpRx2;
@@ -1262,7 +1370,10 @@ void writeSample(bool forceSmpRedraw)
 	}
 
 	if (ui.sampleEditorShown)
+	{
 		fixSampleScrollbar();
+		drawPatternGridSampleOffset(s);
+	}
 
 	updateSampleEditor();
 }
@@ -2252,18 +2363,18 @@ static void extractSmpRangeToSampleInternal(int32_t rangeStart, int32_t rangeEnd
 	setSongModifiedFlag();
 }
 
-static void extractSmpRangeToInstrInternal(int32_t rangeStart, int32_t rangeEnd)
+static int16_t extractSmpRangeToInstrInternal(int32_t rangeStart, int32_t rangeEnd)
 {
 	const int16_t srcInstr = editor.curInstr;
 	const int16_t srcSmpNum = editor.curSmp;
 
 	if (srcInstr <= 0 || instr[srcInstr] == NULL)
-		return;
+		return 0;
 
 	sample_t *srcSmp = &instr[srcInstr]->smp[srcSmpNum];
 
 	if (srcSmp->dataPtr == NULL || srcSmp->length <= 0)
-		return;
+		return 0;
 
 	if (rangeStart > rangeEnd)
 	{
@@ -2276,13 +2387,13 @@ static void extractSmpRangeToInstrInternal(int32_t rangeStart, int32_t rangeEnd)
 	rangeEnd = CLAMP(rangeEnd, 0, srcSmp->length);
 
 	if (rangeEnd <= rangeStart)
-		return;
+		return 0;
 
 	const int16_t dstInstr = findExtractDestinationInstr(srcInstr);
 	if (dstInstr < 1)
 	{
 		okBox(0, "System message", "No free instrument slots available!", NULL);
-		return;
+		return 0;
 	}
 
 	const int32_t extractLength = rangeEnd - rangeStart;
@@ -2300,7 +2411,7 @@ static void extractSmpRangeToInstrInternal(int32_t rangeStart, int32_t rangeEnd)
 		resumeAudio();
 
 		okBox(0, "System message", "Not enough memory!", NULL);
-		return;
+		return 0;
 	}
 
 	instr_t *srcIns = instr[srcInstr];
@@ -2345,7 +2456,7 @@ static void extractSmpRangeToInstrInternal(int32_t rangeStart, int32_t rangeEnd)
 		resumeAudio();
 
 		okBox(0, "System message", "Not enough memory!", NULL);
-		return;
+		return 0;
 	}
 
 	memcpy(
@@ -2411,6 +2522,97 @@ static void extractSmpRangeToInstrInternal(int32_t rangeStart, int32_t rangeEnd)
 		updateInstrumentSwitcher();
 
 	setSongModifiedFlag();
+	return dstInstr;
+}
+
+static bool stampExtractedInstrument(int16_t dstInstr, int32_t sourceSampleStart, int32_t sourceSampleEnd)
+{
+	if (dstInstr <= 0 || dstInstr > MAX_INST || instr[dstInstr] == NULL)
+		return false;
+
+	sample_t *srcSmp = getCurSample();
+	int32_t dstOrder, dstRow;
+	samplePosToPatternGrid(srcSmp, sourceSampleStart, &dstOrder, &dstRow);
+
+	int32_t playbackEndOrder, playbackEndRow;
+	samplePosToPatternGrid(srcSmp, sourceSampleEnd, &playbackEndOrder, &playbackEndRow);
+	(void)playbackEndRow;
+
+	instr[dstInstr]->timelineOriginOrder = (uint16_t)CLAMP(dstOrder, 0, MAX_ORDERS-1);
+	instr[dstInstr]->timelineOriginRow = (uint16_t)MAX(dstRow, 0);
+
+	/* The order list must contain both the stamped note and the complete
+	** natural playback interval of the extracted sample. The ruler can map
+	** beyond the current song virtually, so turn that virtual endpoint into
+	** real INP-style patterns before stamping.
+	*/
+	const int32_t finalOrderNeeded = MAX(dstOrder, playbackEndOrder);
+	if (dstOrder >= MAX_ORDERS || finalOrderNeeded >= MAX_ORDERS)
+		return false;
+
+	const int32_t needed = finalOrderNeeded - song.songLength + 1;
+	if (needed > 32)
+	{
+		char msg[112];
+		snprintf(msg, sizeof (msg), "Playback requires %d additional patterns. Proceed?", needed);
+		if (okBox(2, "Extract + Stamp", msg, NULL) != 1)
+			return false;
+	}
+
+	while (song.songLength <= finalOrderNeeded)
+	{
+		if (!appendNewPatternToSong())
+		{
+			okBox(0, "System message", "Could not extend song for full sample playback.", NULL);
+			return false;
+		}
+	}
+
+	const uint8_t patt = song.orders[dstOrder];
+	if (!allocatePattern(patt))
+	{
+		okBox(0, "System message", "Not enough memory for Extract + Stamp.", NULL);
+		return false;
+	}
+
+	const int32_t rows = MAX(patternNumRows[patt], 1);
+	dstRow = CLAMP(dstRow, 0, rows-1);
+	const int32_t ch = CLAMP(cursor.ch, 0, song.numChannels-1);
+	note_t *n = &pattern[patt][(dstRow * MAX_CHANNELS) + ch];
+	n->note = 1 + NOTE_C4;
+	n->instr = (uint8_t)dstInstr;
+
+	ui.updatePatternEditor = true;
+	setSongModifiedFlag();
+	return true;
+}
+
+void extractSmpRangeToInstrAndStamp(void)
+{
+	int32_t start = smpEd_Rx1;
+	int32_t end = smpEd_Rx2;
+	if (start > end)
+	{
+		const int32_t tmp = start;
+		start = end;
+		end = tmp;
+	}
+
+	const int16_t dstInstr = extractSmpRangeToInstrInternal(start, end);
+	if (dstInstr > 0)
+		stampExtractedInstrument(dstInstr, start, end);
+}
+
+void extractSmpFromCursorToInstrAndStamp(void)
+{
+	sample_t *s = getCurSample();
+	if (s == NULL || s->dataPtr == NULL || s->length <= 0)
+		return;
+
+	const int32_t start = smpEd_Rx1;
+	const int16_t dstInstr = extractSmpRangeToInstrInternal(start, s->length);
+	if (dstInstr > 0)
+		stampExtractedInstrument(dstInstr, start, s->length);
 }
 
 void extractSmpRangeToInstr(void)
@@ -3732,6 +3934,39 @@ static void editSampleData(bool mouseButtonHeld)
 	writeSample(FORCE_SAMPLE_REDRAW);
 }
 
+static bool handlePatternTimelineOriginMenu(int32_t mx, int32_t my)
+{
+	if (!mouse.rightButtonPressed || my < 176 || my > 185 || editor.curInstr == 0 ||
+		editor.curInstr > MAX_INST || instr[editor.curInstr] == NULL)
+	{
+		return false;
+	}
+
+	/* Restrict the command to the Pattern Timeline readout strip so ordinary
+	** right-button waveform drawing remains unchanged everywhere else.
+	*/
+	if (mx < 3 || mx > 190)
+		return false;
+
+	const int16_t result = okBox(7, "Pattern Timeline",
+		"Set origin from pattern cursor or reset to P00|00?", NULL);
+
+	if (result == 1)
+	{
+		instr[editor.curInstr]->timelineOriginOrder = (uint16_t)CLAMP(editor.songPos, 0, MAX_ORDERS-1);
+		instr[editor.curInstr]->timelineOriginRow = (uint16_t)MAX(editor.row, 0);
+		writeSample(FORCE_SAMPLE_REDRAW);
+	}
+	else if (result == 2)
+	{
+		instr[editor.curInstr]->timelineOriginOrder = 0;
+		instr[editor.curInstr]->timelineOriginRow = 0;
+		writeSample(FORCE_SAMPLE_REDRAW);
+	}
+
+	return true;
+}
+
 void handleSampleDataMouseDown(bool mouseButtonHeld)
 {
 	if (editor.curInstr == 0)
@@ -3739,6 +3974,9 @@ void handleSampleDataMouseDown(bool mouseButtonHeld)
 
 	int32_t mx = CLAMP(mouse.x, 0, SCREEN_W+8); // allow some pixels outside of the screen
 	int32_t my = CLAMP(mouse.y, 0, SCREEN_H-1);
+
+	if (!mouseButtonHeld && handlePatternTimelineOriginMenu(mx, my))
+		return;
 
 	if (!mouseButtonHeld)
 	{

@@ -1576,6 +1576,27 @@ bool insertNewPatternAfterCurrentSongPos(bool selectNewPosition)
 	return true;
 }
 
+bool appendNewPatternToSong(void)
+{
+	if (song.songLength >= 255)
+		return false;
+
+	const int16_t unusedPatt = findUnusedPattern();
+	if (unusedPatt < 0)
+		return false;
+
+	const uint8_t oldPatt = song.orders[MAX(song.songLength, 1) - 1];
+	const uint8_t newPatt = (uint8_t)unusedPatt;
+	inheritPatternLengthIfUnused(oldPatt, newPatt);
+	song.orders[song.songLength++] = newPatt;
+
+	ui.updatePosSections = true;
+	ui.updatePosEdScrollBar = true;
+	ui.updatePatternEditor = true;
+	setSongModifiedFlag();
+	return true;
+}
+
 void pbPosEdIns(void)
 {
 	if (song.songLength >= 255)

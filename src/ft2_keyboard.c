@@ -203,6 +203,25 @@ void keyDownHandler(SDL_Scancode scancode, SDL_Keycode keycode, bool keyWasRepea
 	if (scancode == SDL_SCANCODE_KP_PLUS)
 		keyb.numPadPlusPressed = true;
 
+	/* Tapehead Pattern Timeline: claim Extract + Stamp before the Fast Tracks
+	** Alt+Shift track-key handler. E and X are also Fast Tracks ratio keys, so
+	** the later handler would otherwise consume these shortcuts first. */
+	if (!keyWasRepeated && ui.sampleEditorShown && keyb.leftAltPressed &&
+		keyb.leftShiftPressed && !keyb.leftCtrlPressed)
+	{
+		if (scancode == SDL_SCANCODE_E)
+		{
+			extractSmpFromCursorToInstrAndStamp();
+			return;
+		}
+
+		if (scancode == SDL_SCANCODE_X)
+		{
+			extractSmpRangeToInstrAndStamp();
+			return;
+		}
+	}
+
 	/* Ctrl+Alt+Plus toggles the latched global transmission clutch. Accept
 	** both the main =/+ key and keypad plus so the command is practical across
 	** keyboards while remaining tied to the physical plus-key position. */
@@ -978,6 +997,13 @@ static bool checkModifiedKeys(SDL_Keycode keycode)
 
 		case SDLK_e:
 		{
+			/* Alt+Shift+E: Extract tail + Stamp. */
+			if (keyb.leftShiftPressed && keyb.leftAltPressed && !keyb.leftCtrlPressed && ui.sampleEditorShown)
+			{
+				extractSmpFromCursorToInstrAndStamp();
+				return true;
+			}
+
 			/*
 			** Tape Head Edition: extract from the current sample cursor to
 			** the end into a newly allocated instrument.
@@ -1287,6 +1313,13 @@ static bool checkModifiedKeys(SDL_Keycode keycode)
 
 		case SDLK_x:
 		{
+			/* Alt+Shift+X: Extract selected range + Stamp. */
+			if (keyb.leftShiftPressed && keyb.leftAltPressed && !keyb.leftCtrlPressed && ui.sampleEditorShown)
+			{
+				extractSmpRangeToInstrAndStamp();
+				return true;
+			}
+
 			/*
 			** Tape Head Edition: extract the selected sample range to a
 			** newly allocated instrument while remaining on the master.

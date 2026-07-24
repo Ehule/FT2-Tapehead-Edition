@@ -108,6 +108,7 @@ void sbPosEdPos(uint32_t pos);
 void pbPosEdPosUp(void);
 void pbPosEdPosDown(void);
 bool insertNewPatternAfterCurrentSongPos(bool selectNewPosition);
+bool appendNewPatternToSong(void);
 void pbPosEdIns(void);
 void pbPosEdDel(void);
 void pbPosEdPattUp(void);

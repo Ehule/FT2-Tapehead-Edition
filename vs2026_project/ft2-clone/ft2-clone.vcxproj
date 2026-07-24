@@ -307,6 +307,7 @@
     <ClCompile Include="..\..\src\ft2_help.c" />
     <ClCompile Include="..\..\src\ft2_hpc.c" />
     <ClCompile Include="..\..\src\ft2_inst_ed.c" />
+    <ClCompile Include="..\..\src\ft2_interpolation.c" />
     <ClCompile Include="..\..\src\ft2_keyboard.c" />
     <ClCompile Include="..\..\src\ft2_main.c" />
     <ClCompile Include="..\..\src\ft2_midi.c" />
@@ -395,6 +396,7 @@
     <ClInclude Include="..\..\src\ft2_help.h" />
     <ClInclude Include="..\..\src\ft2_hpc.h" />
     <ClInclude Include="..\..\src\ft2_inst_ed.h" />
+    <ClInclude Include="..\..\src\ft2_interpolation.h" />
     <ClInclude Include="..\..\src\ft2_keyboard.h" />
     <ClInclude Include="..\..\src\ft2_midi.h" />
     <ClInclude Include="..\..\src\ft2_module_loader.h" />

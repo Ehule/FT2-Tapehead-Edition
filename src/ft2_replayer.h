@@ -257,6 +257,13 @@ typedef struct instr_t
 	uint16_t fadeout;
 	int16_t volEnvPoints[12][2], panEnvPoints[12][2], midiProgram, midiBend;
 	int16_t numSamples; // used by loader only
+
+	/* Tapehead Pattern Timeline origin. This is runtime project metadata for
+	** now and is intentionally not written to standard XM instrument data.
+	** A zero-initialized instrument therefore starts at P 00 | 00.
+	*/
+	uint16_t timelineOriginOrder, timelineOriginRow;
+
 	sample_t smp[16];
 } instr_t;
 

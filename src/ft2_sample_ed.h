@@ -56,6 +56,8 @@ void sampCut(void);
 void sampCopy(void);
 void extractSmpRangeToInstr(void);
 void extractSmpFromCursorToInstr(void);
+void extractSmpRangeToInstrAndStamp(void);
+void extractSmpFromCursorToInstrAndStamp(void);
 void extractSmpRangeToSample(void);
 void extractSmpFromCursorToSample(void);
 void sampPaste(void);

@@ -61,6 +61,10 @@ FT2-Tapehead Edition rewards you with a hidden **GAME OVER** screen.
 
 Subsequent attempts display **REC+ FULL**.
 
+## Sample Map
+
+Sample Map places recorded audio in tracker space. The Sample Editor can display waveform positions as pattern-and-row addresses, while each instrument stores its own map origin. **Alt+Shift+X** extracts a selection and stamps it into the song; **Alt+Shift+E** does the same from the sample cursor to the end. The song is extended automatically so the extracted audio can finish playing. See [`docs/SAMPLE_MAP.md`](docs/SAMPLE_MAP.md) for the complete workflow and shortcuts.
+
 ## Fast Tracks — Experimental
 
 Fast Tracks gives the first eight channels independent pattern-row transports while retaining one shared FT2 master clock. Each enabled channel currently reads the active pattern at **2×**, producing independently phased rhythmic and melodic cycles.
