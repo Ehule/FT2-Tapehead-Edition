@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <string.h>
 #include <math.h>
 #include "ft2_header.h"
 #include "ft2_gui.h"
@@ -15,6 +16,7 @@
 #include "ft2_mouse.h"
 #include "ft2_diskop.h"
 #include "ft2_structs.h"
+#include "ft2_undo.h"
 
 bool detectFLAC(FILE *f);
 bool loadFLAC(FILE *f, uint32_t filesize);
@@ -103,6 +105,7 @@ static int8_t detectSample(FILE *f)
 
 static int32_t loadSampleThread(void *ptr)
 {
+	bool undoStarted = false;
 	if (editor.tmpFilenameU == NULL)
 	{
 		loaderMsgBox("General I/O error during loading!");
@@ -181,6 +184,17 @@ static int32_t loadSampleThread(void *ptr)
 
 	fixString(tmpSmp.name, 21); // remove leading spaces from sample filename
 
+	const bool adoptInstrumentName = song.instrName[editor.curInstr][0] == '\0';
+	if (loadAsInstrFlag || adoptInstrumentName)
+	{
+		const char *undoDescription = loadAsInstrFlag ? "Load sample as instrument" : "Load sample";
+		undoStarted = undoInstrumentBegin(editor.curInstr, undoDescription);
+	}
+	else
+	{
+		undoStarted = undoSampleBegin(editor.curInstr, sampleSlot, "Load sample");
+	}
+
 	lockMixerCallback();
 	if (loadAsInstrFlag) // if loaded in instrument mode
 	{
@@ -202,12 +216,26 @@ static int32_t loadSampleThread(void *ptr)
 	freeSample(editor.curInstr, sampleSlot);
 	memcpy(s, &tmpSmp, sizeof (sample_t));
 
+	if (adoptInstrumentName)
+	{
+		memcpy(song.instrName[editor.curInstr], tmpSmp.name, 22);
+		song.instrName[editor.curInstr][22] = '\0';
+	}
+
 	sanitizeSample(s);
 
 	fixSample(s); // prepares sample for branchless resampling interpolation
 	fixInstrAndSampleNames(editor.curInstr);
 
 	unlockMixerCallback();
+
+	if (undoStarted)
+	{
+		if (loadAsInstrFlag || adoptInstrumentName)
+			undoInstrumentCommit();
+		else
+			undoSampleCommit();
+	}
 
 	setSongModifiedFlag();
 
@@ -217,6 +245,8 @@ static int32_t loadSampleThread(void *ptr)
 	return true;
 
 loadError:
+	if (undoStarted)
+		undoCancelTransaction();
 	setMouseBusy(false);
 	freeTmpSample(&tmpSmp);
 	sampleIsLoading = false;
