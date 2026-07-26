@@ -161,6 +161,7 @@ int main(int argc, char *argv[])
 	}
 
 	loadConfigOrSetDefaults(); // config must be loaded at this exact point
+	loadTapeheadConfig();
 
 	if (!setupWindow() || !setupRenderer())
 	{

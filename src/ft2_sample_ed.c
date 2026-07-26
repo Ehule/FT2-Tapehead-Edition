@@ -22,6 +22,7 @@
 #include "ft2_video.h"
 #include "ft2_inst_ed.h"
 #include "ft2_sample_ed.h"
+#include "ft2_undo.h"
 #include "ft2_sample_saver.h"
 #include "ft2_mouse.h"
 #include "ft2_diskop.h"
@@ -699,6 +700,7 @@ static bool getCopyBuffer(int32_t size, bool sample16Bit)
 
 static int32_t copySampleThread(void *ptr)
 {
+	undoSampleBegin(editor.curInstr, editor.curSmp, "Paste sample");
 	pauseAudio();
 
 	sample_t *src;
@@ -716,6 +718,7 @@ static int32_t copySampleThread(void *ptr)
 
 	resumeAudio();
 
+	undoSampleCommit();
 	editor.updateCurSmp = true;
 	setSongModifiedFlag();
 	setMouseBusy(false);
@@ -724,6 +727,7 @@ static int32_t copySampleThread(void *ptr)
 
 error:
 	resumeAudio();
+	undoCancelTransaction();
 	okBoxThreadSafe(0, "System message", "Not enough memory!", NULL);
 	return true;
 
@@ -3798,6 +3802,7 @@ static void editSampleData(bool mouseButtonHeld)
 
 	if (!mouseButtonHeld)
 	{
+		undoSampleBegin(editor.curInstr, editor.curSmp, "Draw sample");
 		pauseAudio();
 		unfixSample(s);
 		editor.editSampleFlag = true;

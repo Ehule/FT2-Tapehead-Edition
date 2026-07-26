@@ -69,6 +69,7 @@ void setSpritePos(int32_t sprite, int32_t x, int32_t y);
 void changeSpriteData(int32_t sprite, const uint8_t *data);
 void hideSprite(int32_t sprite);
 void handleRedrawing(void);
+void setAuditionNoteState(uint8_t note, bool held);
 void enterFullscreen(void);
 void leaveFullscreen(void);
 void setWindowSizeFromConfig(bool updateRenderer);

@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <string.h>
 #include <math.h>
 #include "ft2_header.h"
 #include "ft2_config.h"
@@ -22,6 +23,7 @@
 #include "ft2_tables.h"
 #include "ft2_bmp.h"
 #include "ft2_structs.h"
+#include "ft2_undo.h"
 #include "ft2_bmp.h"
 
 #ifdef _MSC_VER
@@ -173,6 +175,7 @@ static int32_t copyInstrThread(void *ptr)
 	const int16_t dstIns = editor.curInstr;
 	const int16_t srcIns = editor.srcInstr;
 
+	undoInstrumentBegin((uint8_t)dstIns, "Paste instrument");
 	pauseAudio();
 	freeInstr(dstIns);
 
@@ -219,8 +222,13 @@ static int32_t copyInstrThread(void *ptr)
 
 	if (!error)
 	{
+		undoInstrumentCommit();
 		editor.updateCurInstr = true;
 		setSongModifiedFlag();
+	}
+	else
+	{
+		undoCancelTransaction();
 	}
 
 	setMouseBusy(false);
@@ -3235,6 +3243,8 @@ static int32_t loadInstrThread(void *ptr)
 	instr_t *ins;
 	FILE *f = NULL;
 	bool stereoWarning = false;
+	bool undoStarted = false;
+	bool instrumentLoaded = false;
 
 	numLoadedSamples = 0;
 
@@ -3277,6 +3287,8 @@ static int32_t loadInstrThread(void *ptr)
 		}
 
 		numLoadedSamples = xi_h.numSamples;
+
+		undoStarted = undoInstrumentBegin(editor.curInstr, "Load instrument");
 
 		memcpy(song.instrName[editor.curInstr], xi_h.name, 22);
 		song.instrName[editor.curInstr][22] = '\0';
@@ -3427,6 +3439,7 @@ static int32_t loadInstrThread(void *ptr)
 		}
 
 		resumeAudio();
+		instrumentLoaded = true;
 	}
 	else
 	{
@@ -3447,6 +3460,8 @@ static int32_t loadInstrThread(void *ptr)
 			}
 
 			numLoadedSamples = pat_h.numSamples;
+
+			undoStarted = undoInstrumentBegin(editor.curInstr, "Load instrument");
 
 			pauseAudio();
 			freeInstr(editor.curInstr);
@@ -3567,10 +3582,19 @@ static int32_t loadInstrThread(void *ptr)
 			}
 
 			resumeAudio();
+			instrumentLoaded = true;
 		}
 	}
 
 loadDone:
+	if (undoStarted)
+	{
+		if (instrumentLoaded)
+			undoInstrumentCommit();
+		else
+			undoCancelTransaction();
+	}
+
 	if (f != NULL)
 		fclose(f);
 

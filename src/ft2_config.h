@@ -294,4 +294,14 @@ void sbAmp(uint32_t pos);
 void sbMasterVol(uint32_t pos);
 void sbMIDISens(uint32_t pos);
 
+
+typedef struct tapeheadConfig_t
+{
+	bool diskOpBackspaceParent;
+	bool patternBackspacePullUp;
+} tapeheadConfig_t;
+
+extern tapeheadConfig_t tapeheadConfig;
+void loadTapeheadConfig(void);
+
 extern config_t config;

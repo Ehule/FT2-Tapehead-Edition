@@ -14,6 +14,7 @@
 #include "ft2_inst_ed.h"
 #include "ft2_pattern_ed.h"
 #include "ft2_mouse.h"
+#include "ft2_undo.h"
 #include "ft2_config.h"
 #include "ft2_diskop.h"
 #include "ft2_audioselector.h"
@@ -21,6 +22,7 @@
 #include "ft2_bmp.h"
 #include "ft2_structs.h"
 #include "ft2_keyboard.h"
+#include "ft2_edit.h"
 
 #define NUM_CURSORS 6
 
@@ -648,6 +650,7 @@ void mouseButtonUpHandler(uint8_t mouseButton)
 				writeSample(FORCE_SAMPLE_REDRAW);
 
 			setSongModifiedFlag();
+			undoSampleCommit();
 
 			editor.editSampleFlag = false;
 		}
@@ -689,6 +692,18 @@ void mouseButtonUpHandler(uint8_t mouseButton)
 
 void mouseButtonDownHandler(uint8_t mouseButton)
 {
+	// Tapehead Edition: Ctrl-click the existing Adv. Edit pushbutton to open
+	// the Instrument Transform Editor. A normal click keeps FT2's original
+	// Advanced Edit behavior unchanged.
+	if (mouseButton == SDL_BUTTON_LEFT && !ui.advEditShown && (SDL_GetModState() & KMOD_CTRL) != 0 &&
+		mouse.x >= 294 && mouse.x < 353 && mouse.y >= 138 && mouse.y < 154)
+	{
+		openInstrumentTransformEditor();
+		return;
+	}
+
+	if (instrumentTransformHandleMouseDown(mouse.x, mouse.y, mouseButton)) return;
+
 	if (mouseButton == SDL_BUTTON_MIDDLE)
 	{
 		mouse.middleButtonPressed = true;

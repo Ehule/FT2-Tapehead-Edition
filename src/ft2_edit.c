@@ -4,11 +4,16 @@
 #endif
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <stdint.h>
 #include "ft2_header.h"
+#include "ft2_undo.h"
 #include "ft2_config.h"
 #include "ft2_keyboard.h"
 #include "ft2_audio.h"
+#include "ft2_video.h"
+#include "ft2_gui.h"
 #include "ft2_midi.h"
 #include "ft2_pattern_ed.h"
 #include "ft2_sysreqs.h"
@@ -335,6 +340,9 @@ static void evaluateTimeStamp(int16_t *songPos, int16_t *pattNum, int16_t *row, 
 
 void recordNote(uint8_t noteNum, int8_t vol) // directly ported from the original FT2 code - what a mess, but it works...
 {
+	if (noteNum >= 1 && noteNum <= 96)
+		setAuditionNoteState(noteNum, vol != 0);
+
 	int8_t i;
 	int16_t pattNum, songPos, row, tick;
 	int32_t time;
@@ -727,6 +735,7 @@ void insertPatternNote(void)
 	note_t *p = pattern[curPattern];
 	if (p == NULL)
 		return;
+	undoPatternBegin(curPattern, "Insert note");
 
 	const int16_t numRows = patternNumRows[curPattern];
 
@@ -740,6 +749,7 @@ void insertPatternNote(void)
 
 	killPatternIfUnused(curPattern);
 
+	undoPatternCommit();
 	ui.updatePatternEditor = true;
 	setSongModifiedFlag();
 }
@@ -754,6 +764,7 @@ void insertPatternLine(void)
 	bool editmode = ui.patternEditorShown && (playMode == PLAYMODE_EDIT);
 	if (!editmode && playMode != PLAYMODE_RECPATT && playMode != PLAYMODE_RECSONG)
 		return;
+	undoPatternBegin(curPattern, "Insert line");
 
 	setPatternLen(curPattern, patternNumRows[curPattern] + config.recTrueInsert); // config.recTrueInsert is 0 or 1
 
@@ -776,8 +787,37 @@ void insertPatternLine(void)
 		killPatternIfUnused(curPattern);
 	}
 
+	undoPatternCommit();
 	ui.updatePatternEditor = true;
 	setSongModifiedFlag();
+}
+
+void clearPreviousPatternEntry(void)
+{
+	pauseMusic();
+	const volatile uint16_t curPattern = editor.editPattern;
+	int16_t row = editor.row;
+	resumeMusic();
+
+	bool editmode = ui.patternEditorShown && (playMode == PLAYMODE_EDIT);
+	if (!editmode && playMode != PLAYMODE_RECPATT && playMode != PLAYMODE_RECSONG)
+		return;
+
+	if (row <= 0)
+		return;
+
+	row--;
+	editor.row = song.row = row;
+
+	note_t *p = pattern[curPattern];
+	if (p != NULL)
+	{
+		memset(&p[(row * MAX_CHANNELS) + cursor.ch], 0, sizeof (note_t));
+		killPatternIfUnused(curPattern);
+		setSongModifiedFlag();
+	}
+
+	ui.updatePatternEditor = true;
 }
 
 void deletePatternNote(void)
@@ -790,6 +830,7 @@ void deletePatternNote(void)
 	bool editmode = ui.patternEditorShown && (playMode == PLAYMODE_EDIT);
 	if (!editmode && playMode != PLAYMODE_RECPATT && playMode != PLAYMODE_RECSONG)
 		return;
+	undoPatternBegin(curPattern, "Delete note");
 
 	const int16_t numRows = patternNumRows[curPattern];
 
@@ -818,6 +859,7 @@ void deletePatternNote(void)
 
 	killPatternIfUnused(curPattern);
 
+	undoPatternCommit();
 	ui.updatePatternEditor = true;
 	setSongModifiedFlag();
 }
@@ -832,6 +874,7 @@ void deletePatternLine(void)
 	bool editmode = ui.patternEditorShown && (playMode == PLAYMODE_EDIT);
 	if (!editmode && playMode != PLAYMODE_RECPATT && playMode != PLAYMODE_RECSONG)
 		return;
+	undoPatternBegin(curPattern, "Delete line");
 
 	const int16_t numRows = patternNumRows[curPattern];
 	note_t *p = pattern[curPattern];
@@ -865,6 +908,7 @@ void deletePatternLine(void)
 
 	killPatternIfUnused(curPattern);
 
+	undoPatternCommit();
 	ui.updatePatternEditor = true;
 	setSongModifiedFlag();
 }
@@ -1359,6 +1403,7 @@ void cutTrack(void)
 	note_t *p = pattern[curPattern];
 	if (p == NULL)
 		return;
+	undoPatternBegin(curPattern, "Cut track");
 
 	const int16_t numRows = patternNumRows[curPattern];
 
@@ -1379,6 +1424,7 @@ void cutTrack(void)
 
 	killPatternIfUnused(curPattern);
 
+	undoPatternCommit();
 	ui.updatePatternEditor = true;
 	setSongModifiedFlag();
 }
@@ -1404,8 +1450,14 @@ void pasteTrack(void)
 {
 	const volatile uint16_t curPattern = editor.editPattern;
 
-	if (trkBufLen == 0 || !allocatePattern(curPattern))
+	if (trkBufLen == 0)
 		return;
+	undoPatternBegin(curPattern, "Paste track");
+	if (!allocatePattern(curPattern))
+	{
+		undoCancelTransaction();
+		return;
+	}
 
 	note_t *p = pattern[curPattern];
 	const int16_t numRows = patternNumRows[curPattern];
@@ -1417,6 +1469,7 @@ void pasteTrack(void)
 
 	killPatternIfUnused(curPattern);
 
+	undoPatternCommit();
 	ui.updatePatternEditor = true;
 	setSongModifiedFlag();
 }
@@ -1428,6 +1481,7 @@ void cutPattern(void)
 	note_t *p = pattern[curPattern];
 	if (p == NULL)
 		return;
+	undoPatternBegin(curPattern, "Cut pattern");
 
 	const int16_t numRows = patternNumRows[curPattern];
 
@@ -1454,6 +1508,7 @@ void cutPattern(void)
 
 	killPatternIfUnused(curPattern);
 
+	undoPatternCommit();
 	ui.updatePatternEditor = true;
 	setSongModifiedFlag();
 }
@@ -1485,6 +1540,7 @@ void pastePattern(void)
 	if (ptnBufLen == 0)
 		return;
 
+	undoPatternBegin(curPattern, "Paste pattern");
 	if (patternNumRows[curPattern] != ptnBufLen)
 	{
 		if (okBox(2, "System request", "Adjust pattern length to match copied pattern length?", NULL) == 1)
@@ -1492,7 +1548,10 @@ void pastePattern(void)
 	}
 
 	if (!allocatePattern(curPattern))
+	{
+		undoCancelTransaction();
 		return;
+	}
 
 	note_t *p = pattern[curPattern];
 	const int16_t numRows = patternNumRows[curPattern];
@@ -1507,6 +1566,7 @@ void pastePattern(void)
 
 	killPatternIfUnused(curPattern);
 
+	undoPatternCommit();
 	ui.updatePatternEditor = true;
 	setSongModifiedFlag();
 }
@@ -1544,6 +1604,7 @@ void cutBlock(void)
 	note_t *p = pattern[curPattern];
 	if (p != NULL && markY1 >= 0 && markX1 >= 0 && markX2 >= 0 && markY2 >= 0)
 	{
+		undoPatternBegin(curPattern, "Cut block");
 		pauseMusic();
 		for (int32_t x = markX1; x <= markX2; x++)
 		{
@@ -1568,6 +1629,7 @@ void cutBlock(void)
 			blockCopied = true;
 		}
 
+		undoPatternCommit();
 		ui.updatePatternEditor = true;
 		setSongModifiedFlag();
 	}
@@ -1625,8 +1687,15 @@ void pasteBlock(void)
 	const volatile uint16_t curRow = editor.row;
 	resumeMusic();
 
-	if (!blockCopied || !allocatePattern(curPattern))
+	if (!blockCopied)
 		return;
+
+	undoPatternBegin(curPattern, "Paste block");
+	if (!allocatePattern(curPattern))
+	{
+		undoCancelTransaction();
+		return;
+	}
 
 	int32_t chStart = cursor.ch;
 	int32_t rowStart = curRow;
@@ -1661,122 +1730,436 @@ void pasteBlock(void)
 
 	killPatternIfUnused(curPattern);
 
+	undoPatternCommit();
 	ui.updatePatternEditor = true;
 	setSongModifiedFlag();
+}
+
+typedef enum instrumentTransformScope_t
+{
+	INST_TRANSFORM_TRACK = 0,
+	INST_TRANSFORM_PATTERN,
+	INST_TRANSFORM_SONG,
+	INST_TRANSFORM_BLOCK
+} instrumentTransformScope_t;
+
+typedef enum instrumentTransformMode_t
+{
+	INST_TRANSFORM_ALL = 0,
+	INST_TRANSFORM_RANGE
+} instrumentTransformMode_t;
+
+typedef enum instrumentTransformMapping_t
+{
+	INST_TRANSFORM_NORMAL = 0,
+	INST_TRANSFORM_REVERSE,
+	INST_TRANSFORM_RANDOM
+} instrumentTransformMapping_t;
+
+typedef enum instrumentTransformField_t
+{
+	INST_TRANSFORM_FIELD_NONE = 0,
+	INST_TRANSFORM_FIELD_OLD_LO,
+	INST_TRANSFORM_FIELD_OLD_HI,
+	INST_TRANSFORM_FIELD_NEW_LO,
+	INST_TRANSFORM_FIELD_NEW_HI
+} instrumentTransformField_t;
+
+typedef struct instrumentTransformSnapshot_t
+{
+	bool exists;
+	int16_t rows;
+	note_t *data;
+} instrumentTransformSnapshot_t;
+
+#define INST_TRANSFORM_PANEL_X 24
+#define INST_TRANSFORM_PANEL_Y 270
+#define INST_TRANSFORM_PANEL_W 584
+#define INST_TRANSFORM_PANEL_H 112
+
+static bool instrumentTransformActive;
+static instrumentTransformScope_t instrumentTransformScope;
+static instrumentTransformMode_t instrumentTransformMode;
+static instrumentTransformMapping_t instrumentTransformMapping;
+static instrumentTransformField_t instrumentTransformField;
+static uint8_t instrumentTransformOldLo, instrumentTransformOldHi;
+static uint8_t instrumentTransformNewLo, instrumentTransformNewHi;
+static uint8_t instrumentTransformMap[MAX_INST+1];
+static uint8_t instrumentTransformLastGuiInstr;
+static uint32_t instrumentTransformShuffleSeed;
+static uint32_t instrumentTransformShuffleNumber;
+static uint16_t instrumentTransformPattern;
+static int32_t instrumentTransformX1, instrumentTransformX2, instrumentTransformY1, instrumentTransformY2;
+static instrumentTransformSnapshot_t instrumentTransformSnapshots[MAX_PATTERNS];
+
+static const char *instrumentTransformScopeName(void)
+{
+	static const char *names[] = { "TRACK", "PATTERN", "SONG", "BLOCK" };
+	return names[instrumentTransformScope];
+}
+
+static const char *instrumentTransformFieldName(void)
+{
+	static const char *names[] = { "NONE", "OLD START", "OLD END", "NEW START", "NEW END" };
+	return names[instrumentTransformField];
+}
+
+static uint32_t instrumentTransformRand(void)
+{
+	instrumentTransformShuffleSeed = (instrumentTransformShuffleSeed * 1664525u) + 1013904223u;
+	return instrumentTransformShuffleSeed;
+}
+
+static void buildInstrumentTransformMap(void)
+{
+	for (int32_t i = 0; i <= MAX_INST; i++) instrumentTransformMap[i] = (uint8_t)i;
+
+	if (instrumentTransformMode == INST_TRANSFORM_ALL)
+	{
+		for (int32_t i = 1; i <= MAX_INST; i++) instrumentTransformMap[i] = instrumentTransformNewLo;
+		return;
+	}
+
+	const int32_t oldCount = instrumentTransformOldHi - instrumentTransformOldLo + 1;
+	const int32_t newCount = instrumentTransformNewHi - instrumentTransformNewLo + 1;
+	uint8_t values[MAX_INST];
+	for (int32_t i = 0; i < oldCount; i++)
+	{
+		int32_t n = i % newCount;
+		if (instrumentTransformMapping == INST_TRANSFORM_REVERSE) n = newCount - 1 - n;
+		values[i] = (uint8_t)(instrumentTransformNewLo + n);
+	}
+
+	if (instrumentTransformMapping == INST_TRANSFORM_RANDOM)
+	{
+		for (int32_t i = oldCount-1; i > 0; i--)
+		{
+			const int32_t j = instrumentTransformRand() % (i+1);
+			const uint8_t t = values[i]; values[i] = values[j]; values[j] = t;
+		}
+	}
+
+	for (int32_t i = 0; i < oldCount; i++)
+		instrumentTransformMap[instrumentTransformOldLo+i] = values[i];
+}
+
+static uint8_t transformInstrumentNumber(uint8_t instrumentNumber)
+{
+	if (instrumentNumber == 0) return 0;
+	return instrumentTransformMap[instrumentNumber];
 }
 
 static void remapInstrXY(int32_t pattNum, int32_t x1, int32_t y1, int32_t x2, int32_t y2, uint8_t src, uint8_t dst)
 {
 	note_t *pattPtr = pattern[pattNum];
-	if (pattPtr == NULL)
-		return;
-
-	if (x1 > song.numChannels-1)
-		x1 = song.numChannels-1;
-
-	if (x2 > song.numChannels-1)
-		x2 = song.numChannels-1;
-
-	if (x2 < x1)
-		x2 = x1;
-
+	if (pattPtr == NULL) return;
+	if (x1 > song.numChannels-1) x1 = song.numChannels-1;
+	if (x2 > song.numChannels-1) x2 = song.numChannels-1;
+	if (x2 < x1) x2 = x1;
 	const int16_t numRows = patternNumRows[pattNum];
-	if (y1 >= numRows)
-		y1 = numRows-1;
-
-	if (y2 > numRows)
-		y2 = numRows-y1;
-
+	if (y1 >= numRows) y1 = numRows-1;
+	if (y2 >= numRows) y2 = numRows-1;
+	if (y2 < y1) return;
 	note_t *p = &pattPtr[(y1 * MAX_CHANNELS) + x1];
 	const int32_t pitch = MAX_CHANNELS - ((x2 + 1) - x1);
-
 	for (int32_t y = y1; y <= y2; y++, p += pitch)
+		for (int32_t x = x1; x <= x2; x++, p++) if (p->instr == src) p->instr = dst;
+}
+
+static void transformInstrXY(int32_t pattNum, int32_t x1, int32_t y1, int32_t x2, int32_t y2)
+{
+	note_t *pattPtr = pattern[pattNum];
+	if (pattPtr == NULL) return;
+	if (x1 > song.numChannels-1) x1 = song.numChannels-1;
+	if (x2 > song.numChannels-1) x2 = song.numChannels-1;
+	if (x2 < x1) x2 = x1;
+	const int16_t numRows = patternNumRows[pattNum];
+	if (numRows <= 0) return;
+	if (y1 >= numRows) y1 = numRows-1;
+	if (y2 >= numRows) y2 = numRows-1;
+	if (y2 < y1) return;
+	note_t *p = &pattPtr[(y1 * MAX_CHANNELS) + x1];
+	const int32_t pitch = MAX_CHANNELS - ((x2 + 1) - x1);
+	for (int32_t y = y1; y <= y2; y++, p += pitch)
+		for (int32_t x = x1; x <= x2; x++, p++) p->instr = transformInstrumentNumber(p->instr);
+}
+
+static void freeInstrumentTransformSnapshots(void)
+{
+	for (int32_t i = 0; i < MAX_PATTERNS; i++)
 	{
-		for (int32_t x = x1; x <= x2; x++, p++)
-		{
-			if (p->instr == src)
-				p->instr = dst;
-		}
+		free(instrumentTransformSnapshots[i].data);
+		memset(&instrumentTransformSnapshots[i], 0, sizeof (instrumentTransformSnapshots[i]));
 	}
 }
+
+static bool captureInstrumentTransformSnapshots(void)
+{
+	freeInstrumentTransformSnapshots();
+	for (int32_t i = 0; i < MAX_PATTERNS; i++)
+	{
+		instrumentTransformSnapshot_t *snap = &instrumentTransformSnapshots[i];
+		snap->rows = patternNumRows[i];
+		if (pattern[i] == NULL) continue;
+		snap->exists = true;
+		const uint32_t bytes = (uint32_t)snap->rows * TRACK_WIDTH;
+		snap->data = (note_t *)malloc(bytes);
+		if (snap->data == NULL) { freeInstrumentTransformSnapshots(); return false; }
+		memcpy(snap->data, pattern[i], bytes);
+	}
+	return true;
+}
+
+static void restoreInstrumentTransformSnapshots(void)
+{
+	pauseMusic();
+	for (int32_t i = 0; i < MAX_PATTERNS; i++)
+	{
+		instrumentTransformSnapshot_t *snap = &instrumentTransformSnapshots[i];
+		if (!snap->exists)
+		{
+			if (pattern[i] != NULL) { memset(pattern[i], 0, (uint32_t)patternNumRows[i] * TRACK_WIDTH); killPatternIfUnused((uint16_t)i); }
+			continue;
+		}
+		setPatternLen((uint16_t)i, snap->rows);
+		if (allocatePattern((uint16_t)i)) memcpy(pattern[i], snap->data, (uint32_t)snap->rows * TRACK_WIDTH);
+	}
+	resumeMusic();
+	ui.updatePatternEditor = true;
+}
+
+static void updateInstrumentTransformBounds(void)
+{
+	instrumentTransformPattern = editor.editPattern;
+	instrumentTransformX1 = 0; instrumentTransformX2 = song.numChannels-1;
+	instrumentTransformY1 = 0; instrumentTransformY2 = patternNumRows[instrumentTransformPattern]-1;
+	if (instrumentTransformScope == INST_TRANSFORM_TRACK) instrumentTransformX1 = instrumentTransformX2 = cursor.ch;
+	else if (instrumentTransformScope == INST_TRANSFORM_BLOCK)
+	{
+		instrumentTransformX1 = pattMark.markX1; instrumentTransformX2 = pattMark.markX2;
+		instrumentTransformY1 = pattMark.markY1; instrumentTransformY2 = pattMark.markY2-1;
+	}
+}
+
+static void renderInstrumentTransformPreview(void)
+{
+	restoreInstrumentTransformSnapshots();
+	buildInstrumentTransformMap();
+	updateInstrumentTransformBounds();
+	pauseMusic();
+	if (instrumentTransformScope == INST_TRANSFORM_SONG)
+	{
+		for (int32_t i = 0; i < MAX_PATTERNS; i++) transformInstrXY(i, 0, 0, song.numChannels-1, patternNumRows[i]-1);
+	}
+	else if (instrumentTransformScope != INST_TRANSFORM_BLOCK || instrumentTransformY1 <= instrumentTransformY2)
+	{
+		transformInstrXY(instrumentTransformPattern, instrumentTransformX1, instrumentTransformY1, instrumentTransformX2, instrumentTransformY2);
+	}
+	resumeMusic();
+	ui.updatePatternEditor = true;
+}
+
+static void closeInstrumentTransform(bool apply)
+{
+	if (apply)
+	{
+		if (instrumentTransformScope == INST_TRANSFORM_SONG)
+		{
+			restoreInstrumentTransformSnapshots(); undoSongBegin("Instrument transform"); renderInstrumentTransformPreview(); undoSongCommit();
+		}
+		else
+		{
+			const uint16_t ptn = instrumentTransformPattern;
+			const uint32_t bytes = (uint32_t)patternNumRows[ptn] * TRACK_WIDTH;
+			note_t *accepted = pattern[ptn] == NULL ? NULL : (note_t *)malloc(bytes);
+			if (accepted != NULL) memcpy(accepted, pattern[ptn], bytes);
+			restoreInstrumentTransformSnapshots(); undoPatternBegin(ptn, "Instrument transform");
+			if (accepted != NULL && allocatePattern(ptn)) memcpy(pattern[ptn], accepted, bytes);
+			free(accepted); undoPatternCommit();
+		}
+		setSongModifiedFlag();
+	}
+	else restoreInstrumentTransformSnapshots();
+	instrumentTransformActive = false;
+	freeInstrumentTransformSnapshots();
+	ui.updatePatternEditor = true;
+}
+
+void openInstrumentTransformEditor(void)
+{
+	if (instrumentTransformActive || editor.curInstr == 0) return;
+	instrumentTransformScope = INST_TRANSFORM_SONG;
+	instrumentTransformMode = INST_TRANSFORM_ALL;
+	instrumentTransformMapping = INST_TRANSFORM_NORMAL;
+	instrumentTransformField = INST_TRANSFORM_FIELD_NEW_LO;
+	instrumentTransformOldLo = editor.srcInstr > 0 ? editor.srcInstr : 1;
+	instrumentTransformOldHi = instrumentTransformOldLo;
+	instrumentTransformNewLo = instrumentTransformNewHi = editor.curInstr;
+	instrumentTransformLastGuiInstr = editor.curInstr;
+	instrumentTransformShuffleSeed = (uint32_t)SDL_GetTicks() ^ ((uint32_t)editor.editPattern << 16) ^ editor.curInstr;
+	instrumentTransformShuffleNumber = 0;
+	if (!captureInstrumentTransformSnapshots()) { okBox(0, "System message", "Not enough memory for Instrument Transform preview.", NULL); return; }
+	instrumentTransformActive = true;
+	renderInstrumentTransformPreview();
+}
+
+static void drawInstrumentTransformButton(int32_t x, int32_t y, int32_t w, const char *text, bool selected)
+{
+	drawFramework(x, y, w, 15, selected ? FRAMEWORK_TYPE2 : FRAMEWORK_TYPE1);
+	textOut(x+4, y+4, PAL_FORGRND, text);
+}
+
+static void drawInstrumentTransformField(int32_t x, int32_t y, uint8_t value, instrumentTransformField_t field)
+{
+	char str[4]; snprintf(str, sizeof (str), "%02X", value);
+	drawFramework(x, y, 30, 15, instrumentTransformField == field ? FRAMEWORK_TYPE2 : FRAMEWORK_TYPE1);
+	textOut(x+8, y+4, PAL_FORGRND, str);
+}
+
+void instrumentTransformDrawPanel(void)
+{
+	if (!instrumentTransformActive || ui.sysReqShown) return;
+	if (instrumentTransformField != INST_TRANSFORM_FIELD_NONE && editor.curInstr != instrumentTransformLastGuiInstr && editor.curInstr > 0)
+	{
+		instrumentTransformLastGuiInstr = editor.curInstr;
+		switch (instrumentTransformField)
+		{
+			case INST_TRANSFORM_FIELD_OLD_LO: instrumentTransformOldLo = editor.curInstr; if (instrumentTransformOldLo > instrumentTransformOldHi) instrumentTransformOldHi = instrumentTransformOldLo; break;
+			case INST_TRANSFORM_FIELD_OLD_HI: instrumentTransformOldHi = editor.curInstr; if (instrumentTransformOldHi < instrumentTransformOldLo) instrumentTransformOldLo = instrumentTransformOldHi; break;
+			case INST_TRANSFORM_FIELD_NEW_LO: instrumentTransformNewLo = editor.curInstr; if (instrumentTransformNewLo > instrumentTransformNewHi) instrumentTransformNewHi = instrumentTransformNewLo; break;
+			case INST_TRANSFORM_FIELD_NEW_HI: instrumentTransformNewHi = editor.curInstr; if (instrumentTransformNewHi < instrumentTransformNewLo) instrumentTransformNewLo = instrumentTransformNewHi; break;
+			default: break;
+		}
+		renderInstrumentTransformPreview();
+	}
+
+	char str[160];
+	drawFramework(INST_TRANSFORM_PANEL_X, INST_TRANSFORM_PANEL_Y, INST_TRANSFORM_PANEL_W, INST_TRANSFORM_PANEL_H, FRAMEWORK_TYPE1);
+	fillRect(INST_TRANSFORM_PANEL_X+3, INST_TRANSFORM_PANEL_Y+3, INST_TRANSFORM_PANEL_W-6, INST_TRANSFORM_PANEL_H-6, PAL_DESKTOP);
+	textOut(INST_TRANSFORM_PANEL_X+8, INST_TRANSFORM_PANEL_Y+7, PAL_FORGRND, "INSTRUMENT TRANSFORM");
+
+	int32_t x=INST_TRANSFORM_PANEL_X+8, y=INST_TRANSFORM_PANEL_Y+20;
+	drawInstrumentTransformButton(x,y,52,"TRACK",instrumentTransformScope==INST_TRANSFORM_TRACK); x+=55;
+	drawInstrumentTransformButton(x,y,62,"PATTERN",instrumentTransformScope==INST_TRANSFORM_PATTERN); x+=65;
+	drawInstrumentTransformButton(x,y,48,"SONG",instrumentTransformScope==INST_TRANSFORM_SONG); x+=51;
+	drawInstrumentTransformButton(x,y,52,"BLOCK",instrumentTransformScope==INST_TRANSFORM_BLOCK);
+
+	x=INST_TRANSFORM_PANEL_X+8; y=INST_TRANSFORM_PANEL_Y+39;
+	drawInstrumentTransformButton(x,y,42,"ALL",instrumentTransformMode==INST_TRANSFORM_ALL); x+=45;
+	drawInstrumentTransformButton(x,y,55,"RANGE",instrumentTransformMode==INST_TRANSFORM_RANGE);
+	textOut(INST_TRANSFORM_PANEL_X+124,y+4,PAL_FORGRND,"OLD");
+	drawInstrumentTransformField(INST_TRANSFORM_PANEL_X+153,y,instrumentTransformOldLo,INST_TRANSFORM_FIELD_OLD_LO);
+	textOut(INST_TRANSFORM_PANEL_X+186,y+4,PAL_FORGRND,"-");
+	drawInstrumentTransformField(INST_TRANSFORM_PANEL_X+196,y,instrumentTransformOldHi,INST_TRANSFORM_FIELD_OLD_HI);
+	textOut(INST_TRANSFORM_PANEL_X+244,y+4,PAL_FORGRND,"NEW");
+	drawInstrumentTransformField(INST_TRANSFORM_PANEL_X+279,y,instrumentTransformNewLo,INST_TRANSFORM_FIELD_NEW_LO);
+	textOut(INST_TRANSFORM_PANEL_X+312,y+4,PAL_FORGRND,"-");
+	drawInstrumentTransformField(INST_TRANSFORM_PANEL_X+322,y,instrumentTransformNewHi,INST_TRANSFORM_FIELD_NEW_HI);
+
+	y=INST_TRANSFORM_PANEL_Y+58; x=INST_TRANSFORM_PANEL_X+8;
+	drawInstrumentTransformButton(x,y,62,"NORMAL",instrumentTransformMapping==INST_TRANSFORM_NORMAL); x+=65;
+	drawInstrumentTransformButton(x,y,66,"REVERSE",instrumentTransformMapping==INST_TRANSFORM_REVERSE); x+=69;
+	drawInstrumentTransformButton(x,y,66,"RANDOM",instrumentTransformMapping==INST_TRANSFORM_RANDOM); x+=69;
+	drawInstrumentTransformButton(x,y,92,"NEW SHUFFLE",false);
+	drawInstrumentTransformButton(INST_TRANSFORM_PANEL_X+397,y,48,"APPLY",false);
+	drawInstrumentTransformButton(INST_TRANSFORM_PANEL_X+448,y,55,"REVERT",false);
+	drawInstrumentTransformButton(INST_TRANSFORM_PANEL_X+506,y,58,"CANCEL",false);
+
+	y=INST_TRANSFORM_PANEL_Y+78;
+	if (instrumentTransformMode == INST_TRANSFORM_ALL) snprintf(str,sizeof(str),"ALL -> %02X",instrumentTransformNewLo);
+	else
+	{
+		char *p=str; size_t left=sizeof(str); int n=snprintf(p,left,"MAP "); p+=n; left-=n;
+		for (int32_t i=instrumentTransformOldLo; i<=instrumentTransformOldHi && i<instrumentTransformOldLo+8; i++) { n=snprintf(p,left,"%02X>%02X ",i,instrumentTransformMap[i]); p+=n; left-=n; }
+	}
+	textOut(INST_TRANSFORM_PANEL_X+8,y,PAL_FORGRND,str);
+	snprintf(str,sizeof(str),"SCOPE: %s   SELECTING: %s   SHUFFLE #%u",instrumentTransformScopeName(),instrumentTransformFieldName(),instrumentTransformShuffleNumber);
+	textOut(INST_TRANSFORM_PANEL_X+8,INST_TRANSFORM_PANEL_Y+94,PAL_FORGRND,str);
+}
+
+bool instrumentTransformHandleMouseDown(int32_t mx, int32_t my, uint8_t mouseButton)
+{
+	if (!instrumentTransformActive || mouseButton != SDL_BUTTON_LEFT) return false;
+	if (mx < INST_TRANSFORM_PANEL_X || mx >= INST_TRANSFORM_PANEL_X+INST_TRANSFORM_PANEL_W || my < INST_TRANSFORM_PANEL_Y || my >= INST_TRANSFORM_PANEL_Y+INST_TRANSFORM_PANEL_H) return false;
+	const int32_t x=mx-INST_TRANSFORM_PANEL_X, y=my-INST_TRANSFORM_PANEL_Y;
+	if (y>=20 && y<35)
+	{
+		if (x<63) instrumentTransformScope=INST_TRANSFORM_TRACK; else if (x<128) instrumentTransformScope=INST_TRANSFORM_PATTERN; else if (x<179) instrumentTransformScope=INST_TRANSFORM_SONG; else if (x<234) instrumentTransformScope=INST_TRANSFORM_BLOCK;
+		renderInstrumentTransformPreview(); return true;
+	}
+	if (y>=39 && y<54)
+	{
+		if (x<53) instrumentTransformMode=INST_TRANSFORM_ALL;
+		else if (x<108) instrumentTransformMode=INST_TRANSFORM_RANGE;
+		else if (x>=153 && x<183) instrumentTransformField=INST_TRANSFORM_FIELD_OLD_LO;
+		else if (x>=196 && x<226) instrumentTransformField=INST_TRANSFORM_FIELD_OLD_HI;
+		else if (x>=279 && x<309) instrumentTransformField=INST_TRANSFORM_FIELD_NEW_LO;
+		else if (x>=322 && x<352) instrumentTransformField=INST_TRANSFORM_FIELD_NEW_HI;
+		instrumentTransformLastGuiInstr=editor.curInstr; renderInstrumentTransformPreview(); return true;
+	}
+	if (y>=58 && y<73)
+	{
+		if (x<73) instrumentTransformMapping=INST_TRANSFORM_NORMAL;
+		else if (x<142) instrumentTransformMapping=INST_TRANSFORM_REVERSE;
+		else if (x<211) { instrumentTransformMapping=INST_TRANSFORM_RANDOM; instrumentTransformShuffleNumber++; }
+		else if (x<303) { instrumentTransformMapping=INST_TRANSFORM_RANDOM; instrumentTransformShuffleNumber++; instrumentTransformShuffleSeed ^= SDL_GetTicks()+instrumentTransformShuffleNumber; }
+		else if (x>=397 && x<445) { closeInstrumentTransform(true); return true; }
+		else if (x>=448 && x<503) { restoreInstrumentTransformSnapshots(); return true; }
+		else if (x>=506) { closeInstrumentTransform(false); return true; }
+		renderInstrumentTransformPreview(); return true;
+	}
+	return true;
+}
+
+bool instrumentTransformHandlePreviewKey(SDL_Scancode scancode, SDL_Keycode keycode, bool keyWasRepeated)
+{
+	if (!instrumentTransformActive) return false;
+	if (!keyWasRepeated && (keycode == SDLK_RETURN || scancode == SDL_SCANCODE_KP_ENTER)) { closeInstrumentTransform(true); return true; }
+	if (!keyWasRepeated && keycode == SDLK_ESCAPE) { closeInstrumentTransform(false); return true; }
+	if (!keyWasRepeated && keycode == SDLK_r) { restoreInstrumentTransformSnapshots(); return true; }
+	if (keycode == SDLK_SPACE || keycode == SDLK_LCTRL || keycode == SDLK_RCTRL || keycode == SDLK_LSHIFT || keycode == SDLK_RSHIFT || keycode == SDLK_LALT || keycode == SDLK_RALT) return false;
+	return instrumentTransformField != INST_TRANSFORM_FIELD_NONE;
+}
+
+bool instrumentTransformPreviewActive(void) { return instrumentTransformActive; }
 
 void remapBlock(void)
 {
 	pauseMusic();
 	const volatile uint16_t curPattern = editor.editPattern;
-	volatile int32_t markX1 = pattMark.markX1;
-	volatile int32_t markX2 = pattMark.markX2;
-	volatile int32_t markY1 = pattMark.markY1;
-	volatile int32_t markY2 = pattMark.markY2;
+	volatile int32_t markX1 = pattMark.markX1, markX2 = pattMark.markX2;
+	volatile int32_t markY1 = pattMark.markY1, markY2 = pattMark.markY2;
 	resumeMusic();
-
-	if (editor.srcInstr == editor.curInstr || markY1 == markY2 || markY1 > markY2)
-		return;
-
-	remapInstrXY(curPattern,
-	             markX1, markY1,
-	             markX2, markY2 - 1,
-	             editor.srcInstr, editor.curInstr);
-	resumeMusic();
-
-	ui.updatePatternEditor = true;
-	setSongModifiedFlag();
+	if (editor.srcInstr == editor.curInstr || markY1 == markY2 || markY1 > markY2) return;
+	remapInstrXY(curPattern, markX1, markY1, markX2, markY2-1, editor.srcInstr, editor.curInstr);
+	ui.updatePatternEditor = true; setSongModifiedFlag();
 }
 
 void remapTrack(void)
 {
 	const volatile uint16_t curPattern = editor.editPattern;
-
-	if (editor.srcInstr == editor.curInstr)
-		return;
-
+	if (editor.srcInstr == editor.curInstr) return;
 	pauseMusic();
-	remapInstrXY(curPattern,
-	             cursor.ch, 0,
-	             cursor.ch, patternNumRows[curPattern]-1,
-	             editor.srcInstr, editor.curInstr);
-	resumeMusic();
-
-	ui.updatePatternEditor = true;
-	setSongModifiedFlag();
+	remapInstrXY(curPattern, cursor.ch, 0, cursor.ch, patternNumRows[curPattern]-1, editor.srcInstr, editor.curInstr);
+	resumeMusic(); ui.updatePatternEditor = true; setSongModifiedFlag();
 }
 
 void remapPattern(void)
 {
 	const volatile uint16_t curPattern = editor.editPattern;
-
-	if (editor.srcInstr == editor.curInstr)
-		return;
-
+	if (editor.srcInstr == editor.curInstr) return;
 	pauseMusic();
-	remapInstrXY(curPattern,
-	             0, 0,
-	             song.numChannels-1, patternNumRows[curPattern]-1,
-	             editor.srcInstr, editor.curInstr);
-	resumeMusic();
-
-	ui.updatePatternEditor = true;
-	setSongModifiedFlag();
+	remapInstrXY(curPattern, 0, 0, song.numChannels-1, patternNumRows[curPattern]-1, editor.srcInstr, editor.curInstr);
+	resumeMusic(); ui.updatePatternEditor = true; setSongModifiedFlag();
 }
 
 void remapSong(void)
 {
-	if (editor.srcInstr == editor.curInstr)
-		return;
-
+	if (editor.srcInstr == editor.curInstr) return;
 	pauseMusic();
 	for (int32_t i = 0; i < MAX_PATTERNS; i++)
-	{
-		// remapInstrXY() also checks if pattern is not allocated!
-		remapInstrXY(i,
-		             0, 0,
-		             song.numChannels-1, patternNumRows[i]-1,
-		             editor.srcInstr, editor.curInstr);
-	}
-	resumeMusic();
-
-	ui.updatePatternEditor = true;
-	setSongModifiedFlag();
+		remapInstrXY(i, 0, 0, song.numChannels-1, patternNumRows[i]-1, editor.srcInstr, editor.curInstr);
+	resumeMusic(); ui.updatePatternEditor = true; setSongModifiedFlag();
 }
 
 // "scale-fade volume" routines

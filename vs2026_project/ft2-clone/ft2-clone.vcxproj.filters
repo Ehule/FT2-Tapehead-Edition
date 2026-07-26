@@ -36,6 +36,7 @@
     <ClCompile Include="..\..\src\ft2_tables.c" />
     <ClCompile Include="..\..\src\ft2_textboxes.c" />
     <ClCompile Include="..\..\src\ft2_trim.c" />
+    <ClCompile Include="..\..\src\ft2_undo.c" />
     <ClCompile Include="..\..\src\ft2_unicode.c" />
     <ClCompile Include="..\..\src\ft2_video.c" />
     <ClCompile Include="..\..\src\ft2_wav_renderer.c" />

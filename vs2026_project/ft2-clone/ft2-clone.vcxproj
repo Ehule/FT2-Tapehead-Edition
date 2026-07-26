@@ -334,6 +334,7 @@
     <ClCompile Include="..\..\src\ft2_tables.c" />
     <ClCompile Include="..\..\src\ft2_textboxes.c" />
     <ClCompile Include="..\..\src\ft2_trim.c" />
+    <ClCompile Include="..\..\src\ft2_undo.c" />
     <ClCompile Include="..\..\src\ft2_unicode.c" />
     <ClCompile Include="..\..\src\ft2_video.c" />
     <ClCompile Include="..\..\src\ft2_wav_renderer.c" />
@@ -422,6 +423,7 @@
     <ClInclude Include="..\..\src\ft2_tables.h" />
     <ClInclude Include="..\..\src\ft2_textboxes.h" />
     <ClInclude Include="..\..\src\ft2_trim.h" />
+    <ClInclude Include="..\..\src\ft2_undo.h" />
     <ClInclude Include="..\..\src\ft2_unicode.h" />
     <ClInclude Include="..\..\src\ft2_video.h" />
     <ClInclude Include="..\..\src\ft2_wav_renderer.h" />

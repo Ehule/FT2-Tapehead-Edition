@@ -127,3 +127,25 @@ Tapehead Edition is built upon the outstanding work of **8bitbubsy's FT2 Clone**
 This fork exists out of respect for the original tracker and a desire to explore new creative workflows without losing the character that made FT2 special.
 
 Happy tracking.
+
+## Undo / Redo
+
+Tapehead Edition provides a bounded module-edit history:
+
+- **Alt+Backspace** — Undo
+- **Shift+Alt+Backspace** — Redo
+- Up to **128 transactions**
+- **32 MB** default history ceiling
+- Memory is allocated only when edits are recorded; 32 MB is not reserved at startup
+- When the ceiling is reached, the oldest transactions are discarded first
+- A new edit after undo clears the redo branch
+
+The memory ceiling can be changed manually in `TAPEHEAD.CFG`, located beside the program/config files:
+
+```ini
+undoMemoryMB=32
+```
+
+Accepted values are 4–1024 MB. The default is intentionally conservative for older systems such as ThinkPad X40-class hardware. Pattern operations are very small; large destructive sample or instrument edits consume the history more quickly.
+
+Current undo transactions include destructive pattern insert/delete operations, track/pattern/block cut and paste, committed interpolation and Melodic Walk previews, sample-editor right-button drawing (one mouse stroke per transaction), internal sample/instrument replacement, and sample or instrument overwrites loaded from disk. Instrument undo also restores the slot name.

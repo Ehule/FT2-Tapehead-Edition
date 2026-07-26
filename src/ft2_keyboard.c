@@ -27,6 +27,7 @@
 #include "ft2_sample_ed_features.h"
 #include "ft2_midi.h"
 #include "ft2_interpolation.h"
+#include "ft2_undo.h"
 #include "ft2_structs.h"
 #include "ft2_pattern_draw.h"
 
@@ -194,6 +195,9 @@ void keyDownHandler(SDL_Scancode scancode, SDL_Keycode keycode, bool keyWasRepea
 		handlePatternNavPopupKey(keycode);
 		return;
 	}
+
+	if (instrumentTransformHandlePreviewKey(scancode, keycode, keyWasRepeated))
+		return;
 
 	if (interpolationHandlePreviewKey(scancode, keycode, keyWasRepeated))
 		return;
@@ -699,9 +703,15 @@ static void handleKeys(SDL_Keycode keycode, SDL_Scancode scanKey)
 
 		case SDLK_BACKSPACE:
 		{
-			     if (ui.diskOpShown) diskOpGoParent();
+			if (keyb.leftAltPressed)
+			{
+				if (keyb.leftShiftPressed) redoPerform();
+				else if (!keyb.leftCtrlPressed) undoPerform();
+			}
+			else if (ui.diskOpShown && tapeheadConfig.diskOpBackspaceParent) diskOpGoParent();
 			else if (keyb.leftShiftPressed) deletePatternLine();
-			else                            deletePatternNote();
+			else if (tapeheadConfig.patternBackspacePullUp) deletePatternNote();
+			else clearPreviousPatternEntry();
 		}
 		break;
 

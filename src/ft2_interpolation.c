@@ -10,6 +10,7 @@
 #include "ft2_gui.h"
 #include "ft2_keyboard.h"
 #include "ft2_interpolation.h"
+#include "ft2_undo.h"
 
 static bool previewActive, scaleKeyChosen;
 static uint8_t previewType, scalePreset;
@@ -382,6 +383,17 @@ bool interpolationHandlePreviewKey(SDL_Scancode scancode, SDL_Keycode keycode, b
 
 	if (!keyWasRepeated && (keycode == SDLK_RETURN || scancode == SDL_SCANCODE_KP_ENTER))
 	{
+		/* The preview snapshot is the transaction's before-state. Restore it
+		** briefly so the undo manager can capture a normal pattern transaction,
+		** then put the accepted preview back and commit it as one step. */
+		note_t acceptedPattern[MAX_PATT_LEN * MAX_CHANNELS];
+		memcpy(acceptedPattern, pattern[previewPattern], sizeof (acceptedPattern));
+		memcpy(pattern[previewPattern], patternSnapshot, sizeof (patternSnapshot));
+		undoPatternBegin(previewPattern, previewType == INTERPOLATE_NOTES ? "Melodic walk" :
+			(previewType == INTERPOLATE_VOLUME ? "Volume interpolation" : "Effect interpolation"));
+		memcpy(pattern[previewPattern], acceptedPattern, sizeof (acceptedPattern));
+		undoPatternCommit();
+
 		previewActive = false;
 		drawIDAdd();
 		setSongModifiedFlag();

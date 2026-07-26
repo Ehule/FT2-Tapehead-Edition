@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <math.h>
+#include <ctype.h>
 #ifdef _WIN32
 #define _WIN32_IE 0x0500
 #define WIN32_MEAN_AND_LEAN
@@ -34,6 +35,7 @@
 #include "ft2_structs.h"
 
 config_t config; // globalized
+tapeheadConfig_t tapeheadConfig;
 
 #ifdef _MSC_VER // hide POSIX warnings
 #pragma warning(disable: 4996)
@@ -498,6 +500,143 @@ static UNICHAR *getFullMidiDevConfigPathU(void) // kinda hackish
 	return filePathU;
 }
 #endif
+
+
+static UNICHAR *getFullTapeheadConfigPathU(void)
+{
+	int32_t tapeheadIniStrLen, ft2DotCfgStrLen;
+
+	if (editor.configFileLocationU == NULL)
+		return NULL;
+
+	const int32_t ft2ConfPathLen = (int32_t)UNICHAR_STRLEN(editor.configFileLocationU);
+
+#ifdef _WIN32
+	tapeheadIniStrLen = (int32_t)UNICHAR_STRLEN(L"tapehead.ini");
+	ft2DotCfgStrLen = (int32_t)UNICHAR_STRLEN(L"FT2.CFG");
+#else
+	tapeheadIniStrLen = (int32_t)UNICHAR_STRLEN("tapehead.ini");
+	ft2DotCfgStrLen = (int32_t)UNICHAR_STRLEN("FT2.CFG");
+#endif
+
+	UNICHAR *filePathU = (UNICHAR *)malloc((ft2ConfPathLen + tapeheadIniStrLen + 1) * sizeof (UNICHAR));
+	if (filePathU == NULL)
+		return NULL;
+
+	UNICHAR_STRCPY(filePathU, editor.configFileLocationU);
+	filePathU[ft2ConfPathLen-ft2DotCfgStrLen] = 0;
+
+#ifdef _WIN32
+	UNICHAR_STRCAT(filePathU, L"tapehead.ini");
+#else
+	UNICHAR_STRCAT(filePathU, "tapehead.ini");
+#endif
+
+	return filePathU;
+}
+
+static char *trimText(char *s)
+{
+	while (isspace((unsigned char)*s)) s++;
+	char *end = s + strlen(s);
+	while (end > s && isspace((unsigned char)end[-1])) end--;
+	*end = '\0';
+	return s;
+}
+
+static bool parseBoolValue(const char *s, bool *value)
+{
+	char buf[16];
+	size_t i = 0;
+	while (s[i] != '\0' && i < sizeof (buf)-1)
+	{
+		buf[i] = (char)tolower((unsigned char)s[i]);
+		i++;
+	}
+	buf[i] = '\0';
+
+	if (!strcmp(buf, "true") || !strcmp(buf, "yes") || !strcmp(buf, "on") || !strcmp(buf, "1"))
+	{
+		*value = true;
+		return true;
+	}
+	if (!strcmp(buf, "false") || !strcmp(buf, "no") || !strcmp(buf, "off") || !strcmp(buf, "0"))
+	{
+		*value = false;
+		return true;
+	}
+	return false;
+}
+
+static void writeDefaultTapeheadConfig(const UNICHAR *filePathU)
+{
+	FILE *f = UNICHAR_FOPEN(filePathU, "w");
+	if (f == NULL)
+		return;
+
+	fputs("; Tapehead Edition advanced configuration\n", f);
+	fputs("; Changes are loaded when the program starts.\n", f);
+	fputs("; Invalid or missing values use the safe built-in defaults.\n\n", f);
+	fputs("[Keyboard]\n\n", f);
+	fputs("; Backspace navigates to the parent directory while Disk Op is open.\n", f);
+	fputs("DiskOpBackspaceParent=false\n\n", f);
+	fputs("; Backspace deletes the current note row and pulls later notes upward.\n", f);
+	fputs("PatternBackspacePullUp=false\n", f);
+	fclose(f);
+}
+
+void loadTapeheadConfig(void)
+{
+	tapeheadConfig.diskOpBackspaceParent = false;
+	tapeheadConfig.patternBackspacePullUp = false;
+
+	UNICHAR *filePathU = getFullTapeheadConfigPathU();
+	if (filePathU == NULL)
+		return;
+
+	FILE *f = UNICHAR_FOPEN(filePathU, "r");
+	if (f == NULL)
+	{
+		writeDefaultTapeheadConfig(filePathU);
+		free(filePathU);
+		return;
+	}
+
+	char line[256];
+	bool keyboardSection = false;
+	while (fgets(line, sizeof (line), f) != NULL)
+	{
+		char *text = trimText(line);
+		if (*text == '\0' || *text == ';' || *text == '#')
+			continue;
+
+		if (*text == '[')
+		{
+			char *close = strchr(text, ']');
+			if (close != NULL) *close = '\0';
+			keyboardSection = !_stricmp(text + 1, "Keyboard");
+			continue;
+		}
+
+		if (!keyboardSection)
+			continue;
+
+		char *equals = strchr(text, '=');
+		if (equals == NULL)
+			continue;
+		*equals = '\0';
+		char *key = trimText(text);
+		char *value = trimText(equals + 1);
+
+		if (!_stricmp(key, "DiskOpBackspaceParent"))
+			parseBoolValue(value, &tapeheadConfig.diskOpBackspaceParent);
+		else if (!_stricmp(key, "PatternBackspacePullUp"))
+			parseBoolValue(value, &tapeheadConfig.patternBackspacePullUp);
+	}
+
+	fclose(f);
+	free(filePathU);
+}
 
 static bool setPortableConfigFileLocation(void)
 {

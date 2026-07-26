@@ -34,6 +34,7 @@
 #include "ft2_midi.h"
 #include "ft2_bmp.h"
 #include "ft2_structs.h"
+#include "ft2_edit.h"
 
 static const uint8_t textCursorData[12] =
 {
@@ -46,8 +47,52 @@ static const uint8_t textCursorData[12] =
 video_t video; // globalized
 
 static bool songIsModified;
+static volatile bool auditionNotesHeld[96];
 static char wndTitle[256];
 static sprite_t sprites[SPRITE_NUM];
+
+void setAuditionNoteState(uint8_t note, bool held)
+{
+	if (note < 1 || note > 96)
+		return;
+
+	auditionNotesHeld[note-1] = held;
+	ui.updatePosSections = true;
+}
+
+static int16_t getLowestAuditionNotes(int16_t *notes, int16_t maxNotes)
+{
+	int16_t notesFound = 0;
+
+	for (int16_t i = 0; i < 96 && notesFound < maxNotes; i++)
+	{
+		if (auditionNotesHeld[i])
+			notes[notesFound++] = i + 1;
+	}
+
+	return notesFound;
+}
+
+static void formatAuditionNote(char *text, int16_t note)
+{
+	static const char *sharpNotes[12] =
+	{
+		"C-", "C#", "D-", "D#", "E-", "F-",
+		"F#", "G-", "G#", "A-", "A#", "B-"
+	};
+	static const char *flatNotes[12] =
+	{
+		"C-", "Db", "D-", "Eb", "E-", "F-",
+		"Gb", "G-", "Ab", "A-", "Bb", "B-"
+	};
+
+	const int16_t noteIndex = note - 1;
+	const char *noteName = config.ptnAcc == 0 ? sharpNotes[noteIndex % 12] : flatNotes[noteIndex % 12];
+	text[0] = noteName[0];
+	text[1] = noteName[1];
+	text[2] = '0' + (char)(noteIndex / 12);
+	text[3] = '\0';
+}
 
 // for FPS counter
 #define FPS_LINES 15
@@ -1211,8 +1256,30 @@ void handleRedrawing(void)
 
 					// draw current mode text
 
+					int16_t auditionNotes[3];
+					char auditionNoteText[12];
+					const int16_t auditionNoteCount = getLowestAuditionNotes(auditionNotes, 3);
+
 					const char *str = NULL;
-					     if (playMode == PLAYMODE_PATT)    str = "> Play ptn. <";
+					if (auditionNoteCount > 0)
+					{
+						formatAuditionNote(auditionNoteText, auditionNotes[0]);
+
+						if (auditionNoteCount > 1)
+						{
+							auditionNoteText[3] = ' ';
+							formatAuditionNote(&auditionNoteText[4], auditionNotes[1]);
+
+							if (auditionNoteCount > 2)
+							{
+								auditionNoteText[7] = ' ';
+								formatAuditionNote(&auditionNoteText[8], auditionNotes[2]);
+							}
+						}
+
+						str = auditionNoteText;
+					}
+					else if (playMode == PLAYMODE_PATT)    str = "> Play ptn. <";
 					else if (playMode == PLAYMODE_EDIT)    str = "> Editing <";
 					else if (playMode == PLAYMODE_RECSONG) str = "> Rec. sng. <";
 					else if (playMode == PLAYMODE_RECPATT) str = "> Rec. ptn. <";
@@ -1292,6 +1359,7 @@ void handleRedrawing(void)
 		animateBusyMouse();
 
 	renderLoopPins();
+	instrumentTransformDrawPanel();
 }
 
 static void drawReplayerData(void)
