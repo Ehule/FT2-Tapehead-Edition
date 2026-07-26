@@ -96,6 +96,30 @@ Current capabilities include:
 
 Designed for evolving polyrhythms, phase relationships, and live performance without changing the familiar FT2 editing workflow.
 
+
+## Pattern-Programmable FastTracks
+
+Tapehead Edition extends the previously unused XM **Z** effect into a programmable
+transport system.
+
+FastTracks commands control
+the transport driving each pattern track. This allows transport behavior itself to
+become part of the composition.
+
+Current capabilities include:
+
+- Per-track transport ratio selection
+- Per-track clutch engage/release
+- Global FastTracks on/off
+- Global ratio randomization
+- Global synchronization
+- Global transmission clutch
+- Reset all ratios to 1:1 (with or without phase preservation)
+
+Because the XM Z effect is ignored by standard FastTracker-compatible players,
+Tapehead Edition modules remain fully compatible with the XM format. Other players
+simply preserve the Z commands while ignoring their playback behavior.
+
 ## MIDI
 
 MIDI Dub allows tracker playback to be transmitted as live MIDI data for driving external synthesizers, DAWs, or modular software while composing inside FT2.
