@@ -342,45 +342,31 @@ uint8_t fastTracksPOCGetRatioDenominator(int32_t channelIndex)
 
 void fastTracksPOCClutchPress(int32_t channelIndex)
 {
-	volatile fastTracksChannelState_t *state = getFastTracksPOCChannelState(channelIndex);
-	if (state == NULL || !state->selected || state->clutchHeld)
+	if (!fastTracksPOCIsSelected(channelIndex))
 		return;
 
-	const bool audioWasntLocked = !audio.locked;
-	if (audioWasntLocked)
-		lockAudio();
-
-	/* While held, playback falls through to the ordinary master transport.
-	** The private transport is left untouched until release, where it is
-	** re-engaged from the exact master-relative phase. */
-	state->clutchHeld = true;
-
-	if (audioWasntLocked)
-		unlockAudio();
-
-	ui.updatePatternEditor = true;
+	fastTracksPOCSetClutch(channelIndex, true);
 }
 
 void fastTracksPOCClutchRelease(int32_t channelIndex)
 {
-	volatile fastTracksChannelState_t *state = getFastTracksPOCChannelState(channelIndex);
-	if (state == NULL || !state->clutchHeld)
+	fastTracksPOCSetClutch(channelIndex, false);
+}
+
+void fastTracksPOCSetTransmissionClutch(bool engaged)
+{
+	if (fastTracksPOCTransmissionClutchLatched == engaged)
 		return;
 
 	const bool audioWasntLocked = !audio.locked;
 	if (audioWasntLocked)
 		lockAudio();
 
-	const uint16_t masterTPL = song.speed > 0 ? song.speed : 1;
-	int32_t masterElapsedTicks = masterTPL - song.tick;
-	if (masterElapsedTicks < 0)
-		masterElapsedTicks = 0;
-	else if (masterElapsedTicks >= masterTPL)
-		masterElapsedTicks = masterTPL - 1;
-
-	const fastTracksRatio_t *ratio = getFastTracksPOCRatio(channelIndex);
-	syncFastTracksPOCTransportToMaster(state, ratio, masterTPL, masterElapsedTicks);
-	state->clutchHeld = false;
+	/* Do not touch any private row, accumulator or ratio here. The entire point
+	** of the transmission clutch is that those hidden transports keep drifting
+	** while audible playback temporarily rides the master transport. Pattern
+	** commands may prepare this latent state while Fast Tracks is globally off. */
+	fastTracksPOCTransmissionClutchLatched = engaged;
 
 	if (audioWasntLocked)
 		unlockAudio();
@@ -393,25 +379,13 @@ void fastTracksPOCTransmissionClutchToggle(void)
 	if (!fastTracksPOCAnyEnabled() && !fastTracksPOCTransmissionClutchLatched)
 		return;
 
-	const bool audioWasntLocked = !audio.locked;
-	if (audioWasntLocked)
-		lockAudio();
-
-	/* Do not touch any private row, accumulator or ratio here. The entire point
-	** of the transmission clutch is that those hidden transports keep drifting
-	** while audible playback temporarily rides the master transport. */
-	fastTracksPOCTransmissionClutchLatched = !fastTracksPOCTransmissionClutchLatched;
-
-	if (audioWasntLocked)
-		unlockAudio();
-
-	ui.updatePatternEditor = true;
+	fastTracksPOCSetTransmissionClutch(!fastTracksPOCTransmissionClutchLatched);
 }
 
-void fastTracksPOCCycleRatio(int32_t channelIndex)
+void fastTracksPOCSetRatioIndex(int32_t channelIndex, uint8_t ratioIndex)
 {
 	volatile fastTracksChannelState_t *state = getFastTracksPOCChannelState(channelIndex);
-	if (state == NULL)
+	if (state == NULL || ratioIndex >= FAST_TRACKS_RATIO_COUNT)
 		return;
 
 	const bool audioWasntLocked = !audio.locked;
@@ -421,11 +395,11 @@ void fastTracksPOCCycleRatio(int32_t channelIndex)
 	const int32_t oldThreshold = getFastTracksPOCThreshold(channelIndex, song.speed);
 	const int32_t oldAccumulator = state->tickAccumulator;
 
-	state->ratioIndex = (uint8_t)((state->ratioIndex + 1) % FAST_TRACKS_RATIO_COUNT);
+	state->ratioIndex = ratioIndex;
 
 	/* Keep the private row continuous and carry the same normalized phase
-	** into the new ratio. This makes live Alt+Shift changes immediate without
-	** imposing a hidden phase reset. */
+	** into the new ratio. Pattern commands and live Alt+Shift changes therefore
+	** share the same transport behavior and do not impose a hidden phase reset. */
 	const int32_t newThreshold = getFastTracksPOCThreshold(channelIndex, song.speed);
 	if (oldThreshold > 0)
 		state->tickAccumulator = (int32_t)(((int64_t)oldAccumulator * newThreshold) / oldThreshold);
@@ -433,6 +407,49 @@ void fastTracksPOCCycleRatio(int32_t channelIndex)
 		state->tickAccumulator = 0;
 
 	state->lastTPL = song.speed > 0 ? song.speed : 1;
+
+	if (audioWasntLocked)
+		unlockAudio();
+
+	ui.updatePatternEditor = true;
+}
+
+void fastTracksPOCCycleRatio(int32_t channelIndex)
+{
+	const volatile fastTracksChannelState_t *state = getFastTracksPOCChannelState(channelIndex);
+	if (state == NULL)
+		return;
+
+	fastTracksPOCSetRatioIndex(channelIndex, (uint8_t)((state->ratioIndex + 1) % FAST_TRACKS_RATIO_COUNT));
+}
+
+void fastTracksPOCSetClutch(int32_t channelIndex, bool engaged)
+{
+	volatile fastTracksChannelState_t *state = getFastTracksPOCChannelState(channelIndex);
+	if (state == NULL || state->clutchHeld == engaged)
+		return;
+
+	const bool audioWasntLocked = !audio.locked;
+	if (audioWasntLocked)
+		lockAudio();
+
+	if (!engaged)
+	{
+		const uint16_t masterTPL = song.speed > 0 ? song.speed : 1;
+		int32_t masterElapsedTicks = masterTPL - song.tick;
+		if (masterElapsedTicks < 0)
+			masterElapsedTicks = 0;
+		else if (masterElapsedTicks >= masterTPL)
+			masterElapsedTicks = masterTPL - 1;
+
+		const fastTracksRatio_t *ratio = getFastTracksPOCRatio(channelIndex);
+		syncFastTracksPOCTransportToMaster(state, ratio, masterTPL, masterElapsedTicks);
+	}
+
+	/* Pattern commands may prepare clutch state while the master Fast Tracks
+	** switch or this individual track is inactive. The state remains latent
+	** until that transport is enabled. */
+	state->clutchHeld = engaged;
 
 	if (audioWasntLocked)
 		unlockAudio();
@@ -540,6 +557,110 @@ void fastTracksPOCResetForLoadedModule(void)
 	}
 }
 
+void fastTracksPOCSetMasterEnabled(bool enabled)
+{
+	const bool audioWasntLocked = !audio.locked;
+	if (audioWasntLocked)
+		lockAudio();
+
+	fastTracksPOCMasterEnabled = enabled;
+
+	/* Keep every private transport and ratio intact while bypassed. */
+	if (audioWasntLocked)
+		unlockAudio();
+
+	ui.updatePatternEditor = true;
+	changeLogoType(config.id_FastLogo);
+}
+
+void fastTracksPOCSyncSelectedToMaster(void)
+{
+	const bool audioWasntLocked = !audio.locked;
+	if (audioWasntLocked)
+		lockAudio();
+
+	const uint16_t masterTPL = song.speed > 0 ? song.speed : 1;
+	int32_t masterElapsedTicks = masterTPL - song.tick;
+	if (masterElapsedTicks < 0)
+		masterElapsedTicks = 0;
+	else if (masterElapsedTicks >= masterTPL)
+		masterElapsedTicks = masterTPL - 1;
+
+	for (int32_t i = 0; i < FAST_TRACKS_MAX_CHANNELS; i++)
+	{
+		volatile fastTracksChannelState_t *state = &fastTracksPOCChannels[i];
+		if (!state->selected)
+			continue;
+
+		const fastTracksRatio_t *ratio = getFastTracksPOCRatio(i);
+		syncFastTracksPOCTransportToMaster(state, ratio, masterTPL, masterElapsedTicks);
+	}
+
+	if (audioWasntLocked)
+		unlockAudio();
+
+	ui.updatePatternEditor = true;
+}
+
+void fastTracksPOCSetAllRatiosOneToOne(void)
+{
+	const bool audioWasntLocked = !audio.locked;
+	if (audioWasntLocked)
+		lockAudio();
+
+	for (int32_t i = 0; i < FAST_TRACKS_MAX_CHANNELS; i++)
+	{
+		volatile fastTracksChannelState_t *state = &fastTracksPOCChannels[i];
+		const int32_t oldThreshold = getFastTracksPOCThreshold(i, song.speed);
+		const int32_t oldAccumulator = state->tickAccumulator;
+
+		state->ratioIndex = FAST_TRACKS_ONE_TO_ONE_RATIO_INDEX;
+
+		/* Preserve each private transport row and its normalized tick phase.
+		** Unlike fastTracksPOCResetAllRatios(), this deliberately does not
+		** synchronize anything to the master transport. */
+		const int32_t newThreshold = getFastTracksPOCThreshold(i, song.speed);
+		if (oldThreshold > 0)
+			state->tickAccumulator = (int32_t)(((int64_t)oldAccumulator * newThreshold) / oldThreshold);
+		else
+			state->tickAccumulator = 0;
+
+		state->lastTPL = song.speed > 0 ? song.speed : 1;
+	}
+
+	if (audioWasntLocked)
+		unlockAudio();
+
+	ui.updatePatternEditor = true;
+}
+
+void fastTracksPOCResetAllRatios(void)
+{
+	const bool audioWasntLocked = !audio.locked;
+	if (audioWasntLocked)
+		lockAudio();
+
+	const uint16_t masterTPL = song.speed > 0 ? song.speed : 1;
+	int32_t masterElapsedTicks = masterTPL - song.tick;
+	if (masterElapsedTicks < 0)
+		masterElapsedTicks = 0;
+	else if (masterElapsedTicks >= masterTPL)
+		masterElapsedTicks = masterTPL - 1;
+
+	for (int32_t i = 0; i < FAST_TRACKS_MAX_CHANNELS; i++)
+	{
+		volatile fastTracksChannelState_t *state = &fastTracksPOCChannels[i];
+		state->ratioIndex = FAST_TRACKS_ONE_TO_ONE_RATIO_INDEX;
+		syncFastTracksPOCTransportToMaster(state,
+			&fastTracksPOCRatioBank[FAST_TRACKS_ONE_TO_ONE_RATIO_INDEX], masterTPL, masterElapsedTicks);
+	}
+
+	if (audioWasntLocked)
+		unlockAudio();
+
+	ui.updatePatternEditor = true;
+}
+
 void fastTracksPOCMasterToggle(void)
 {
 	const bool audioWasntLocked = !audio.locked;
@@ -549,41 +670,19 @@ void fastTracksPOCMasterToggle(void)
 	const SDL_Keymod modifiers = SDL_GetModState();
 	if (modifiers & KMOD_SHIFT)
 	{
-		/* Shift-click: synchronize every selected Fast Track to the master. */
-		const uint16_t masterTPL = song.speed > 0 ? song.speed : 1;
-		int32_t masterElapsedTicks = masterTPL - song.tick;
-		if (masterElapsedTicks < 0)
-			masterElapsedTicks = 0;
-		else if (masterElapsedTicks >= masterTPL)
-			masterElapsedTicks = masterTPL - 1;
-
-		for (int32_t i = 0; i < FAST_TRACKS_MAX_CHANNELS; i++)
-		{
-			volatile fastTracksChannelState_t *state = &fastTracksPOCChannels[i];
-			if (state->selected)
-			{
-				const fastTracksRatio_t *ratio = getFastTracksPOCRatio(i);
-				syncFastTracksPOCTransportToMaster(state, ratio, masterTPL, masterElapsedTicks);
-			}
-		}
-
 		if (audioWasntLocked)
 			unlockAudio();
 
-		ui.updatePatternEditor = true;
+		fastTracksPOCSyncSelectedToMaster();
 		return;
 	}
 
-	fastTracksPOCMasterEnabled ^= 1;
-
-	/* Do not rebuild transport state from song.row here. Source row,
-	** accumulator remainder and TPL reference deliberately freeze together. */
+	const bool enabled = !fastTracksPOCMasterEnabled;
 
 	if (audioWasntLocked)
 		unlockAudio();
 
-	ui.updatePatternEditor = true;
-	changeLogoType(config.id_FastLogo);
+	fastTracksPOCSetMasterEnabled(enabled);
 }
 
 static const note_t *getFastTracksPOCNote(int32_t channelIndex, int32_t sourceRow)
@@ -1600,6 +1699,52 @@ static void setEnvelopePos(channel_t *ch, uint8_t param)
 	}
 }
 
+static void tapeheadEffects_TickZero(channel_t *ch, uint8_t param)
+{
+	const int32_t channelIndex = (int32_t)(ch - channel);
+
+	/* Z0x: select one of the 16 non-neutral ratios for this track. The manual
+	** ratio bank keeps its 1:1 center entry, but the one-nibble pattern bank
+	** skips it so Z0F can address the final 5:1 ratio. */
+	if ((param & 0xF0) == 0x00)
+	{
+		uint8_t ratioIndex = param & 0x0F;
+		if (ratioIndex >= FAST_TRACKS_ONE_TO_ONE_RATIO_INDEX)
+			ratioIndex++;
+
+		fastTracksPOCSetRatioIndex(channelIndex, ratioIndex);
+		return;
+	}
+
+	/* Z10/Z11: persistent per-track clutch release/engage. These commands
+	** configure latent state even while the global Fast Tracks logo is off. */
+	if (param == 0x10)
+	{
+		fastTracksPOCSetClutch(channelIndex, false);
+		return;
+	}
+	else if (param == 0x11)
+	{
+		fastTracksPOCSetClutch(channelIndex, true);
+		return;
+	}
+
+	/* Z2x: global Fast Tracks commands. These are intentionally explicit,
+	** unlike the logo's modifier-sensitive toggle behavior. */
+	switch (param)
+	{
+		case 0x20: fastTracksPOCSetMasterEnabled(false); break;
+		case 0x21: fastTracksPOCSetMasterEnabled(true); break;
+		case 0x22: fastTracksPOCRandomizeSelectedRatios(false); break;
+		case 0x23: fastTracksPOCSyncSelectedToMaster(); break;
+		case 0x24: fastTracksPOCResetAllRatios(); break;
+		case 0x25: fastTracksPOCSetTransmissionClutch(false); break;
+		case 0x26: fastTracksPOCSetTransmissionClutch(true); break;
+		case 0x27: fastTracksPOCSetAllRatiosOneToOne(); break;
+		default: break;
+	}
+}
+
 static const efxRoutine JumpTab_TickZero[36] =
 {
 	dummy,              // 0
@@ -1637,7 +1782,7 @@ static const efxRoutine JumpTab_TickZero[36] =
 	dummy,              // W
 	dummy,              // X
 	dummy,              // Y
-	dummy               // Z
+	tapeheadEffects_TickZero // Z
 };
 
 static void handleMoreEffects_TickZero(channel_t *ch) // called even if channel is muted!

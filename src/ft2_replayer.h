@@ -79,11 +79,18 @@ uint8_t fastTracksPOCGetRatioNumerator(int32_t channelIndex);
 uint8_t fastTracksPOCGetRatioDenominator(int32_t channelIndex);
 void fastTracksPOCClutchPress(int32_t channelIndex);
 void fastTracksPOCClutchRelease(int32_t channelIndex);
+void fastTracksPOCSetTransmissionClutch(bool engaged);
 void fastTracksPOCTransmissionClutchToggle(void);
 void fastTracksPOCCycleRatio(int32_t channelIndex);
+void fastTracksPOCSetRatioIndex(int32_t channelIndex, uint8_t ratioIndex);
+void fastTracksPOCSetClutch(int32_t channelIndex, bool engaged);
 void fastTracksPOCRandomizeSelectedRatios(bool syncToMaster);
+void fastTracksPOCSyncSelectedToMaster(void);
+void fastTracksPOCSetAllRatiosOneToOne(void);
+void fastTracksPOCResetAllRatios(void);
 void fastTracksPOCToggle(int32_t channelIndex);
 void fastTracksPOCResetForLoadedModule(void);
+void fastTracksPOCSetMasterEnabled(bool enabled);
 void fastTracksPOCMasterToggle(void);
 
 enum // sample flags
