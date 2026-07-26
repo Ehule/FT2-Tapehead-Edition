@@ -45,6 +45,37 @@ Channels 30–32: Z X C
 - `Ctrl+Click` Fast Tracks logo — Randomize active ratios
 - `Ctrl+Shift+Click` Fast Tracks logo — Randomize and resynchronize
 
+
+## Pattern Effect Commands (Zxx)
+
+Tapehead Edition introduces a new family of pattern-programmable transport effects
+using the previously unused XM **Z** effect.
+
+### Per-Track
+
+| Command | Description |
+|---------|-------------|
+| Z00-Z0F | Select FastTracks transport ratio |
+| Z10 | Release track clutch |
+| Z11 | Engage track clutch |
+
+### Global
+
+| Command | Description |
+|---------|-------------|
+| Z20 | FastTracks OFF |
+| Z21 | FastTracks ON |
+| Z22 | Randomize all transport ratios |
+| Z23 | Synchronize all transports |
+| Z24 | Reset all ratios to 1:1 and synchronize |
+| Z25 | Global clutch OFF |
+| Z26 | Global clutch ON |
+| Z27 | Reset all ratios to 1:1 while preserving phase |
+
+These commands modify transport state rather than audio processing, allowing tempo
+relationships, synchronization, and drift to become programmable compositional
+elements.
+
 ### MIDI Dub output
 
 - MIDI output support
