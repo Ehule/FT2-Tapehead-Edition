@@ -444,6 +444,15 @@
   <ItemGroup>
     <ResourceCompile Include="..\..\src\ft2-clone.rc" />
   </ItemGroup>
+  <ItemGroup>
+    <TapeheadRuntimeAsset Include="$(ProjectDir)..\..\release\other\FT2.CFG" />
+    <TapeheadRuntimeAsset Include="$(ProjectDir)..\..\release\other\tapehead.ini" />
+    <TapeheadRuntimeAsset Include="$(ProjectDir)..\..\release\other\fastTracksLogoBadges.bmp" />
+  </ItemGroup>
+  <Target Name="CopyTapeheadRuntimeAssets" AfterTargets="Build">
+    <Error Condition="!Exists('%(TapeheadRuntimeAsset.Identity)')" Text="Missing required Tapehead runtime asset: %(TapeheadRuntimeAsset.Identity)" />
+    <Copy SourceFiles="@(TapeheadRuntimeAsset)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

@@ -12,6 +12,8 @@ mkdir -p "$BUILDDIR/ft2-clone.AppDir/usr/bin" || exit 1
 
 gcc -DNDEBUG src/gfxdata/*.c src/mixer/*.c src/scopes/*.c src/modloaders/*.c src/smploaders/*.c src/*.c -ffast-math -lSDL2 -lm -Wshadow -Winit-self -Wall -Wno-missing-field-initializers -Wno-unused-result -Wno-strict-aliasing -Wextra -Wunused -Wunreachable-code -Wswitch-default -Wno-stringop-overflow -O3 -o "$BUILDDIR//ft2-clone.AppDir/usr/bin/ft2-clone" || exit 1
 
+scripts/copy-tapehead-runtime-assets.sh "$BUILDDIR/ft2-clone.AppDir/usr/bin" || exit 1
+
 rm src/gfxdata/*.o src/mixer/*.o src/scopes/*.o src/modloaders/*.o src/smploaders/*.o src/*.o &> /dev/null
 
 curl "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/$LINUXDEPLOY" -L -o "$BUILDDIR/$LINUXDEPLOY" || exit 1

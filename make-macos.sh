@@ -72,6 +72,7 @@ rm $TARGET_X86_64
 rm $TARGET_ARM64
 strip $TARGET_UNIVERSAL
 install_name_tool -change @rpath/SDL2.framework/Versions/A/SDL2 @executable_path/../Frameworks/SDL2.framework/Versions/A/SDL2 $TARGET_UNIVERSAL
+scripts/copy-tapehead-runtime-assets.sh "$TARGET_DIR" || exit 1
 codesign -s - --entitlements ft2-clone.entitlements release/macOS/ft2-clone-macos.app
 echo Done. The executable can be found in \'${RELEASE_MACOS_DIR}\' if everything went well.
 

@@ -22,6 +22,25 @@ file(GLOB ft2-clone_SRC
 
 add_executable(ft2-clone ${ft2-clone_SRC})
 
+set(TAPEHEAD_RUNTIME_ASSETS
+    "${ft2-clone_SOURCE_DIR}/release/other/FT2.CFG"
+    "${ft2-clone_SOURCE_DIR}/release/other/tapehead.ini"
+    "${ft2-clone_SOURCE_DIR}/release/other/fastTracksLogoBadges.bmp"
+)
+
+foreach(asset IN LISTS TAPEHEAD_RUNTIME_ASSETS)
+    if(NOT EXISTS "${asset}")
+        message(FATAL_ERROR "Missing required Tapehead runtime asset: ${asset}")
+    endif()
+endforeach()
+
+add_custom_command(TARGET ft2-clone POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${TAPEHEAD_RUNTIME_ASSETS}
+        "$<TARGET_FILE_DIR:ft2-clone>"
+    COMMENT "Copying Tapehead Edition runtime assets"
+)
+
 target_include_directories(ft2-clone SYSTEM
     PRIVATE ${SDL2_INCLUDE_DIRS})
 
@@ -63,3 +82,6 @@ endif()
 
 install(TARGETS ft2-clone
     RUNTIME DESTINATION bin)
+
+install(FILES ${TAPEHEAD_RUNTIME_ASSETS}
+    DESTINATION bin)
