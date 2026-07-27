@@ -849,6 +849,7 @@ static void drawFastTracksPOCStatus(uint16_t yPos)
 		const uint8_t denominator = fastTracksPOCGetRatioDenominator(fastTrackChannel);
 		const int32_t sourceRow = fastTracksPOCGetSourceRow(fastTrackChannel);
 		const bool clutchHeld = fastTracksPOCIsClutched(fastTrackChannel);
+		const bool reversed = fastTracksPOCIsReversed(fastTrackChannel);
 
 		/*
 		** Fixed header zones keep one- and two-digit channel numbers from
@@ -875,9 +876,10 @@ static void drawFastTracksPOCStatus(uint16_t yPos)
 		** three LEDs directly beside it. Treat ratio + gap + LEDs as one compact
 		** group, then clamp that group inside this channel's panel so no pixels
 		** can bleed into the neighboring track. */
+		const int32_t directionMarkerWidth = reversed ? 8 : 0;
 		const int32_t ledBankWidth = 11; /* three 3px LEDs with 1px gaps */
 		const int32_t ratioLedGap = 2;
-		const int32_t groupWidth = ratioWidth + ratioLedGap + ledBankWidth;
+		const int32_t groupWidth = directionMarkerWidth + ratioWidth + ratioLedGap + ledBankWidth;
 		const int32_t panelLeft = (int32_t)xPos;
 		const int32_t panelRight = panelLeft + panelWidth - 1;
 
@@ -890,13 +892,21 @@ static void drawFastTracksPOCStatus(uint16_t yPos)
 		if (groupX > maximumGroupX)
 			groupX = maximumGroupX;
 
-		const int32_t ratioX = groupX;
+		const int32_t directionX = groupX;
+		const int32_t ratioX = groupX + directionMarkerWidth;
 		const uint16_t lagLedX = (uint16_t)(ratioX + ratioWidth + ratioLedGap);
 		const uint16_t syncLedX = (uint16_t)(lagLedX + 4);
 		const uint16_t leadLedX = (uint16_t)(syncLedX + 4);
 
 		const int32_t colonX = ratioX + (numeratorDigits * FONT3_CHAR_W);
 		const uint32_t ratioColor = video.palette[PAL_BLCKTXT];
+		if (reversed)
+		{
+			/* A solid reverse badge must be unmistakable during performance. */
+			fillRect((uint16_t)directionX, yPos, 7, 8, PAL_BLCKMRK);
+			textOutTiny(directionX + 1, yPos + 1, "R", video.palette[PAL_BLCKTXT]);
+		}
+
 		textOutTiny(ratioX, yPos + 1, numeratorText, ratioColor);
 		video.frameBuffer[((yPos + 3) * SCREEN_W) + colonX + 1] = ratioColor;
 		video.frameBuffer[((yPos + 5) * SCREEN_W) + colonX + 1] = ratioColor;

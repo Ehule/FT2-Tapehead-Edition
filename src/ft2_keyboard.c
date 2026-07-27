@@ -254,11 +254,12 @@ void keyDownHandler(SDL_Scancode scancode, SDL_Keycode keycode, bool keyWasRepea
 
 	const int32_t fastTrackChannel = fastTracksChannelFromScancode(scancode);
 
+
 	/* Ctrl+Alt+track key is a momentary clutch. Only claim the command when
 	** that track is currently active, preserving stock FT2 key behavior for
 	** inactive channels. */
-	if (keyb.leftCtrlPressed && keyb.leftAltPressed && fastTrackChannel >= 0 &&
-		fastTracksPOCIsEnabled(fastTrackChannel))
+	if (keyb.leftCtrlPressed && keyb.leftAltPressed && !keyb.leftShiftPressed &&
+		fastTrackChannel >= 0 && fastTracksPOCIsEnabled(fastTrackChannel))
 	{
 		if (!keyWasRepeated)
 			fastTracksPOCClutchPress(fastTrackChannel);

@@ -113,6 +113,7 @@ typedef struct fastTracksChannelState_t
 {
 	bool selected;
 	bool clutchHeld;
+	bool reversed;
 	int32_t sourceRow;
 	int32_t tickAccumulator;
 	uint16_t lastTPL;
@@ -121,7 +122,7 @@ typedef struct fastTracksChannelState_t
 } fastTracksChannelState_t;
 
 #define FAST_TRACKS_DEFAULT_CHANNEL_STATE \
-	{ false, false, 0, 0, 0, false, FAST_TRACKS_DEFAULT_RATIO_INDEX }
+	{ false, false, false, 0, 0, 0, false, FAST_TRACKS_DEFAULT_RATIO_INDEX }
 
 static volatile fastTracksChannelState_t fastTracksPOCChannels[FAST_TRACKS_MAX_CHANNELS] =
 {
@@ -168,15 +169,6 @@ static void resetFastTracksPOCTransport(volatile fastTracksChannelState_t *state
 	state->transportStarted = false;
 }
 
-static void syncFastTracksPOCTransportToMaster(volatile fastTracksChannelState_t *state,
-	const fastTracksRatio_t *ratio, uint16_t masterTPL, int32_t masterElapsedTicks)
-{
-	state->sourceRow = song.row;
-	state->tickAccumulator = ratio->denominator * masterElapsedTicks;
-	state->lastTPL = masterTPL;
-	state->transportStarted = true;
-}
-
 static int32_t wrapFastTracksPOCRow(int32_t row)
 {
 	if (song.currNumRows <= 0)
@@ -187,6 +179,29 @@ static int32_t wrapFastTracksPOCRow(int32_t row)
 		row += song.currNumRows;
 
 	return row;
+}
+
+static int32_t getFastTracksPOCMasterPhaseRow(void)
+{
+	/* FT2 pre-advances song.row at the end of master tick 1, one audio
+	** callback before tick zero actually reads the new row. During that
+	** interval the transport phase still belongs to the preceding row.
+	** Treating song.row as current there gives a synchronized 1:1 Fast
+	** Track the next row plus the previous row's fractional phase, causing
+	** it to advance one row too far on the following tick zero. */
+	if (song.tick == 1)
+		return wrapFastTracksPOCRow(song.row - 1);
+
+	return song.row;
+}
+
+static void syncFastTracksPOCTransportToMaster(volatile fastTracksChannelState_t *state,
+	const fastTracksRatio_t *ratio, uint16_t masterTPL, int32_t masterElapsedTicks)
+{
+	state->sourceRow = getFastTracksPOCMasterPhaseRow();
+	state->tickAccumulator = ratio->denominator * masterElapsedTicks;
+	state->lastTPL = masterTPL;
+	state->transportStarted = true;
 }
 
 static const fastTracksRatio_t *getFastTracksPOCRatio(int32_t channelIndex)
@@ -252,7 +267,11 @@ static bool advanceFastTracksPOCTransport(int32_t channelIndex, uint16_t tpl)
 	while (state->tickAccumulator >= threshold)
 	{
 		state->tickAccumulator -= threshold;
-		state->sourceRow = wrapFastTracksPOCRow(state->sourceRow + 1);
+		/* Direction belongs to the private track transport. Ratios, clutching
+		** and event processing are unchanged; only the source-row traversal is
+		** reversed for tracks whose direction flag is enabled. */
+		const int32_t rowDirection = state->reversed ? -1 : 1;
+		state->sourceRow = wrapFastTracksPOCRow(state->sourceRow + rowDirection);
 		advanced = true;
 	}
 
@@ -279,6 +298,12 @@ bool fastTracksPOCIsClutched(int32_t channelIndex)
 {
 	const volatile fastTracksChannelState_t *state = getFastTracksPOCChannelState(channelIndex);
 	return state != NULL && (state->clutchHeld || fastTracksPOCTransmissionClutchLatched);
+}
+
+bool fastTracksPOCIsReversed(int32_t channelIndex)
+{
+	const volatile fastTracksChannelState_t *state = getFastTracksPOCChannelState(channelIndex);
+	return state != NULL && state->reversed;
 }
 
 bool fastTracksPOCTransmissionClutchIsLatched(void)
@@ -327,7 +352,8 @@ bool fastTracksPOCIsMasterAligned(int32_t channelIndex)
 	const fastTracksRatio_t *ratio = getFastTracksPOCRatio(channelIndex);
 	const int32_t expectedAccumulator = ratio->denominator * masterElapsedTicks;
 
-	return state->sourceRow == song.row && state->tickAccumulator == expectedAccumulator;
+	return state->sourceRow == getFastTracksPOCMasterPhaseRow() &&
+		state->tickAccumulator == expectedAccumulator;
 }
 
 uint8_t fastTracksPOCGetRatioNumerator(int32_t channelIndex)
@@ -513,7 +539,38 @@ void fastTracksPOCRandomizeSelectedRatios(bool syncToMaster)
 	ui.updatePatternEditor = true;
 }
 
-void fastTracksPOCToggle(int32_t channelIndex)
+void fastTracksPOCSetTrackEnabled(int32_t channelIndex, bool enabled)
+{
+	volatile fastTracksChannelState_t *state = getFastTracksPOCChannelState(channelIndex);
+	if (state == NULL || state->selected == enabled)
+		return;
+
+	const bool audioWasntLocked = !audio.locked;
+	if (audioWasntLocked)
+		lockAudio();
+
+	if (enabled)
+	{
+		/* Match the existing Ctrl+Shift track toggle: enabling publishes a
+		** fresh private transport aligned to the current master row. */
+		resetFastTracksPOCTransport(state, song.row);
+		state->selected = true;
+	}
+	else
+	{
+		/* The track remains audible from the ordinary master transport while
+		** its private FastTracks transport is disengaged. */
+		state->clutchHeld = false;
+		state->selected = false;
+	}
+
+	if (audioWasntLocked)
+		unlockAudio();
+
+	ui.updatePatternEditor = true;
+}
+
+void fastTracksPOCSyncTrackToMaster(int32_t channelIndex)
 {
 	volatile fastTracksChannelState_t *state = getFastTracksPOCChannelState(channelIndex);
 	if (state == NULL)
@@ -523,18 +580,41 @@ void fastTracksPOCToggle(int32_t channelIndex)
 	if (audioWasntLocked)
 		lockAudio();
 
-	if (!state->selected)
-	{
-		/* Publish a complete transport state before the audio thread can see
-		** this channel as selected. */
-		resetFastTracksPOCTransport(state, song.row);
-		state->selected = true;
-	}
-	else
-	{
-		state->clutchHeld = false;
-		state->selected = false;
-	}
+	const uint16_t masterTPL = song.speed > 0 ? song.speed : 1;
+	int32_t masterElapsedTicks = masterTPL - song.tick;
+	if (masterElapsedTicks < 0)
+		masterElapsedTicks = 0;
+	else if (masterElapsedTicks >= masterTPL)
+		masterElapsedTicks = masterTPL - 1;
+
+	/* This is a one-shot phase correction. The ratio, clutch and selected
+	** state remain unchanged, so a non-1:1 track immediately begins drifting
+	** again after the command. It also works on latent disabled transports. */
+	const fastTracksRatio_t *ratio = getFastTracksPOCRatio(channelIndex);
+	syncFastTracksPOCTransportToMaster(state, ratio, masterTPL, masterElapsedTicks);
+
+	if (audioWasntLocked)
+		unlockAudio();
+
+	ui.updatePatternEditor = true;
+}
+
+void fastTracksPOCToggle(int32_t channelIndex)
+{
+	fastTracksPOCSetTrackEnabled(channelIndex, !fastTracksPOCIsSelected(channelIndex));
+}
+
+void fastTracksPOCToggleDirection(int32_t channelIndex)
+{
+	volatile fastTracksChannelState_t *state = getFastTracksPOCChannelState(channelIndex);
+	if (state == NULL)
+		return;
+
+	const bool audioWasntLocked = !audio.locked;
+	if (audioWasntLocked)
+		lockAudio();
+
+	state->reversed = !state->reversed;
 
 	if (audioWasntLocked)
 		unlockAudio();
@@ -1726,6 +1806,25 @@ static void tapeheadEffects_TickZero(channel_t *ch, uint8_t param)
 	else if (param == 0x11)
 	{
 		fastTracksPOCSetClutch(channelIndex, true);
+		return;
+	}
+
+	/* Z12/Z13 explicitly disengage/engage FastTracks for this track,
+	** matching the Ctrl+Shift track toggle without relying on toggle state.
+	** Z14 performs a one-shot sync while preserving the current ratio. */
+	if (param == 0x12)
+	{
+		fastTracksPOCSetTrackEnabled(channelIndex, false);
+		return;
+	}
+	else if (param == 0x13)
+	{
+		fastTracksPOCSetTrackEnabled(channelIndex, true);
+		return;
+	}
+	else if (param == 0x14)
+	{
+		fastTracksPOCSyncTrackToMaster(channelIndex);
 		return;
 	}
 

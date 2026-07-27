@@ -23,6 +23,8 @@
 #include "ft2_structs.h"
 #include "ft2_keyboard.h"
 #include "ft2_edit.h"
+#include "ft2_replayer.h"
+#include "ft2_tables.h"
 
 #define NUM_CURSORS 6
 
@@ -690,8 +692,33 @@ void mouseButtonUpHandler(uint8_t mouseButton)
 	mouse.lastUsedObjectType = OBJECT_NONE;
 }
 
+
+static bool handleFastTracksHeaderRightClick(uint8_t mouseButton)
+{
+	if (mouseButton != SDL_BUTTON_RIGHT || !ui.patternEditorShown)
+		return false;
+
+	const pattCoord2_t *pattCoord = &pattCoord2Table[config.ptnStretch][ui.pattChanScrollShown][ui.extendedPatternEditor];
+	const int32_t headerY = pattCoord->upperRowsY + 2;
+	if (mouse.y < headerY || mouse.y >= headerY + 8 || mouse.x < 30)
+		return false;
+
+	const int32_t visibleChannel = (mouse.x - 30) / ui.patternChannelWidth;
+	if (visibleChannel < 0 || visibleChannel >= ui.numChannelsShown)
+		return false;
+
+	const int32_t channelIndex = ui.channelOffset + visibleChannel;
+	if (channelIndex < 0 || channelIndex >= MAX_CHANNELS || !fastTracksPOCIsEnabled(channelIndex))
+		return false;
+
+	fastTracksPOCToggleDirection(channelIndex);
+	return true;
+}
+
 void mouseButtonDownHandler(uint8_t mouseButton)
 {
+	if (handleFastTracksHeaderRightClick(mouseButton)) return;
+
 	// Tapehead Edition: Ctrl-click the existing Adv. Edit pushbutton to open
 	// the Instrument Transform Editor. A normal click keeps FT2's original
 	// Advanced Edit behavior unchanged.
