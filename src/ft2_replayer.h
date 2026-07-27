@@ -366,6 +366,15 @@ void resetMusic(void);
 void startPlaying(int8_t mode, int16_t row);
 void stopPlaying(void);
 void handleRecPlusExhaustion(void);
+void handlePatternLauncherStop(void);
+bool patternLauncherIsEnabled(void);
+int16_t patternLauncherGetCurrent(void);
+uint8_t patternLauncherGetQueueCount(void);
+int16_t patternLauncherGetQueueItem(uint8_t index);
+bool patternLauncherStopIsPending(void);
+uint8_t patternLauncherGetExitMode(void);
+void patternLauncherSetEnabled(bool enabled);
+void patternLauncherRequest(uint8_t patternNum, bool ctrlPressed, bool shiftPressed);
 void stopVoices(void);
 void setSongPos(int16_t songPos, int16_t row, bool resetTick);
 void pauseMusic(void); // stops reading pattern data

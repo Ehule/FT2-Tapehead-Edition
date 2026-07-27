@@ -252,6 +252,8 @@ int main(int argc, char *argv[])
 		readInput();
 		handleEvents();
 		handleRecPlusExhaustion();
+		handlePatternLauncherStop();
+		handlePatternLauncherPanelRefresh();
 		handleRedrawing();
 		flipFrame();
 		endFPSCounter();

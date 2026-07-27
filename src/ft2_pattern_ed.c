@@ -24,6 +24,7 @@
 #include "ft2_structs.h"
 #include "ft2_interpolation.h"
 #include "ft2_replayer.h"
+#include "ft2_keyboard.h"
 
 // for pattern marking w/ keyboard
 static int8_t lastChMark;
@@ -33,6 +34,238 @@ static int16_t lastRowMark;
 static int32_t lastMarkX1 = -1, lastMarkX2 = -1, lastMarkY1 = -1, lastMarkY2 = -1;
 
 static const uint8_t ptnNumRows[8] = { 27, 25, 20, 19, 42, 40, 31, 30 };
+
+static bool patternLauncherPanelShown;
+static uint8_t patternLauncherPage;
+static uint8_t patternLauncherBreatheFrame;
+
+static char *patternLauncherPageCaptions[8] = { "00-1F", "20-3F", "40-5F", "60-7F", "80-9F", "A0-BF", "C0-DF", "E0-FF" };
+static char *instrumentBankCaptions[8] = { "01-08", "09-10", "11-18", "19-20", "21-28", "29-30", "31-38", "39-40" };
+
+bool patternLauncherPanelIsShown(void)
+{
+	return patternLauncherPanelShown;
+}
+
+static int8_t getPatternLauncherQueuePos(int16_t patternNum)
+{
+	const uint8_t queueCount = patternLauncherGetQueueCount();
+	for (uint8_t i = 0; i < queueCount; i++)
+	{
+		if (patternLauncherGetQueueItem(i) == patternNum)
+			return (int8_t)i;
+	}
+
+	return -1;
+}
+
+static uint32_t blendPatternLauncherColor(uint32_t foreground, uint32_t background, uint8_t level)
+{
+	const uint16_t inverse = 255 - level;
+	const uint8_t r = (uint8_t)((((foreground >> 16) & 0xFF) * level + ((background >> 16) & 0xFF) * inverse) / 255);
+	const uint8_t g = (uint8_t)((((foreground >> 8) & 0xFF) * level + ((background >> 8) & 0xFF) * inverse) / 255);
+	const uint8_t b = (uint8_t)(((foreground & 0xFF) * level + (background & 0xFF) * inverse) / 255);
+	return 0xFF000000 | (r << 16) | (g << 8) | b;
+}
+
+static void fillPatternLauncherRect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint32_t color)
+{
+	uint32_t *dst = &video.frameBuffer[(y * SCREEN_W) + x];
+	for (uint16_t yy = 0; yy < h; yy++, dst += SCREEN_W)
+	{
+		for (uint16_t xx = 0; xx < w; xx++)
+			dst[xx] = color;
+	}
+}
+
+static uint8_t getPatternLauncherBreatheLevel(void)
+{
+	uint16_t distance = patternLauncherBreatheFrame;
+	if (distance > 60)
+		distance = 120 - distance;
+
+	return (uint8_t)(255 - ((distance * 105) / 60));
+}
+
+static void drawPatternLauncherPanel(void)
+{
+	const int16_t current = patternLauncherGetCurrent();
+	const uint8_t exitMode = patternLauncherGetExitMode();
+	static const uint8_t queueLevels[4] = { 255, 210, 170, 135 };
+
+	clearRect(421, 3, 166, 152);
+
+	for (int16_t row = 0; row < 8; row++)
+	{
+		for (int16_t col = 0; col < 4; col++)
+		{
+			const int16_t patternNum = (patternLauncherPage * 32) + (row * 4) + col;
+			const int16_t x = 423 + (col * 41);
+			const int16_t y = 4 + (row * 19);
+			const int8_t queuePos = getPatternLauncherQueuePos(patternNum);
+			const bool patternUsed = pattern[patternNum] != NULL;
+
+			drawFramework(x, y, 40, 18, FRAMEWORK_TYPE1);
+			if (patternNum == current)
+			{
+				/* Semantic transport colors stay readable regardless of the current FT2 theme.
+				** Green = Matrix continues, yellow = return, orange = next order, red = stop.
+				*/
+				uint32_t activeColor;
+				if (exitMode == 1) activeColor = 0xFFFFD43B;      /* return to saved order */
+				else if (exitMode == 2) activeColor = 0xFFE34234; /* graceful stop */
+				else if (exitMode == 3) activeColor = 0xFFFF8A2B; /* continue at next order */
+				else activeColor = blendPatternLauncherColor(0xFF39C85A,
+					video.palette[PAL_DESKTOP], getPatternLauncherBreatheLevel());
+				fillPatternLauncherRect(x + 2, y + 2, 36, 14, activeColor);
+			}
+			else if (queuePos >= 0)
+			{
+				const uint32_t queueColor = blendPatternLauncherColor(video.palette[PAL_BUTTONS],
+					video.palette[PAL_DESKTOP], queueLevels[queuePos]);
+				fillPatternLauncherRect(x + 2, y + 2, 36, 14, queueColor);
+			}
+
+			const uint8_t textPal = patternNum == current ? PAL_BTNTEXT :
+				(queuePos >= 0 ? PAL_BTNTEXT : (patternUsed ? PAL_FORGRND : PAL_DSKTOP2));
+			hexOut(x + 14, y + 5, textPal, patternNum, 2);
+		}
+	}
+}
+
+static void drawPatternLauncherShell(void)
+{
+	/* Keep FT2's native bank-button chrome intact. Matrix only borrows the
+	** combined instrument/sample list surface and changes button captions.
+	*/
+	clearRect(421, 0, 166, 158);
+	drawFramework(421, 0, 166, 158, FRAMEWORK_TYPE1);
+	drawPatternLauncherPanel();
+}
+
+
+void patternLauncherForceRedraw(void)
+{
+	if (!patternLauncherPanelShown)
+		return;
+
+	/* Config/Layout and other full-screen views can overwrite the borrowed
+	** instrument/sample surface. Rebuild the shell and restore Matrix labels.
+	*/
+	for (uint16_t i = 0; i < 8; i++)
+	{
+		pushButtons[PB_RANGE1 + i].caption = patternLauncherPageCaptions[i];
+		showPushButton(PB_RANGE1 + i);
+	}
+
+	pushButtons[PB_SWAP_BANK].caption = "Exit";
+	pushButtons[PB_SWAP_BANK].caption2 = "Matrix";
+	showPushButton(PB_SWAP_BANK);
+	drawPatternLauncherShell();
+}
+
+void patternLauncherSetPage(uint8_t page)
+{
+	patternLauncherPage = page & 7;
+	if (patternLauncherPanelShown)
+		drawPatternLauncherPanel();
+}
+
+bool patternLauncherHandlePanelClick(int16_t x, int16_t y)
+{
+	if (!patternLauncherPanelShown || x < 423 || x >= 587 || y < 4 || y >= 156)
+		return false;
+
+	/* testInstrSwitcherMouseDown() is called every frame while the mouse is
+	** held. Only the initial mouse-down may launch/toggle a pattern.
+	*/
+	if (mouse.lastUsedObjectType == OBJECT_INSTRSWITCH)
+		return true;
+
+	const int16_t col = (x - 423) / 41;
+	const int16_t row = (y - 4) / 19;
+	if (col < 0 || col > 3 || row < 0 || row > 7)
+		return true;
+
+	const int16_t cellX = (x - 423) % 41;
+	const int16_t cellY = (y - 4) % 19;
+	if (cellX >= 40 || cellY >= 18)
+		return true;
+
+	patternLauncherRequest((uint8_t)((patternLauncherPage * 32) + (row * 4) + col),
+		keyb.leftCtrlPressed, keyb.leftShiftPressed);
+	drawPatternLauncherPanel();
+	return true;
+}
+
+void handlePatternLauncherPanelRefresh(void)
+{
+	static int16_t oldCurrent = -2;
+	static int16_t oldQueue[4] = { -2, -2, -2, -2 };
+	static uint8_t oldQueueCount = 0xFF;
+	static uint8_t oldExitMode = 0xFF;
+
+	if (!patternLauncherPanelShown)
+		return;
+
+	patternLauncherBreatheFrame++;
+	if (patternLauncherBreatheFrame >= 120)
+		patternLauncherBreatheFrame = 0;
+
+	const int16_t current = patternLauncherGetCurrent();
+	const uint8_t queueCount = patternLauncherGetQueueCount();
+	const uint8_t exitMode = patternLauncherGetExitMode();
+	bool changed = current != oldCurrent || queueCount != oldQueueCount || exitMode != oldExitMode;
+	for (uint8_t i = 0; i < 4; i++)
+	{
+		const int16_t queueItem = patternLauncherGetQueueItem(i);
+		if (queueItem != oldQueue[i])
+			changed = true;
+		oldQueue[i] = queueItem;
+	}
+
+	if (changed || current >= 0)
+	{
+		oldCurrent = current;
+		oldQueueCount = queueCount;
+		oldExitMode = exitMode;
+		drawPatternLauncherPanel();
+	}
+}
+
+static void setPatternLauncherPanelShown(bool shown)
+{
+	patternLauncherPanelShown = shown;
+	for (uint16_t i = 0; i < 16; i++)
+		hidePushButton(PB_RANGE1 + i);
+
+	for (uint16_t i = 0; i < 8; i++)
+		pushButtons[PB_RANGE1 + i].caption = shown ? patternLauncherPageCaptions[i] : instrumentBankCaptions[i];
+	pushButtons[PB_SWAP_BANK].caption = shown ? "Exit" : "Swap";
+	pushButtons[PB_SWAP_BANK].caption2 = shown ? "Matrix" : "Bank";
+
+	for (uint16_t i = 0; i < 8; i++)
+		hideTextBox(TB_INST1 + i);
+	for (uint16_t i = 0; i < 5; i++)
+		hideTextBox(TB_SAMP1 + i);
+
+	hidePushButton(PB_SAMPLE_LIST_UP);
+	hidePushButton(PB_SAMPLE_LIST_DOWN);
+	hideScrollBar(SB_SAMPLE_LIST);
+
+	if (shown)
+	{
+		for (uint16_t i = 0; i < 8; i++)
+			showPushButton(PB_RANGE1 + i);
+		showPushButton(PB_SWAP_BANK);
+		drawPatternLauncherShell();
+	}
+	else
+	{
+		showInstrumentSwitcher();
+	}
+}
+
 
 
 static bool pattNavPopupShown;
@@ -2598,6 +2831,12 @@ void updateInstrumentSwitcher(void)
 	if (ui.aboutScreenShown || ui.configScreenShown || ui.helpScreenShown || ui.nibblesShown)
 		return; // don't redraw instrument switcher when it's not shown!
 
+	if (patternLauncherPanelShown)
+	{
+		drawPatternLauncherPanel();
+		return;
+	}
+
 	if (ui.extendedPatternEditor) // extended pattern editor
 	{
 		//INSTRUMENTS
@@ -2706,6 +2945,25 @@ void showInstrumentSwitcher(void)
 	if (!ui.instrSwitcherShown)
 		return;
 
+	if (patternLauncherPanelShown)
+	{
+		for (uint16_t i = 0; i < 16; i++)
+			hidePushButton(PB_RANGE1 + i);
+		for (uint16_t i = 0; i < 8; i++)
+		{
+			hideTextBox(TB_INST1 + i);
+			showPushButton(PB_RANGE1 + i);
+		}
+		for (uint16_t i = 0; i < 5; i++)
+			hideTextBox(TB_SAMP1 + i);
+		hidePushButton(PB_SAMPLE_LIST_UP);
+		hidePushButton(PB_SAMPLE_LIST_DOWN);
+		hideScrollBar(SB_SAMPLE_LIST);
+		showPushButton(PB_SWAP_BANK);
+		drawPatternLauncherShell();
+		return;
+	}
+
 	for (uint16_t i = 0; i < 8; i++)
 		showTextBox(TB_INST1 + i);
 
@@ -2774,6 +3032,19 @@ void hideInstrumentSwitcher(void)
 
 void pbSwapInstrBank(void)
 {
+	if (patternLauncherPanelShown)
+	{
+		setPatternLauncherPanelShown(false);
+		return;
+	}
+
+	if (keyb.leftCtrlPressed)
+	{
+		patternLauncherPage = 0;
+		setPatternLauncherPanelShown(true);
+		return;
+	}
+
 	editor.instrBankSwapped ^= 1;
 
 	if (editor.instrBankSwapped)
@@ -2796,6 +3067,12 @@ void pbSwapInstrBank(void)
 
 void pbSetInstrBank1(void)
 {
+	if (patternLauncherPanelShown)
+	{
+		patternLauncherSetPage(0);
+		return;
+	}
+
 	editor.instrBankOffset = 0 * 8;
 
 	updateTextBoxPointers();
@@ -2804,6 +3081,12 @@ void pbSetInstrBank1(void)
 
 void pbSetInstrBank2(void)
 {
+	if (patternLauncherPanelShown)
+	{
+		patternLauncherSetPage(1);
+		return;
+	}
+
 	editor.instrBankOffset = 1 * 8;
 
 	updateTextBoxPointers();
@@ -2812,6 +3095,12 @@ void pbSetInstrBank2(void)
 
 void pbSetInstrBank3(void)
 {
+	if (patternLauncherPanelShown)
+	{
+		patternLauncherSetPage(2);
+		return;
+	}
+
 	editor.instrBankOffset = 2 * 8;
 
 	updateTextBoxPointers();
@@ -2820,6 +3109,12 @@ void pbSetInstrBank3(void)
 
 void pbSetInstrBank4(void)
 {
+	if (patternLauncherPanelShown)
+	{
+		patternLauncherSetPage(3);
+		return;
+	}
+
 	editor.instrBankOffset = 3 * 8;
 
 	updateTextBoxPointers();
@@ -2828,6 +3123,12 @@ void pbSetInstrBank4(void)
 
 void pbSetInstrBank5(void)
 {
+	if (patternLauncherPanelShown)
+	{
+		patternLauncherSetPage(4);
+		return;
+	}
+
 	editor.instrBankOffset = 4 * 8;
 
 	updateTextBoxPointers();
@@ -2836,6 +3137,12 @@ void pbSetInstrBank5(void)
 
 void pbSetInstrBank6(void)
 {
+	if (patternLauncherPanelShown)
+	{
+		patternLauncherSetPage(5);
+		return;
+	}
+
 	editor.instrBankOffset = 5 * 8;
 
 	updateTextBoxPointers();
@@ -2844,6 +3151,12 @@ void pbSetInstrBank6(void)
 
 void pbSetInstrBank7(void)
 {
+	if (patternLauncherPanelShown)
+	{
+		patternLauncherSetPage(6);
+		return;
+	}
+
 	editor.instrBankOffset = 6 * 8;
 
 	updateTextBoxPointers();
@@ -2852,6 +3165,12 @@ void pbSetInstrBank7(void)
 
 void pbSetInstrBank8(void)
 {
+	if (patternLauncherPanelShown)
+	{
+		patternLauncherSetPage(7);
+		return;
+	}
+
 	editor.instrBankOffset = 7 * 8;
 
 	updateTextBoxPointers();

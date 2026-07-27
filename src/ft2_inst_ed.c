@@ -2730,6 +2730,12 @@ static bool testInstrSwitcherNormal(void) // Welcome to the Jungle
 {
 	uint8_t newEntry;
 
+	if (patternLauncherHandlePanelClick(mouse.x, mouse.y))
+	{
+		mouse.lastUsedObjectType = OBJECT_INSTRSWITCH;
+		return true;
+	}
+
 	if (mouse.x < 424 || mouse.x > 585)
 		return false;
 

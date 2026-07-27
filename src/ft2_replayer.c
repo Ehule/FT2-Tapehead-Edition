@@ -1023,6 +1023,24 @@ typedef void (*efxRoutine)(channel_t *ch, uint8_t param);
 // globally accessed
 int8_t playMode = 0;
 bool songPlaying = false, audioPaused = false, musicPaused = false;
+
+/* Tapehead Pattern Launcher: temporary, non-destructive pattern transport. */
+static volatile bool patternLauncherEnabled;
+static volatile int16_t patternLauncherCurrent = -1;
+#define PATTERN_LAUNCHER_QUEUE_MAX 4
+static volatile int16_t patternLauncherQueue[PATTERN_LAUNCHER_QUEUE_MAX] = { -1, -1, -1, -1 };
+static volatile uint8_t patternLauncherQueueCount;
+typedef enum patternLauncherExitMode_t
+{
+	PATTERN_LAUNCHER_EXIT_NONE = 0,
+	PATTERN_LAUNCHER_EXIT_RETURN,
+	PATTERN_LAUNCHER_EXIT_STOP,
+	PATTERN_LAUNCHER_EXIT_CONTINUE
+} patternLauncherExitMode_t;
+
+static volatile patternLauncherExitMode_t patternLauncherExitMode;
+static volatile int16_t patternLauncherSavedSongPos = -1;
+static volatile bool patternLauncherStopCleanupPending;
 volatile bool replayerBusy = false;
 const uint16_t *note2PeriodLUT = NULL;
 int16_t patternNumRows[MAX_PATTERNS];
@@ -3454,7 +3472,57 @@ static void getNextPos(void)
 		song.pBreakPos = 0;
 		song.posJumpFlag = false;
 
-		if (playMode != PLAYMODE_PATT && playMode != PLAYMODE_RECPATT)
+		if (patternLauncherEnabled)
+		{
+			if (patternLauncherExitMode != PATTERN_LAUNCHER_EXIT_NONE)
+			{
+				const patternLauncherExitMode_t exitMode = patternLauncherExitMode;
+				patternLauncherExitMode = PATTERN_LAUNCHER_EXIT_NONE;
+				patternLauncherEnabled = false;
+				patternLauncherCurrent = -1;
+				patternLauncherQueueCount = 0;
+				for (uint8_t i = 0; i < PATTERN_LAUNCHER_QUEUE_MAX; i++)
+					patternLauncherQueue[i] = -1;
+
+				if (exitMode == PATTERN_LAUNCHER_EXIT_STOP || patternLauncherSavedSongPos < 0 || song.songLength == 0)
+				{
+					patternLauncherSavedSongPos = -1;
+					patternLauncherStopCleanupPending = true;
+					playMode = PLAYMODE_IDLE;
+					songPlaying = false;
+					return;
+				}
+
+				int16_t resumePos = patternLauncherSavedSongPos;
+				if (exitMode == PATTERN_LAUNCHER_EXIT_CONTINUE)
+				{
+					resumePos++;
+					if (resumePos >= song.songLength)
+						resumePos = song.songLoopStart;
+				}
+
+				patternLauncherSavedSongPos = -1;
+				song.songPos = (uint8_t)resumePos;
+				song.pattNum = song.orders[song.songPos];
+				song.currNumRows = patternNumRows[song.pattNum];
+			}
+			else if (patternLauncherQueueCount > 0)
+			{
+				patternLauncherCurrent = patternLauncherQueue[0];
+				for (uint8_t i = 1; i < patternLauncherQueueCount; i++)
+					patternLauncherQueue[i-1] = patternLauncherQueue[i];
+
+				patternLauncherQueueCount--;
+				patternLauncherQueue[patternLauncherQueueCount] = -1;
+			}
+
+			if (patternLauncherCurrent >= 0)
+			{
+				song.pattNum = (uint8_t)patternLauncherCurrent;
+				song.currNumRows = patternNumRows[song.pattNum];
+			}
+		}
+		else if (playMode != PLAYMODE_PATT && playMode != PLAYMODE_RECPATT)
 		{
 			if (bxxOverflow)
 			{
@@ -3514,6 +3582,112 @@ static void getNextPos(void)
 		if (song.row >= song.currNumRows)
 			song.row = 0;
 	}
+}
+
+bool patternLauncherIsEnabled(void)
+{
+	return patternLauncherEnabled;
+}
+
+int16_t patternLauncherGetCurrent(void)
+{
+	return patternLauncherCurrent;
+}
+
+uint8_t patternLauncherGetQueueCount(void)
+{
+	return patternLauncherQueueCount;
+}
+
+int16_t patternLauncherGetQueueItem(uint8_t index)
+{
+	if (index >= patternLauncherQueueCount)
+		return -1;
+
+	return patternLauncherQueue[index];
+}
+
+bool patternLauncherStopIsPending(void)
+{
+	return patternLauncherExitMode == PATTERN_LAUNCHER_EXIT_STOP;
+}
+
+uint8_t patternLauncherGetExitMode(void)
+{
+	return (uint8_t)patternLauncherExitMode;
+}
+
+void patternLauncherSetEnabled(bool enabled)
+{
+	patternLauncherEnabled = enabled;
+	if (!enabled)
+	{
+		patternLauncherCurrent = -1;
+		patternLauncherQueueCount = 0;
+		for (uint8_t i = 0; i < PATTERN_LAUNCHER_QUEUE_MAX; i++)
+			patternLauncherQueue[i] = -1;
+		patternLauncherExitMode = PATTERN_LAUNCHER_EXIT_NONE;
+		patternLauncherSavedSongPos = -1;
+	}
+}
+
+void patternLauncherRequest(uint8_t patternNum, bool ctrlPressed, bool shiftPressed)
+{
+	if (!patternLauncherEnabled)
+	{
+		patternLauncherSavedSongPos = (songPlaying && playMode != PLAYMODE_PATT && playMode != PLAYMODE_RECPATT) ? song.songPos : -1;
+		patternLauncherEnabled = true;
+	}
+
+	/* Re-clicking the newest queued pattern acts as a one-step undo. */
+	if (patternLauncherQueueCount > 0 && patternLauncherQueue[patternLauncherQueueCount-1] == patternNum)
+	{
+		patternLauncherQueueCount--;
+		patternLauncherQueue[patternLauncherQueueCount] = -1;
+		return;
+	}
+
+	if (patternLauncherCurrent == patternNum && patternLauncherQueueCount == 0)
+	{
+		patternLauncherExitMode_t requestedMode;
+		if (ctrlPressed)
+			requestedMode = PATTERN_LAUNCHER_EXIT_STOP;
+		else if (shiftPressed)
+			requestedMode = PATTERN_LAUNCHER_EXIT_CONTINUE;
+		else
+			requestedMode = PATTERN_LAUNCHER_EXIT_RETURN;
+
+		patternLauncherExitMode = patternLauncherExitMode == requestedMode ?
+			PATTERN_LAUNCHER_EXIT_NONE : requestedMode;
+		return;
+	}
+
+	patternLauncherExitMode = PATTERN_LAUNCHER_EXIT_NONE;
+
+	if (!songPlaying)
+	{
+		patternLauncherCurrent = patternNum;
+		patternLauncherQueueCount = 0;
+		for (uint8_t i = 0; i < PATTERN_LAUNCHER_QUEUE_MAX; i++)
+			patternLauncherQueue[i] = -1;
+
+		song.pattNum = patternNum;
+		editor.editPattern = patternNum;
+		startPlaying(PLAYMODE_PATT, 0);
+	}
+	else if (patternLauncherQueueCount < PATTERN_LAUNCHER_QUEUE_MAX)
+	{
+		patternLauncherQueue[patternLauncherQueueCount++] = patternNum;
+	}
+}
+
+void handlePatternLauncherStop(void)
+{
+	if (!patternLauncherStopCleanupPending)
+		return;
+
+	patternLauncherStopCleanupPending = false;
+	stopPlaying();
 }
 
 void pauseMusic(void) // stops reading pattern data
@@ -4249,6 +4423,13 @@ void handleRecPlusExhaustion(void)
 
 void stopPlaying(void)
 {
+	patternLauncherEnabled = false;
+	patternLauncherCurrent = -1;
+	patternLauncherQueueCount = 0;
+	for (uint8_t i = 0; i < PATTERN_LAUNCHER_QUEUE_MAX; i++)
+		patternLauncherQueue[i] = -1;
+	patternLauncherExitMode = PATTERN_LAUNCHER_EXIT_NONE;
+
 	bool songWasPlaying = songPlaying;
 	playMode = PLAYMODE_IDLE;
 	songPlaying = false;

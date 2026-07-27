@@ -387,6 +387,7 @@ static void setupLoadedModule(void)
 	oldPlayMode = playMode;
 	playMode = PLAYMODE_IDLE;
 	songPlaying = false;
+	patternLauncherSetEnabled(false);
 
 #ifdef HAS_MIDI
 	midi.currMIDIVibDepth = 0;
@@ -524,6 +525,7 @@ static void setupLoadedModule(void)
 
 	updateSampleEditorSample();
 	showBottomScreen(); // redraw bottom screen (also redraws pattern editor)
+	patternLauncherForceRedraw();
 
 	if (ui.instEditorShown)
 		drawPiano(NULL); // redraw piano now (since if playing = wait for next tick update)

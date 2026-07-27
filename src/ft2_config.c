@@ -1784,6 +1784,7 @@ void exitConfigScreen(void)
 {
 	hideConfigScreen();
 	showTopScreen(RESTORE_SCREENS);
+	patternLauncherForceRedraw();
 }
 
 // CONFIG AUDIO
