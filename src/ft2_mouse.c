@@ -693,6 +693,31 @@ void mouseButtonUpHandler(uint8_t mouseButton)
 }
 
 
+static bool handleFastTracksLogoRightClick(uint8_t mouseButton)
+{
+	if (mouseButton != SDL_BUTTON_RIGHT)
+		return false;
+
+	/* Keep the two recovery gestures together on the reliable right mouse
+	** button. Plain right-click normalizes all assigned FasTracks heads to
+	** 1:1 while preserving their private positions. Ctrl+right-click also
+	** synchronizes those heads to the master transport. */
+	if (mouse.x < 112 || mouse.x >= 266 || mouse.y < 0 || mouse.y >= 32)
+		return false;
+
+	const SDL_Keymod modifiers = SDL_GetModState();
+	if (modifiers & (KMOD_SHIFT | KMOD_ALT))
+		return false;
+
+	if (modifiers & KMOD_CTRL)
+		fastTracksPOCResetAllRatios();
+	else
+		fastTracksPOCSetAllRatiosOneToOne();
+
+	return true;
+}
+
+
 static bool handleFastTracksHeaderRightClick(uint8_t mouseButton)
 {
 	if (mouseButton != SDL_BUTTON_RIGHT || !ui.patternEditorShown)
@@ -708,7 +733,19 @@ static bool handleFastTracksHeaderRightClick(uint8_t mouseButton)
 		return false;
 
 	const int32_t channelIndex = ui.channelOffset + visibleChannel;
-	if (channelIndex < 0 || channelIndex >= MAX_CHANNELS || !fastTracksPOCIsEnabled(channelIndex))
+	if (channelIndex < 0 || channelIndex >= MAX_CHANNELS || !fastTracksPOCIsSelected(channelIndex))
+		return false;
+
+	/* Keep neighboring transport gestures on the same per-track header:
+	** right-click reverses an audibly enabled FasTracks head, while
+	** Shift+right-click switches its persistent Pattern/Song source mode. */
+	if ((SDL_GetModState() & KMOD_SHIFT) != 0)
+	{
+		fastTracksPOCToggleSongModeForTest(channelIndex);
+		return true;
+	}
+
+	if (!fastTracksPOCIsEnabled(channelIndex))
 		return false;
 
 	fastTracksPOCToggleDirection(channelIndex);
@@ -717,6 +754,7 @@ static bool handleFastTracksHeaderRightClick(uint8_t mouseButton)
 
 void mouseButtonDownHandler(uint8_t mouseButton)
 {
+	if (handleFastTracksLogoRightClick(mouseButton)) return;
 	if (handleFastTracksHeaderRightClick(mouseButton)) return;
 
 	// Tapehead Edition: Ctrl-click the existing Adv. Edit pushbutton to open

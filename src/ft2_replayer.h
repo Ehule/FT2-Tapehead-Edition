@@ -66,15 +66,29 @@ enum
 #define FT2_QUICK_VOLRAMP_MILLISECONDS 5
 #define PROG_NAME_STR "Fasttracker II clone"
 
+// Fast Tracks transport source selected independently for each tracker channel.
+// Each tracker channel can independently use standard, pattern-relative or
+// song-order-relative playback. Existing controls still select Pattern mode;
+// the Song-mode test gesture is kept separate while traversal is validated.
+typedef enum fastTracksMode_t
+{
+	FAST_TRACKS_MODE_STANDARD = 0,
+	FAST_TRACKS_MODE_PATTERN,
+	FAST_TRACKS_MODE_SONG
+} fastTracksMode_t;
+
 // Fast Tracks experimental controls (Tracks 1..8 at 2x)
 bool fastTracksPOCMasterIsEnabled(void);
 bool fastTracksPOCIsSelected(int32_t channelIndex);
+fastTracksMode_t fastTracksPOCGetMode(int32_t channelIndex);
 bool fastTracksPOCIsEnabled(int32_t channelIndex);
 bool fastTracksPOCIsClutched(int32_t channelIndex);
 bool fastTracksPOCIsReversed(int32_t channelIndex);
 bool fastTracksPOCTransmissionClutchIsLatched(void);
 bool fastTracksPOCAnyEnabled(void);
 int32_t fastTracksPOCGetSourceRow(int32_t channelIndex);
+int32_t fastTracksPOCGetSourceOrder(int32_t channelIndex);
+int32_t fastTracksPOCGetSourcePattern(int32_t channelIndex);
 bool fastTracksPOCIsMasterAligned(int32_t channelIndex);
 uint8_t fastTracksPOCGetRatioNumerator(int32_t channelIndex);
 uint8_t fastTracksPOCGetRatioDenominator(int32_t channelIndex);
@@ -89,6 +103,9 @@ void fastTracksPOCRandomizeSelectedRatios(bool syncToMaster);
 void fastTracksPOCSyncSelectedToMaster(void);
 void fastTracksPOCSetAllRatiosOneToOne(void);
 void fastTracksPOCResetAllRatios(void);
+void fastTracksPOCSetMode(int32_t channelIndex, fastTracksMode_t mode);
+void fastTracksPOCSetSelectedMode(fastTracksMode_t mode);
+void fastTracksPOCToggleSongModeForTest(int32_t channelIndex);
 void fastTracksPOCSetTrackEnabled(int32_t channelIndex, bool enabled);
 void fastTracksPOCSyncTrackToMaster(int32_t channelIndex);
 void fastTracksPOCToggle(int32_t channelIndex);

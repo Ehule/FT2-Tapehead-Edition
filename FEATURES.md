@@ -44,6 +44,8 @@ Channels 30–32: Z X C
 - Click Fast Tracks logo — Suspend or resume Fast Tracks globally
 - `Ctrl+Click` Fast Tracks logo — Randomize active ratios
 - `Ctrl+Shift+Click` Fast Tracks logo — Randomize and resynchronize
+- `Right-click` Fast Tracks logo — Return assigned transports to 1:1 while preserving phase (`Alt+Click` is also supported where the window manager does not intercept it)
+- `Ctrl+Alt+Click` Fast Tracks logo — Return assigned transports to 1:1 and synchronize
 
 
 ## Pattern Effect Commands (Zxx)
@@ -58,6 +60,13 @@ using the previously unused XM **Z** effect.
 | Z00-Z0F | Select FastTracks transport ratio |
 | Z10 | Release track clutch |
 | Z11 | Engage track clutch |
+| Z12 | Disable FastTracks on this track |
+| Z13 | Enable this track in Pattern mode |
+| Z14 | Sync this track to the master |
+| Z15 | Select Pattern transport |
+| Z16 | Select Song transport |
+| Z17 | Set this track to 1:1, preserving phase |
+| Z18 | Set this track to 1:1 and sync |
 
 ### Global
 
@@ -71,6 +80,10 @@ using the previously unused XM **Z** effect.
 | Z25 | Global clutch OFF |
 | Z26 | Global clutch ON |
 | Z27 | Reset all ratios to 1:1 while preserving phase |
+| Z28 | Select Pattern transport on all assigned tracks |
+| Z29 | Select Song transport on all assigned tracks |
+| Z2A | Set all assigned tracks to 1:1, preserving phase |
+| Z2B | Set all assigned tracks to 1:1 and synchronize |
 
 These commands modify transport state rather than audio processing, allowing tempo
 relationships, synchronization, and drift to become programmable compositional

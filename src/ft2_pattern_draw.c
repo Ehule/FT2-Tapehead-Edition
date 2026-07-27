@@ -848,6 +848,9 @@ static void drawFastTracksPOCStatus(uint16_t yPos)
 		const uint8_t numerator = fastTracksPOCGetRatioNumerator(fastTrackChannel);
 		const uint8_t denominator = fastTracksPOCGetRatioDenominator(fastTrackChannel);
 		const int32_t sourceRow = fastTracksPOCGetSourceRow(fastTrackChannel);
+		const fastTracksMode_t transportMode = fastTracksPOCGetMode(fastTrackChannel);
+		const bool songMode = transportMode == FAST_TRACKS_MODE_SONG;
+		const int32_t sourceOrder = fastTracksPOCGetSourceOrder(fastTrackChannel);
 		const bool clutchHeld = fastTracksPOCIsClutched(fastTrackChannel);
 		const bool reversed = fastTracksPOCIsReversed(fastTrackChannel);
 
@@ -872,31 +875,31 @@ static void drawFastTracksPOCStatus(uint16_t yPos)
 		const int32_t denominatorDigits = denominator >= 10 ? 2 : 1;
 		const int32_t ratioWidth = (numeratorDigits + 1 + denominatorDigits) * FONT3_CHAR_W;
 
-		/* Keep the ratio around the middle of the channel header and place the
-		** three LEDs directly beside it. Treat ratio + gap + LEDs as one compact
-		** group, then clamp that group inside this channel's panel so no pixels
-		** can bleed into the neighboring track. */
+		/* Anchor the diagnostic cluster to the channel's right edge. This keeps
+		** reverse, phase LEDs and the Song order badge clear of both one- and
+		** two-digit channel numbers. The ratio sits immediately to their left. */
 		const int32_t directionMarkerWidth = reversed ? 8 : 0;
 		const int32_t ledBankWidth = 11; /* three 3px LEDs with 1px gaps */
-		const int32_t ratioLedGap = 2;
-		const int32_t groupWidth = directionMarkerWidth + ratioWidth + ratioLedGap + ledBankWidth;
+		const int32_t ratioStatusGap = 2;
+		const int32_t directionLedGap = reversed ? 1 : 0;
+		const int32_t songBadgeGap = songMode ? 2 : 0;
+		const int32_t songBadgeWidth = songMode ? 10 : 0; /* highlighted two-digit order number */
+		const int32_t statusWidth = directionMarkerWidth + directionLedGap + ledBankWidth + songBadgeGap + songBadgeWidth;
+		const int32_t groupWidth = ratioWidth + ratioStatusGap + statusWidth;
 		const int32_t panelLeft = (int32_t)xPos;
 		const int32_t panelRight = panelLeft + panelWidth - 1;
+		const int32_t minimumGroupX = panelLeft + 12; /* protect channel number */
 
-		int32_t groupX = panelLeft + ((int32_t)panelWidth - groupWidth) / 2;
-		const int32_t minimumGroupX = panelLeft + 12; /* protect 1- or 2-digit track number */
+		int32_t groupX = panelRight - groupWidth - 2; /* extra inset keeps lit LEDs inside the track */
 		if (groupX < minimumGroupX)
 			groupX = minimumGroupX;
 
-		const int32_t maximumGroupX = panelRight - groupWidth + 1;
-		if (groupX > maximumGroupX)
-			groupX = maximumGroupX;
-
-		const int32_t directionX = groupX;
-		const int32_t ratioX = groupX + directionMarkerWidth;
-		const uint16_t lagLedX = (uint16_t)(ratioX + ratioWidth + ratioLedGap);
+		const int32_t ratioX = groupX;
+		const int32_t directionX = ratioX + ratioWidth + ratioStatusGap;
+		const uint16_t lagLedX = (uint16_t)(directionX + directionMarkerWidth + directionLedGap);
 		const uint16_t syncLedX = (uint16_t)(lagLedX + 4);
 		const uint16_t leadLedX = (uint16_t)(syncLedX + 4);
+		const uint16_t songBadgeX = (uint16_t)(leadLedX + 3 + songBadgeGap);
 
 		const int32_t colonX = ratioX + (numeratorDigits * FONT3_CHAR_W);
 		const uint32_t ratioColor = video.palette[PAL_BLCKTXT];
@@ -911,6 +914,17 @@ static void drawFastTracksPOCStatus(uint16_t yPos)
 		video.frameBuffer[((yPos + 3) * SCREEN_W) + colonX + 1] = ratioColor;
 		video.frameBuffer[((yPos + 5) * SCREEN_W) + colonX + 1] = ratioColor;
 		textOutTiny(colonX + FONT3_CHAR_W, yPos + 1, denominatorText, ratioColor);
+
+		if (songMode)
+		{
+			/* The solid badge identifies Song transport and reports the private
+			** order-list position. This remains diagnostic when several order
+			** entries point to the same pattern. */
+			char orderText[3];
+			snprintf(orderText, sizeof (orderText), "%02X", sourceOrder & 0xFF);
+			fillRect(songBadgeX, yPos, (uint16_t)songBadgeWidth, 8, PAL_BLCKMRK);
+			textOutTiny(songBadgeX + 1, yPos + 1, orderText, video.palette[PAL_BLCKTXT]);
+		}
 
 		/* Draw all three housings so the indicator reads as a tiny LED bank even
 		** when only one lamp is active. */
@@ -927,7 +941,7 @@ static void drawFastTracksPOCStatus(uint16_t yPos)
 			const uint32_t syncColor = breatheColorToward(0xFF00D040, video.palette[panelColor]);
 			drawFastTracksPOCLed(syncLedX, (uint16_t)(yPos + 2), syncColor);
 		}
-		else
+		else if (!songMode)
 		{
 			const int32_t numRows = song.currNumRows > 0 ? song.currNumRows : 1;
 			int32_t phaseOffset = sourceRow - song.row;

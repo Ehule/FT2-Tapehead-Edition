@@ -38,10 +38,11 @@
 static void pbFastTracksLogo(void)
 {
 	const SDL_Keymod modifiers = SDL_GetModState();
+
 	if (modifiers & KMOD_CTRL)
 	{
-		/* Temporary sound-design test: Ctrl-click randomizes every selected
-		** Fast Track. Ctrl+Shift-click also synchronizes them to the master. */
+		/* Ctrl-click randomizes every selected Fast Track. Ctrl+Shift-click
+		** also synchronizes them to the master. */
 		fastTracksPOCRandomizeSelectedRatios((modifiers & KMOD_SHIFT) != 0);
 		return;
 	}
