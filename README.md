@@ -164,10 +164,11 @@ Tapehead Edition provides a bounded module-edit history:
 - When the ceiling is reached, the oldest transactions are discarded first
 - A new edit after undo clears the redo branch
 
-The memory ceiling can be changed manually in `TAPEHEAD.CFG`, located beside the program/config files:
+The memory ceiling can be changed in `tapehead.ini`, located beside the program:
 
 ```ini
-undoMemoryMB=32
+[Undo]
+UndoMemoryMB=32
 ```
 
 Accepted values are 4–1024 MB. The default is intentionally conservative for older systems such as ThinkPad X40-class hardware. Pattern operations are very small; large destructive sample or instrument edits consume the history more quickly.

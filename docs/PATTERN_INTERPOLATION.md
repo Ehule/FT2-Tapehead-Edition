@@ -39,13 +39,15 @@ While the note preview is active, choose a scale:
 7. Mixolydian
 8. Freygish (Phrygian dominant / Ahava Rabbah)
 9. Harmonic minor
-0. Whole tone
+0. Repeat
 
 The first press chooses the scale and previews an ascending open-ended walk. Press the same number again to toggle open-ended walks between ascending and descending. Choosing a different number selects that scale and resets open-ended walks to ascending.
 
 Two-anchor walks follow the direction of their explicit destination note. The endpoint itself is never replaced, even when it is outside the selected scale.
 
-The current edit-row skip controls spacing. A skip of 1 paints every row; larger values leave intentional rhythmic gaps.
+Repeat is a special one-note mode rather than a pitched scale. When the selected block contains exactly one note, that note is copied at the current spacing to every selected track. The source row anchors the rhythm, which extends both upward and downward through the selection.
+
+The current edit-row skip controls spacing. A skip of 1 paints every row; larger values leave intentional rhythmic gaps. Starting note interpolation with a step of 0 leaves the pattern unchanged and displays a non-zero-step warning.
 
 ### Live spacing control
 

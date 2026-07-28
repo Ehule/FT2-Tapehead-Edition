@@ -9,7 +9,7 @@ This build adds the first module-wide transaction history foundation.
 ## Limits
 - 128 transactions maximum
 - 32 MB default memory ceiling
-- Configurable through TAPEHEAD.CFG: undoMemoryMB=32
+- Configurable through `[Undo]` in `tapehead.ini`: `UndoMemoryMB=32`
 - Oldest entries are evicted first
 - Redo history is discarded after a new committed edit
 

@@ -30,12 +30,17 @@ static const uint16_t scaleMasks[10] =
 	0x06B5, // 7: mixolydian
 	0x05B3, // 8: Freygish (Phrygian dominant / Ahava Rabbah)
 	0x09AD, // 9: harmonic minor
-	0x0555  // 0: whole tone
+	0x0000  // 0: repeat (not a pitched scale)
 };
 
 static void interpolationError(void)
 {
 	okBox(0, "System message", "Incompatible interpolation values.", NULL);
+}
+
+static void interpolationStepError(void)
+{
+	okBox(0, "System message", "Non-zero step value required.", NULL);
 }
 
 static bool getSelection(int32_t *x1, int32_t *x2, int32_t *y1, int32_t *y2)
@@ -253,8 +258,51 @@ static void paintEndpointWalk(note_t *p, int32_t ch, int32_t startRow, int32_t e
 	}
 }
 
+static bool renderRepeatPreview(note_t *p, int32_t x1, int32_t x2, int32_t y1, int32_t y2)
+{
+	int32_t anchorCh = -1, anchorRow = -1;
+	int32_t totalAnchors = 0;
+
+	for (int32_t ch = x1; ch <= x2; ch++)
+	{
+		int32_t firstRow, lastRow;
+		const int32_t count = countTrackAnchors(patternSnapshot, ch, y1, y2, &firstRow, &lastRow);
+		totalAnchors += count;
+		if (count == 1)
+		{
+			anchorCh = ch;
+			anchorRow = firstRow;
+		}
+	}
+
+	if (totalAnchors != 1)
+		return false;
+
+	const note_t anchor = patternSnapshot[(anchorRow * MAX_CHANNELS) + anchorCh];
+	for (int32_t ch = x1; ch <= x2; ch++)
+	{
+		for (int32_t row = y1; row < y2; row++)
+		{
+			if (abs(row - anchorRow) % previewStepLength != 0)
+				continue;
+
+			note_t *n = &p[(row * MAX_CHANNELS) + ch];
+			n->note = anchor.note;
+			n->instr = anchor.instr;
+		}
+	}
+
+	return true;
+}
+
 static void renderNotePreview(note_t *p, int32_t x1, int32_t x2, int32_t y1, int32_t y2)
 {
+	if (scalePreset == 9)
+	{
+		renderRepeatPreview(p, x1, x2, y1, y2);
+		return;
+	}
+
 	int32_t totalAnchors = 0;
 	int32_t onlyAnchorCh = -1, onlyAnchorRow = -1;
 	for (int32_t ch = x1; ch <= x2; ch++)
@@ -347,7 +395,10 @@ bool interpolationBegin(uint8_t type)
 	if (previewActive || !ui.patternEditorShown)
 		return false;
 	if (type == INTERPOLATE_NOTES && editor.editRowSkip == 0)
+	{
+		interpolationStepError();
 		return true;
+	}
 	if (!getSelection(&x1, &x2, &y1, &y2) || !validateSelection(type, x1, x2, y1, y2))
 	{
 		interpolationError();

@@ -49,11 +49,11 @@ static volatile bool recPlusEarnedGameOver;
 static note_t nilPatternLine[MAX_CHANNELS];
 
 /*
-** Fast Tracks multi-channel prototype
-** -----------------------------------
-** The first eight channels can independently read two pattern rows during
-** every master row. Source rows wrap inside the current pattern. This is
-** runtime-only and does not alter XM pattern data or the file format.
+** FasTracks multi-channel transport
+** ---------------------------------
+** All 32 XM channels can own a rational private Pattern or Song transport.
+** This runtime-only interpretation does not alter XM pattern data or the
+** file format.
 */
 #define FAST_TRACKS_MAX_CHANNELS MAX_CHANNELS
 

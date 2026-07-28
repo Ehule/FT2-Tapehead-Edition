@@ -299,6 +299,7 @@ typedef struct tapeheadConfig_t
 {
 	bool diskOpBackspaceParent;
 	bool patternBackspacePullUp;
+	uint32_t undoMemoryMB;
 } tapeheadConfig_t;
 
 extern tapeheadConfig_t tapeheadConfig;

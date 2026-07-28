@@ -35,6 +35,33 @@
 
 #define BUTTON_GFX_BMP_WIDTH 90
 
+static uint16_t tightButtonTextWidth(const char *text)
+{
+	uint16_t width = 0;
+	uint16_t length = 0;
+
+	while (*text != '\0')
+	{
+		width += charWidth(*text++);
+		length++;
+	}
+
+	if (length > 0)
+		width -= length;
+
+	return width;
+}
+
+static void tightButtonTextOut(uint16_t x, uint16_t y, uint8_t paletteIndex, const char *text)
+{
+	while (*text != '\0')
+	{
+		const char ch = *text++;
+		charOut(x, y, paletteIndex, ch);
+		x += charWidth(ch) - 1;
+	}
+}
+
 static void pbFastTracksLogo(void)
 {
 	const SDL_Keymod modifiers = SDL_GetModState();
@@ -576,30 +603,52 @@ void drawPushButton(uint16_t pushButtonID)
 		}
 		else // normal text
 		{
+			const bool tightText = pushButtonID == PB_SWAP_BANK && b->caption2 != NULL;
+
 			// button text #2 (if present)
 			if (b->caption2 != NULL && *b->caption2 != '\0')
 			{
-				textW = textWidth(b->caption2);
+				textW = tightText ? tightButtonTextWidth(b->caption2) : textWidth(b->caption2);
 				textX = x + ((w - textW) / 2);
 				textY = y + 6 + ((h - (FONT1_CHAR_H - 2)) / 2);
 
 				if (state == PUSHBUTTON_PRESSED)
-					textOut(textX + 1, textY + 1, PAL_BTNTEXT, b->caption2);
+				{
+					if (tightText)
+						tightButtonTextOut(textX + 1, textY + 1, PAL_BTNTEXT, b->caption2);
+					else
+						textOut(textX + 1, textY + 1, PAL_BTNTEXT, b->caption2);
+				}
 				else
-					textOut(textX, textY, PAL_BTNTEXT, b->caption2);
+				{
+					if (tightText)
+						tightButtonTextOut(textX, textY, PAL_BTNTEXT, b->caption2);
+					else
+						textOut(textX, textY, PAL_BTNTEXT, b->caption2);
+				}
 
 				y -= 5; // if two text lines, bias y position of first (upper) text
 			}
 
 			// button text #1
-			textW = textWidth(b->caption);
+			textW = tightText ? tightButtonTextWidth(b->caption) : textWidth(b->caption);
 			textX = x + ((w - textW) / 2);
 			textY = y + ((h - (FONT1_CHAR_H - 2)) / 2);
 
 			if (state == PUSHBUTTON_PRESSED)
-				textOut(textX + 1, textY + 1, PAL_BTNTEXT, b->caption);
+			{
+				if (tightText)
+					tightButtonTextOut(textX + 1, textY + 1, PAL_BTNTEXT, b->caption);
+				else
+					textOut(textX + 1, textY + 1, PAL_BTNTEXT, b->caption);
+			}
 			else
-				textOut(textX, textY, PAL_BTNTEXT, b->caption);
+			{
+				if (tightText)
+					tightButtonTextOut(textX, textY, PAL_BTNTEXT, b->caption);
+				else
+					textOut(textX, textY, PAL_BTNTEXT, b->caption);
+			}
 		}
 	}
 }

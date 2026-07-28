@@ -5,8 +5,13 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 #include <math.h>
 #include <ctype.h>
+#include <errno.h>
+#ifndef _WIN32
+#include <strings.h>
+#endif
 #ifdef _WIN32
 #define _WIN32_IE 0x0500
 #define WIN32_MEAN_AND_LEAN
@@ -568,6 +573,22 @@ static bool parseBoolValue(const char *s, bool *value)
 	return false;
 }
 
+static bool parseUInt32Value(const char *s, uint32_t *value)
+{
+	char *end;
+	errno = 0;
+	const unsigned long parsed = strtoul(s, &end, 10);
+	if (s == end || errno == ERANGE || parsed > UINT32_MAX)
+		return false;
+
+	while (isspace((unsigned char)*end)) end++;
+	if (*end != '\0')
+		return false;
+
+	*value = (uint32_t)parsed;
+	return true;
+}
+
 static void writeDefaultTapeheadConfig(const UNICHAR *filePathU)
 {
 	FILE *f = UNICHAR_FOPEN(filePathU, "w");
@@ -581,7 +602,10 @@ static void writeDefaultTapeheadConfig(const UNICHAR *filePathU)
 	fputs("; Backspace navigates to the parent directory while Disk Op is open.\n", f);
 	fputs("DiskOpBackspaceParent=false\n\n", f);
 	fputs("; Backspace deletes the current note row and pulls later notes upward.\n", f);
-	fputs("PatternBackspacePullUp=false\n", f);
+	fputs("PatternBackspacePullUp=false\n\n", f);
+	fputs("[Undo]\n\n", f);
+	fputs("; Undo history memory ceiling in megabytes (accepted range: 4-1024).\n", f);
+	fputs("UndoMemoryMB=32\n", f);
 	fclose(f);
 }
 
@@ -589,6 +613,7 @@ void loadTapeheadConfig(void)
 {
 	tapeheadConfig.diskOpBackspaceParent = false;
 	tapeheadConfig.patternBackspacePullUp = false;
+	tapeheadConfig.undoMemoryMB = 32;
 
 	UNICHAR *filePathU = getFullTapeheadConfigPathU();
 	if (filePathU == NULL)
@@ -603,7 +628,13 @@ void loadTapeheadConfig(void)
 	}
 
 	char line[256];
-	bool keyboardSection = false;
+	enum
+	{
+		TAPEHEAD_SECTION_NONE,
+		TAPEHEAD_SECTION_KEYBOARD,
+		TAPEHEAD_SECTION_UNDO
+	} section = TAPEHEAD_SECTION_NONE;
+
 	while (fgets(line, sizeof (line), f) != NULL)
 	{
 		char *text = trimText(line);
@@ -614,11 +645,16 @@ void loadTapeheadConfig(void)
 		{
 			char *close = strchr(text, ']');
 			if (close != NULL) *close = '\0';
-			keyboardSection = !_stricmp(text + 1, "Keyboard");
+			if (!_stricmp(text + 1, "Keyboard"))
+				section = TAPEHEAD_SECTION_KEYBOARD;
+			else if (!_stricmp(text + 1, "Undo"))
+				section = TAPEHEAD_SECTION_UNDO;
+			else
+				section = TAPEHEAD_SECTION_NONE;
 			continue;
 		}
 
-		if (!keyboardSection)
+		if (section == TAPEHEAD_SECTION_NONE)
 			continue;
 
 		char *equals = strchr(text, '=');
@@ -628,10 +664,17 @@ void loadTapeheadConfig(void)
 		char *key = trimText(text);
 		char *value = trimText(equals + 1);
 
-		if (!_stricmp(key, "DiskOpBackspaceParent"))
-			parseBoolValue(value, &tapeheadConfig.diskOpBackspaceParent);
-		else if (!_stricmp(key, "PatternBackspacePullUp"))
-			parseBoolValue(value, &tapeheadConfig.patternBackspacePullUp);
+		if (section == TAPEHEAD_SECTION_KEYBOARD)
+		{
+			if (!_stricmp(key, "DiskOpBackspaceParent"))
+				parseBoolValue(value, &tapeheadConfig.diskOpBackspaceParent);
+			else if (!_stricmp(key, "PatternBackspacePullUp"))
+				parseBoolValue(value, &tapeheadConfig.patternBackspacePullUp);
+		}
+		else if (section == TAPEHEAD_SECTION_UNDO && !_stricmp(key, "UndoMemoryMB"))
+		{
+			parseUInt32Value(value, &tapeheadConfig.undoMemoryMB);
+		}
 	}
 
 	fclose(f);
@@ -1784,7 +1827,6 @@ void exitConfigScreen(void)
 {
 	hideConfigScreen();
 	showTopScreen(RESTORE_SCREENS);
-	patternLauncherForceRedraw();
 }
 
 // CONFIG AUDIO

@@ -66,10 +66,9 @@ enum
 #define FT2_QUICK_VOLRAMP_MILLISECONDS 5
 #define PROG_NAME_STR "Fasttracker II clone"
 
-// Fast Tracks transport source selected independently for each tracker channel.
+// FasTracks transport source selected independently for each tracker channel.
 // Each tracker channel can independently use standard, pattern-relative or
-// song-order-relative playback. Existing controls still select Pattern mode;
-// the Song-mode test gesture is kept separate while traversal is validated.
+// song-order-relative playback.
 typedef enum fastTracksMode_t
 {
 	FAST_TRACKS_MODE_STANDARD = 0,
@@ -77,7 +76,7 @@ typedef enum fastTracksMode_t
 	FAST_TRACKS_MODE_SONG
 } fastTracksMode_t;
 
-// Fast Tracks experimental controls (Tracks 1..8 at 2x)
+// FasTracks controls for all 32 XM channels.
 bool fastTracksPOCMasterIsEnabled(void);
 bool fastTracksPOCIsSelected(int32_t channelIndex);
 fastTracksMode_t fastTracksPOCGetMode(int32_t channelIndex);

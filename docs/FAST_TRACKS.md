@@ -1,111 +1,159 @@
-# Fast Tracks — Experimental Design and Test Notes
+# FasTracks
 
-Fast Tracks is an experimental Tapehead Edition playback and visualization system. It allows the first eight FT2 channels to interpret one shared master transport through separate per-track row positions.
+FasTracks gives every XM channel a private row-reading transport while retaining FastTracker II's shared audio clock. The master still owns BPM, ticks per line, playback timing, and the ordinary order list. Each assigned track adds its own ratio, phase, source position, direction, mode, and clutch state.
 
-The feature does **not** create eight unrelated songs or eight independent BPM clocks. All tracks continue to share FT2's song position, pattern order, BPM, speed, and tick engine. A Fast Track instead advances through the current pattern at a different row-reading ratio.
+The result behaves less like 32 unrelated sequencers than 32 tape heads sharing one motor.
 
-## Current prototype
+FasTracks is a runtime interpretation layer. It does not change the XM pattern format, and the transport setup is not written into XM metadata.
 
-The present implementation supports:
+## Transport model
 
-- Tracks 1–8;
-- a fixed 2× rate;
-- independent activation with `Ctrl+Shift+1` through `Ctrl+Shift+8`;
-- independent phase determined by the moment each track is activated;
-- an independently scrolling column for each active track;
-- a fixed miniature playhead marker;
-- a `2X` label and hexadecimal source-row readout;
-- theme-safe coloring of populated Fast Track events.
+Each of the 32 channels can be in one of three modes:
 
-## Visual model
+- **Standard** — read the ordinary master pattern and row.
+- **Pattern** — keep a private row that wraps inside the pattern selected by the master order.
+- **Song** — keep a private order and row that traverse the complete order list independently.
 
-The pattern is treated like a rotating music-box barrel or tape loop.
+All private transports use the same rational tick accumulator, including `1:1`. Changing ratio preserves the track's private source position and normalized sub-row phase. Direction changes also preserve phase.
 
-The tiny arrow is the stationary read head. The pattern information moves past it. Only populated musical information is recolored, so notes, instruments, volume commands, and effects visibly travel around the barrel while empty cells remain visually quiet.
+Song transport continues along its private order list while the Pattern Matrix changes the pattern heard by the master. This separation is intentional: the Matrix can perform one layer while Song-mode FasTracks freewheel underneath it.
 
-Inactive tracks retain the stock FT2 pattern presentation.
+## Ratio bank
 
-## Phase behavior
+The live ratio bank cycles in this order:
 
-Each Fast Track has a private source-row state.
+`1:2 → 2:3 → 3:4 → 4:5 → 5:6 → 7:8 → 15:16 → 1:1 → 17:16 → 8:7 → 6:5 → 5:4 → 4:3 → 3:2 → 2:1 → 3:1 → 5:1`
 
-Activating Tracks 1–8 at different moments creates different phase relationships even though all active tracks currently run at 2×. This free-phase activation is musically useful and should remain available.
+The ratio is written as `source rows : master rows`.
 
-Disabling an individual Fast Track returns it to the shared master row. Re-enabling it begins Fast Track operation again according to the current implementation's activation behavior.
+The `Z0x` pattern bank addresses the 16 non-neutral ratios:
 
-Future global controls are intended to distinguish these operations:
+| Command | Ratio | Command | Ratio |
+|---|---:|---|---:|
+| `Z00` | `1:2` | `Z08` | `8:7` |
+| `Z01` | `2:3` | `Z09` | `6:5` |
+| `Z02` | `3:4` | `Z0A` | `5:4` |
+| `Z03` | `4:5` | `Z0B` | `4:3` |
+| `Z04` | `5:6` | `Z0C` | `3:2` |
+| `Z05` | `7:8` | `Z0D` | `2:1` |
+| `Z06` | `15:16` | `Z0E` | `3:1` |
+| `Z07` | `17:16` | `Z0F` | `5:1` |
 
-- **Suspend/resume:** temporarily return all selected tracks to normal presentation and playback while retaining their private source row and denominator phase state.
-- **Phase reset:** align all selected Fast Tracks to a common source position.
-- **Select all:** arm or disarm the first eight tracks without erasing future per-track ratio settings.
+Use `Z17` or `Z18` for the neutral `1:1` ratio.
 
-The proposed main Fast Tracks logo behavior is:
+## Keyboard controls
 
-- click: global suspend/resume while preserving phase;
-- Shift+click: reset selected tracks into phase;
-- Ctrl+Shift+click: select or activate all eight tracks.
+The physical track-key map covers all 32 XM channels:
 
-These controls are design decisions and are not implemented yet.
+```text
+Channels  1-10: 1 2 3 4 5 6 7 8 9 0
+Channels 11-20: Q W E R T Y U I O P
+Channels 21-29: A S D F G H J K L
+Channels 30-32: Z X C
+```
 
-## Editing behavior
+- `Ctrl+Shift+Track Key` — toggle that track between Standard and Pattern transport.
+- `Alt+Shift+Track Key` — cycle that track through the full ratio bank.
+- Hold `Ctrl+Alt+Track Key` — momentary per-track clutch.
+- `Ctrl+Alt+Plus` — toggle the global transmission clutch.
 
-Editing has been tested while Fast Tracks playback visualization is active.
+The momentary per-track clutch temporarily uses the master row and freezes that private transport. Releasing it synchronizes the private transport to the master.
 
-Pattern data is still stored successfully, but the visible Fast Track column is centered around its private playback row rather than necessarily showing the master edit row. A newly entered note can therefore be hidden until the rotating column reaches it again.
+The latched global transmission clutch is deliberately different: audible playback uses the master while every assigned private transport keeps advancing silently. Releasing the global clutch returns directly to the naturally accumulated private positions.
 
-When playback is stopped, the experimental independent column can appear to move with the master edit cursor, as if the stopped barrels are mechanically coupled. A future option should provide an aligned composition view while stopped and automatically switch to independent transport-centered columns during playback.
+## Mouse controls
 
-## Effect behavior
+### FasTracks logo
 
-Fast Tracks currently execute the events encountered at their private source rows.
+- Left-click — suspend or resume FasTracks globally without erasing the assigned tracks, ratios, modes, directions, or private phases.
+- `Shift+Left-click` — synchronize every assigned private transport to the master.
+- `Ctrl+Left-click` — randomize every assigned ratio while preserving private position and phase.
+- `Ctrl+Shift+Left-click` — randomize and synchronize every assigned transport.
+- Right-click — set every assigned track to `1:1` while preserving its private position and phase.
+- `Ctrl+Right-click` — set every assigned track to `1:1` and synchronize it to the master.
 
-This has an important consequence for effects that influence global replay state:
+The global logo acts as a master audible/transport enable. While it is off, private transports are preserved but do not advance. Pattern commands can still prepare ratios, modes, and clutch state underneath it.
 
-- a global effect on an ordinary track is encountered at the master rate;
-- a global effect on a 2× Fast Track is encountered at the Fast Track's row-reading rate;
-- the global consequence still applies to the complete song.
+### Channel header
 
-### E6 test
+- Right-click an assigned, audibly enabled channel header — toggle its private direction.
+- `Shift+Right-click` an assigned channel header — toggle Pattern/Song transport.
 
-E6 pattern-loop commands were tested in three configurations:
+Reverse changes traversal direction rather than rewriting pattern data. Pattern mode wraps backward within the current pattern; Song mode crosses pattern and order boundaries backward.
 
-1. E6 on a normal track with Fast Tracks disabled behaved like stock FT2.
-2. E6 on a normal track while another channel used Fast Tracks continued to execute at the normal rate.
-3. E6 placed on an active 2× Fast Track affected the complete song while being encountered at the faster transport rate, creating a faster rhythmic loop behavior.
+## Pattern-programmable commands
 
-This behavior is currently intentional. It makes a Fast Track capable of acting as a high-rate global modulation lane rather than restricting Fast Tracks to notes alone.
+Tapehead Edition uses the XM `Z` effect for FasTracks control. The meanings in this table are frozen for module compatibility. Unlisted `Z` parameters are reserved and currently do nothing.
 
-Conflicting effects, multiple E6 commands, position jumps, pattern breaks, tempo commands, and multi-pattern songs require systematic testing before this behavior can be considered stable.
+### Per-track commands
 
-## Compatibility
+| Command | Frozen meaning |
+|---|---|
+| `Z00-Z0F` | Select one of the 16 non-neutral ratios listed above |
+| `Z10` | Release the per-track clutch and rejoin the master |
+| `Z11` | Engage the per-track clutch |
+| `Z12` | Disable FasTracks on this track |
+| `Z13` | Enable this track in Pattern mode |
+| `Z14` | One-shot sync this private transport to the master; preserve ratio and mode |
+| `Z15` | Select Pattern transport |
+| `Z16` | Select Song transport |
+| `Z17` | Set this track to `1:1`; preserve private position and phase |
+| `Z18` | Set this track to `1:1` and synchronize it to the master |
 
-Fast Tracks currently changes runtime interpretation and visualization without altering the standard XM pattern representation.
+### Global commands
 
-A stock FT2-compatible player will not reproduce Fast Tracks timing from the same pattern data. Future work must preserve Tapehead-specific state separately and provide a baking process that expands Fast Tracks behavior into ordinary XM rows and effects when stock compatibility is required.
+| Command | Frozen meaning |
+|---|---|
+| `Z20` | FasTracks master OFF |
+| `Z21` | FasTracks master ON |
+| `Z22` | Randomize all assigned ratios; preserve private positions and phases |
+| `Z23` | Synchronize all assigned private transports to the master |
+| `Z24` | Set all assigned tracks to `1:1` and synchronize |
+| `Z25` | Global transmission clutch OFF |
+| `Z26` | Global transmission clutch ON |
+| `Z27` | Set all assigned tracks to `1:1`; preserve private positions and phases |
+| `Z28` | Select Pattern transport on all assigned tracks |
+| `Z29` | Select Song transport on all assigned tracks |
+| `Z2A` | Compatibility alias of `Z27` |
+| `Z2B` | Compatibility alias of `Z24` |
 
-## Regression test module
+Pattern commands are persistent state changes rather than one-row audio effects. Global commands execute when any playing transport encounters them, including a private FasTracks head. A control lane can therefore encounter global commands at its own ratio.
 
-An eight-channel XM containing percussion and scale material is being used as the first Fast Tracks regression test.
+Direction is mouse-controlled in this checkpoint; no `Z` direction command is assigned.
 
-Useful checks include:
+## Synchronization vocabulary
 
-- toggle each of Tracks 1–8 independently;
-- activate several tracks at different moments and verify free phase;
-- activate all eight and observe renderer stability;
-- disable tracks and verify clean return to the master row;
-- enter notes while active and verify that they appear when the private view reaches them;
-- test global effects on normal and Fast Track lanes;
-- test multiple patterns and unusual pattern lengths;
-- compile and run the same checkpoint on Linux and Windows.
+- **Preserve phase / dirty change** — retain each private source position and normalized accumulator while changing ratio or another property.
+- **Synchronize / clean sync** — align a private source row and fractional tick phase to the master at that instant.
+- **Clutch** — temporarily route audible playback through the master according to the per-track or global behavior described above.
 
-Internally, this test has acquired the accidental nickname **Proof of Contracept**: the test that ensures no unrelated behavior is born from a Fast Tracks change.
+A synchronized non-`1:1` transport begins drifting again immediately because its rate differs from the master. Synchronized `1:1` remains aligned.
 
-## First per-track ratio bank
+## Session state and XM compatibility
 
-Each of the first eight Fast Tracks now owns a rational `source rows : master rows` ratio. Use `Alt+Shift+1` through `Alt+Shift+8` to cycle the corresponding track through:
+FasTracks state is runtime-only:
 
-`1:2 → 2:3 → 3:4 → 1:1 → 2:1`
+- Loading another module retains the current master state, assigned tracks, modes, ratios, and directions.
+- Source rows, source orders, fractional phases, and clutch state are reset for the newly loaded module.
+- `Z` commands placed near the beginning of a module can establish a deterministic Tapehead performance setup.
+- Stock FastTracker-compatible software can load, display, edit, play, and resave the XM. It ignores the Tapehead runtime behavior, so the music plays from the ordinary master transport.
 
-Changing ratio retains the track's current private source row and derives a new live phase offset from that position. This makes ratio changes performable rather than forcing the track back to a clean master alignment.
+Do not place required musical data outside the standard XM structure. Future baking/export work can translate a FasTracks performance into ordinary pattern data when stock playback must reproduce the result.
 
-Ratios at or below `1:1` are currently resolved at master-row boundaries. `2:1` uses the established half-row tick event. Faster rational ratios such as `3:2` are reserved for the next transport milestone, where a persistent tick-phase accumulator can implement them without timing approximations.
+## Regression checklist
+
+Before accepting transport changes, test:
+
+- all 17 live ratios at several BPM and TPL values;
+- synchronized `1:1` for visible or audible drift;
+- forward and reverse Pattern traversal;
+- forward and reverse Song traversal across patterns of different lengths;
+- ratio changes with private phase preserved;
+- per-track clutch and global transmission clutch;
+- master suspend/resume;
+- dirty randomize and randomize-plus-sync;
+- `Z00-Z18` and `Z20-Z2B`, including the two compatibility aliases;
+- effects encountered by private control tracks;
+- Pattern Matrix performance while Song transports freewheel;
+- module loading with retained session setup and reset positional state;
+- stock FT2 Clone load, display, playback, save, and Tapehead reopen compatibility.

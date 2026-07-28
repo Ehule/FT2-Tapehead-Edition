@@ -44,50 +44,15 @@ Channels 30–32: Z X C
 - Click Fast Tracks logo — Suspend or resume Fast Tracks globally
 - `Ctrl+Click` Fast Tracks logo — Randomize active ratios
 - `Ctrl+Shift+Click` Fast Tracks logo — Randomize and resynchronize
-- `Right-click` Fast Tracks logo — Return assigned transports to 1:1 while preserving phase (`Alt+Click` is also supported where the window manager does not intercept it)
-- `Ctrl+Alt+Click` Fast Tracks logo — Return assigned transports to 1:1 and synchronize
+- `Right-click` Fast Tracks logo — Return assigned transports to 1:1 while preserving phase
+- `Ctrl+Right-click` Fast Tracks logo — Return assigned transports to 1:1 and synchronize
+- `Right-click` an assigned channel header — Reverse that private transport
+- `Shift+Right-click` an assigned channel header — Toggle Pattern/Song transport
 
 
 ## Pattern Effect Commands (Zxx)
 
-Tapehead Edition introduces a new family of pattern-programmable transport effects
-using the previously unused XM **Z** effect.
-
-### Per-Track
-
-| Command | Description |
-|---------|-------------|
-| Z00-Z0F | Select FastTracks transport ratio |
-| Z10 | Release track clutch |
-| Z11 | Engage track clutch |
-| Z12 | Disable FastTracks on this track |
-| Z13 | Enable this track in Pattern mode |
-| Z14 | Sync this track to the master |
-| Z15 | Select Pattern transport |
-| Z16 | Select Song transport |
-| Z17 | Set this track to 1:1, preserving phase |
-| Z18 | Set this track to 1:1 and sync |
-
-### Global
-
-| Command | Description |
-|---------|-------------|
-| Z20 | FastTracks OFF |
-| Z21 | FastTracks ON |
-| Z22 | Randomize all transport ratios |
-| Z23 | Synchronize all transports |
-| Z24 | Reset all ratios to 1:1 and synchronize |
-| Z25 | Global clutch OFF |
-| Z26 | Global clutch ON |
-| Z27 | Reset all ratios to 1:1 while preserving phase |
-| Z28 | Select Pattern transport on all assigned tracks |
-| Z29 | Select Song transport on all assigned tracks |
-| Z2A | Set all assigned tracks to 1:1, preserving phase |
-| Z2B | Set all assigned tracks to 1:1 and synchronize |
-
-These commands modify transport state rather than audio processing, allowing tempo
-relationships, synchronization, and drift to become programmable compositional
-elements.
+Tapehead Edition uses the XM **Z** effect for persistent, pattern-programmable FasTracks transport control. The compatibility-frozen command table, exact ratio mapping, and behavior notes are maintained in [docs/FAST_TRACKS.md](docs/FAST_TRACKS.md#pattern-programmable-commands).
 
 ### MIDI Dub output
 
@@ -138,7 +103,9 @@ elements.
 - Two-anchor walks that preserve explicit endpoints
 - Multiple selected tracks can use independent anchors
 - Scale-aware note generation
-- Chromatic, major, natural minor, pentatonic, modal, Freygish, harmonic minor, and whole-tone scales
+- Chromatic, major, natural minor, pentatonic, modal, Freygish, and harmonic-minor scales
+- Repeat bank fills a one-note selection across rows and multiple tracks at the current spacing
+- A zero edit step displays a warning instead of failing silently
 - Press the active scale number again to reverse an open-ended walk
 - Grave / tilde and `Shift+Grave` — Adjust preview spacing
 - Playback and Fast Tracks controls remain usable during preview

@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "ft2_header.h"
+#include "ft2_config.h"
 #include "ft2_replayer.h"
 #include "ft2_pattern_ed.h"
 #include "ft2_sample_ed.h"
@@ -515,22 +516,7 @@ void redoPerform(void)
 
 void undoLoadConfig(void)
 {
-	uint32_t mb = UNDO_DEFAULT_MB;
-	FILE *f = fopen("TAPEHEAD.CFG", "r");
-	if (f != NULL)
-	{
-		char line[128];
-		while (fgets(line, sizeof (line), f) != NULL)
-		{
-			unsigned value;
-			if (sscanf(line, " undoMemoryMB = %u", &value) == 1 || sscanf(line, "undoMemoryMB=%u", &value) == 1)
-			{
-				mb = CLAMP(value, UNDO_MIN_MB, UNDO_MAX_MB);
-				break;
-			}
-		}
-		fclose(f);
-	}
+	const uint32_t mb = CLAMP(tapeheadConfig.undoMemoryMB, UNDO_MIN_MB, UNDO_MAX_MB);
 	memoryLimitBytes = mb * 1024U * 1024U;
 	while (historyBytes > memoryLimitBytes) removeOldest();
 }

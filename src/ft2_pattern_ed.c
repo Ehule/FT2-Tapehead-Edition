@@ -138,9 +138,22 @@ static void drawPatternLauncherShell(void)
 	/* Keep FT2's native bank-button chrome intact. Matrix only borrows the
 	** combined instrument/sample list surface and changes button captions.
 	*/
-	clearRect(421, 0, 166, 158);
-	drawFramework(421, 0, 166, 158, FRAMEWORK_TYPE1);
+	clearRect(421, 0, 166, 155);
+	drawFramework(421, 0, 166, 155, FRAMEWORK_TYPE1);
 	drawPatternLauncherPanel();
+}
+
+static void drawPatternLauncherBankColumn(void)
+{
+	/* The Matrix reuses the instrument-bank buttons, but Configuration and
+	** other full-screen views can leave pixels behind in the gaps around
+	** them. Restore the complete native parent column before drawing the
+	** eight Matrix page buttons.
+	*/
+	clearRect(587, 0, 45, 173);
+	drawFramework(587,   0, 45, 71, FRAMEWORK_TYPE1);
+	drawFramework(587,  71, 45, 71, FRAMEWORK_TYPE1);
+	drawFramework(587, 142, 45, 31, FRAMEWORK_TYPE1);
 }
 
 
@@ -152,6 +165,7 @@ void patternLauncherForceRedraw(void)
 	/* Config/Layout and other full-screen views can overwrite the borrowed
 	** instrument/sample surface. Rebuild the shell and restore Matrix labels.
 	*/
+	drawPatternLauncherBankColumn();
 	for (uint16_t i = 0; i < 8; i++)
 	{
 		pushButtons[PB_RANGE1 + i].caption = patternLauncherPageCaptions[i];
@@ -205,7 +219,7 @@ void handlePatternLauncherPanelRefresh(void)
 	static uint8_t oldQueueCount = 0xFF;
 	static uint8_t oldExitMode = 0xFF;
 
-	if (!patternLauncherPanelShown)
+	if (!patternLauncherPanelShown || !ui.instrSwitcherShown)
 		return;
 
 	patternLauncherBreatheFrame++;
@@ -255,6 +269,7 @@ static void setPatternLauncherPanelShown(bool shown)
 
 	if (shown)
 	{
+		drawPatternLauncherBankColumn();
 		for (uint16_t i = 0; i < 8; i++)
 			showPushButton(PB_RANGE1 + i);
 		showPushButton(PB_SWAP_BANK);
@@ -2950,10 +2965,11 @@ void showInstrumentSwitcher(void)
 		for (uint16_t i = 0; i < 16; i++)
 			hidePushButton(PB_RANGE1 + i);
 		for (uint16_t i = 0; i < 8; i++)
-		{
 			hideTextBox(TB_INST1 + i);
+
+		drawPatternLauncherBankColumn();
+		for (uint16_t i = 0; i < 8; i++)
 			showPushButton(PB_RANGE1 + i);
-		}
 		for (uint16_t i = 0; i < 5; i++)
 			hideTextBox(TB_SAMP1 + i);
 		hidePushButton(PB_SAMPLE_LIST_UP);

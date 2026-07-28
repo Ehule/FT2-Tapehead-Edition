@@ -17,6 +17,16 @@ This project is under active development. Experimental features are identified c
 
 ## Unreleased
 
+### Hardening checkpoint
+
+- Make direct Linux builds compile to a temporary executable and preserve the previous working binary if compilation or asset validation fails.
+- Load the undo memory ceiling from the shared executable-adjacent `tapehead.ini`.
+- Replace the obsolete eight-track FasTracks prototype notes with a current 32-channel transport manual and frozen `Z` command map.
+- Remove obsolete pre-feature source snapshots and channel-trim patch helpers from the source tree.
+
+- Replace the Whole Tone Melodic Walk preset with a Repeat bank that propagates one source note across the selected tracks and rows.
+- Warn when Melodic Walk is started with an edit step of zero.
+
 ### Fixed — Fast Tracks suspend/resume phase retention
 
 - The global Fast Tracks logo now freezes each selected track's private master-row phase while suspended.
