@@ -10,6 +10,8 @@ void undoLoadConfig(void);
 
 bool undoPatternBegin(uint16_t patternNum, const char *description);
 void undoPatternCommit(void);
+bool undoPatternInsertBegin(uint16_t patternNum, const char *description);
+void undoPatternInsertCommit(void);
 bool undoSongBegin(const char *description);
 void undoSongCommit(void);
 bool undoSampleBegin(uint8_t instrNum, uint8_t sampleNum, const char *description);

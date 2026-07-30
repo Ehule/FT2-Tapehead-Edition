@@ -4,8 +4,10 @@
 #endif
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <string.h>
 #include "ft2_header.h"
 #include "ft2_config.h"
 #include "ft2_pattern_ed.h"
@@ -25,6 +27,10 @@
 #include "ft2_interpolation.h"
 #include "ft2_replayer.h"
 #include "ft2_keyboard.h"
+#include "ft2_edit.h"
+#include "ft2_undo.h"
+#include "ft2_pushbuttons.h"
+#include "ft2_pattern_launcher_ui.h"
 
 // for pattern marking w/ keyboard
 static int8_t lastChMark;
@@ -34,254 +40,6 @@ static int16_t lastRowMark;
 static int32_t lastMarkX1 = -1, lastMarkX2 = -1, lastMarkY1 = -1, lastMarkY2 = -1;
 
 static const uint8_t ptnNumRows[8] = { 27, 25, 20, 19, 42, 40, 31, 30 };
-
-static bool patternLauncherPanelShown;
-static uint8_t patternLauncherPage;
-static uint8_t patternLauncherBreatheFrame;
-
-static char *patternLauncherPageCaptions[8] = { "00-1F", "20-3F", "40-5F", "60-7F", "80-9F", "A0-BF", "C0-DF", "E0-FF" };
-static char *instrumentBankCaptions[8] = { "01-08", "09-10", "11-18", "19-20", "21-28", "29-30", "31-38", "39-40" };
-
-bool patternLauncherPanelIsShown(void)
-{
-	return patternLauncherPanelShown;
-}
-
-static int8_t getPatternLauncherQueuePos(int16_t patternNum)
-{
-	const uint8_t queueCount = patternLauncherGetQueueCount();
-	for (uint8_t i = 0; i < queueCount; i++)
-	{
-		if (patternLauncherGetQueueItem(i) == patternNum)
-			return (int8_t)i;
-	}
-
-	return -1;
-}
-
-static uint32_t blendPatternLauncherColor(uint32_t foreground, uint32_t background, uint8_t level)
-{
-	const uint16_t inverse = 255 - level;
-	const uint8_t r = (uint8_t)((((foreground >> 16) & 0xFF) * level + ((background >> 16) & 0xFF) * inverse) / 255);
-	const uint8_t g = (uint8_t)((((foreground >> 8) & 0xFF) * level + ((background >> 8) & 0xFF) * inverse) / 255);
-	const uint8_t b = (uint8_t)(((foreground & 0xFF) * level + (background & 0xFF) * inverse) / 255);
-	return 0xFF000000 | (r << 16) | (g << 8) | b;
-}
-
-static void fillPatternLauncherRect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint32_t color)
-{
-	uint32_t *dst = &video.frameBuffer[(y * SCREEN_W) + x];
-	for (uint16_t yy = 0; yy < h; yy++, dst += SCREEN_W)
-	{
-		for (uint16_t xx = 0; xx < w; xx++)
-			dst[xx] = color;
-	}
-}
-
-static uint8_t getPatternLauncherBreatheLevel(void)
-{
-	uint16_t distance = patternLauncherBreatheFrame;
-	if (distance > 60)
-		distance = 120 - distance;
-
-	return (uint8_t)(255 - ((distance * 105) / 60));
-}
-
-static void drawPatternLauncherPanel(void)
-{
-	const int16_t current = patternLauncherGetCurrent();
-	const uint8_t exitMode = patternLauncherGetExitMode();
-	static const uint8_t queueLevels[4] = { 255, 210, 170, 135 };
-
-	clearRect(421, 3, 166, 152);
-
-	for (int16_t row = 0; row < 8; row++)
-	{
-		for (int16_t col = 0; col < 4; col++)
-		{
-			const int16_t patternNum = (patternLauncherPage * 32) + (row * 4) + col;
-			const int16_t x = 423 + (col * 41);
-			const int16_t y = 4 + (row * 19);
-			const int8_t queuePos = getPatternLauncherQueuePos(patternNum);
-			const bool patternUsed = pattern[patternNum] != NULL;
-
-			drawFramework(x, y, 40, 18, FRAMEWORK_TYPE1);
-			if (patternNum == current)
-			{
-				/* Semantic transport colors stay readable regardless of the current FT2 theme.
-				** Green = Matrix continues, yellow = return, orange = next order, red = stop.
-				*/
-				uint32_t activeColor;
-				if (exitMode == 1) activeColor = 0xFFFFD43B;      /* return to saved order */
-				else if (exitMode == 2) activeColor = 0xFFE34234; /* graceful stop */
-				else if (exitMode == 3) activeColor = 0xFFFF8A2B; /* continue at next order */
-				else activeColor = blendPatternLauncherColor(0xFF39C85A,
-					video.palette[PAL_DESKTOP], getPatternLauncherBreatheLevel());
-				fillPatternLauncherRect(x + 2, y + 2, 36, 14, activeColor);
-			}
-			else if (queuePos >= 0)
-			{
-				const uint32_t queueColor = blendPatternLauncherColor(video.palette[PAL_BUTTONS],
-					video.palette[PAL_DESKTOP], queueLevels[queuePos]);
-				fillPatternLauncherRect(x + 2, y + 2, 36, 14, queueColor);
-			}
-
-			const uint8_t textPal = patternNum == current ? PAL_BTNTEXT :
-				(queuePos >= 0 ? PAL_BTNTEXT : (patternUsed ? PAL_FORGRND : PAL_DSKTOP2));
-			hexOut(x + 14, y + 5, textPal, patternNum, 2);
-		}
-	}
-}
-
-static void drawPatternLauncherShell(void)
-{
-	/* Keep FT2's native bank-button chrome intact. Matrix only borrows the
-	** combined instrument/sample list surface and changes button captions.
-	*/
-	clearRect(421, 0, 166, 155);
-	drawFramework(421, 0, 166, 155, FRAMEWORK_TYPE1);
-	drawPatternLauncherPanel();
-}
-
-static void drawPatternLauncherBankColumn(void)
-{
-	/* The Matrix reuses the instrument-bank buttons, but Configuration and
-	** other full-screen views can leave pixels behind in the gaps around
-	** them. Restore the complete native parent column before drawing the
-	** eight Matrix page buttons.
-	*/
-	clearRect(587, 0, 45, 173);
-	drawFramework(587,   0, 45, 71, FRAMEWORK_TYPE1);
-	drawFramework(587,  71, 45, 71, FRAMEWORK_TYPE1);
-	drawFramework(587, 142, 45, 31, FRAMEWORK_TYPE1);
-}
-
-
-void patternLauncherForceRedraw(void)
-{
-	if (!patternLauncherPanelShown)
-		return;
-
-	/* Config/Layout and other full-screen views can overwrite the borrowed
-	** instrument/sample surface. Rebuild the shell and restore Matrix labels.
-	*/
-	drawPatternLauncherBankColumn();
-	for (uint16_t i = 0; i < 8; i++)
-	{
-		pushButtons[PB_RANGE1 + i].caption = patternLauncherPageCaptions[i];
-		showPushButton(PB_RANGE1 + i);
-	}
-
-	pushButtons[PB_SWAP_BANK].caption = "Exit";
-	pushButtons[PB_SWAP_BANK].caption2 = "Matrix";
-	showPushButton(PB_SWAP_BANK);
-	drawPatternLauncherShell();
-}
-
-void patternLauncherSetPage(uint8_t page)
-{
-	patternLauncherPage = page & 7;
-	if (patternLauncherPanelShown)
-		drawPatternLauncherPanel();
-}
-
-bool patternLauncherHandlePanelClick(int16_t x, int16_t y)
-{
-	if (!patternLauncherPanelShown || x < 423 || x >= 587 || y < 4 || y >= 156)
-		return false;
-
-	/* testInstrSwitcherMouseDown() is called every frame while the mouse is
-	** held. Only the initial mouse-down may launch/toggle a pattern.
-	*/
-	if (mouse.lastUsedObjectType == OBJECT_INSTRSWITCH)
-		return true;
-
-	const int16_t col = (x - 423) / 41;
-	const int16_t row = (y - 4) / 19;
-	if (col < 0 || col > 3 || row < 0 || row > 7)
-		return true;
-
-	const int16_t cellX = (x - 423) % 41;
-	const int16_t cellY = (y - 4) % 19;
-	if (cellX >= 40 || cellY >= 18)
-		return true;
-
-	patternLauncherRequest((uint8_t)((patternLauncherPage * 32) + (row * 4) + col),
-		keyb.leftCtrlPressed, keyb.leftShiftPressed);
-	drawPatternLauncherPanel();
-	return true;
-}
-
-void handlePatternLauncherPanelRefresh(void)
-{
-	static int16_t oldCurrent = -2;
-	static int16_t oldQueue[4] = { -2, -2, -2, -2 };
-	static uint8_t oldQueueCount = 0xFF;
-	static uint8_t oldExitMode = 0xFF;
-
-	if (!patternLauncherPanelShown || !ui.instrSwitcherShown)
-		return;
-
-	patternLauncherBreatheFrame++;
-	if (patternLauncherBreatheFrame >= 120)
-		patternLauncherBreatheFrame = 0;
-
-	const int16_t current = patternLauncherGetCurrent();
-	const uint8_t queueCount = patternLauncherGetQueueCount();
-	const uint8_t exitMode = patternLauncherGetExitMode();
-	bool changed = current != oldCurrent || queueCount != oldQueueCount || exitMode != oldExitMode;
-	for (uint8_t i = 0; i < 4; i++)
-	{
-		const int16_t queueItem = patternLauncherGetQueueItem(i);
-		if (queueItem != oldQueue[i])
-			changed = true;
-		oldQueue[i] = queueItem;
-	}
-
-	if (changed || current >= 0)
-	{
-		oldCurrent = current;
-		oldQueueCount = queueCount;
-		oldExitMode = exitMode;
-		drawPatternLauncherPanel();
-	}
-}
-
-static void setPatternLauncherPanelShown(bool shown)
-{
-	patternLauncherPanelShown = shown;
-	for (uint16_t i = 0; i < 16; i++)
-		hidePushButton(PB_RANGE1 + i);
-
-	for (uint16_t i = 0; i < 8; i++)
-		pushButtons[PB_RANGE1 + i].caption = shown ? patternLauncherPageCaptions[i] : instrumentBankCaptions[i];
-	pushButtons[PB_SWAP_BANK].caption = shown ? "Exit" : "Swap";
-	pushButtons[PB_SWAP_BANK].caption2 = shown ? "Matrix" : "Bank";
-
-	for (uint16_t i = 0; i < 8; i++)
-		hideTextBox(TB_INST1 + i);
-	for (uint16_t i = 0; i < 5; i++)
-		hideTextBox(TB_SAMP1 + i);
-
-	hidePushButton(PB_SAMPLE_LIST_UP);
-	hidePushButton(PB_SAMPLE_LIST_DOWN);
-	hideScrollBar(SB_SAMPLE_LIST);
-
-	if (shown)
-	{
-		drawPatternLauncherBankColumn();
-		for (uint16_t i = 0; i < 8; i++)
-			showPushButton(PB_RANGE1 + i);
-		showPushButton(PB_SWAP_BANK);
-		drawPatternLauncherShell();
-	}
-	else
-	{
-		showInstrumentSwitcher();
-	}
-}
-
-
 
 static bool pattNavPopupShown;
 static uint8_t pattNavPopupSelection;
@@ -381,6 +139,7 @@ volatile pattMark_t pattMark; // globalized
 bool allocatePattern(uint16_t pattNum) // for tracker use only, not in loader!
 {
 	const bool audioWasntLocked = !audio.locked;
+	bool patternWasAllocated = false;
 	if (audioWasntLocked)
 		lockAudio();
 
@@ -403,10 +162,14 @@ bool allocatePattern(uint16_t pattNum) // for tracker use only, not in loader!
 		}
 
 		song.currNumRows = patternNumRows[pattNum];
+		patternWasAllocated = true;
 	}
 
 	if (audioWasntLocked)
 		unlockAudio();
+
+	if (patternWasAllocated)
+		patternLauncherNotifyPatternChanged(pattNum);
 
 	return true;
 }
@@ -414,6 +177,7 @@ bool allocatePattern(uint16_t pattNum) // for tracker use only, not in loader!
 void killPatternIfUnused(uint16_t pattNum) // for tracker use only, not in loader!
 {
 	const bool audioWasntLocked = !audio.locked;
+	bool patternWasReleased = false;
 	if (audioWasntLocked)
 		lockAudio();
 
@@ -423,11 +187,15 @@ void killPatternIfUnused(uint16_t pattNum) // for tracker use only, not in loade
 		{
 			free(pattern[pattNum]);
 			pattern[pattNum] = NULL;
+			patternWasReleased = true;
 		}
 	}
 
 	if (audioWasntLocked)
 		unlockAudio();
+
+	if (patternWasReleased)
+		patternLauncherNotifyPatternChanged(pattNum);
 }
 
 uint8_t getMaxVisibleChannels(void)
@@ -585,7 +353,8 @@ void drawTranspose(void)
 	drawFramework(53,  108, 119,  65, FRAMEWORK_TYPE1);
 	drawFramework(172, 108, 119,  65, FRAMEWORK_TYPE1);
 
-	textOutShadow(4,    95, PAL_FORGRND, PAL_DSKTOP2, "Transp.");
+	checkBoxes[CB_TRANSP_VIEW].checked = transposeViewModeIsEnabled();
+	textOutShadow(17,   95, PAL_FORGRND, PAL_DSKTOP2, "VIEW");
 	textOutShadow(58,   95, PAL_FORGRND, PAL_DSKTOP2, "Current instrument");
 	textOutShadow(188,  95, PAL_FORGRND, PAL_DSKTOP2, "All instruments");
 	textOutShadow(4,   114, PAL_FORGRND, PAL_DSKTOP2, "Track");
@@ -593,6 +362,7 @@ void drawTranspose(void)
 	textOutShadow(4,   144, PAL_FORGRND, PAL_DSKTOP2, "Song");
 	textOutShadow(4,   159, PAL_FORGRND, PAL_DSKTOP2, "Block");
 
+	showCheckBox(CB_TRANSP_VIEW);
 	showPushButton(PB_TRANSP_CUR_INS_TRK_UP);
 	showPushButton(PB_TRANSP_CUR_INS_TRK_DN);
 	showPushButton(PB_TRANSP_CUR_INS_TRK_12UP);
@@ -642,6 +412,7 @@ void showTranspose(void)
 
 void hideTranspose(void)
 {
+	hideCheckBox(CB_TRANSP_VIEW);
 	hidePushButton(PB_TRANSP_CUR_INS_TRK_UP);
 	hidePushButton(PB_TRANSP_CUR_INS_TRK_DN);
 	hidePushButton(PB_TRANSP_CUR_INS_TRK_12UP);
@@ -1993,6 +1764,23 @@ static int16_t findUnusedPattern(void)
 	return -1;
 }
 
+static void selectInsertedSongPosition(uint16_t newSongPos)
+{
+	/*
+	** setSongPos() deliberately leaves the editor-side position alone while
+	** playback is active. INP is different from an ordinary transport jump:
+	** selecting the inserted order must also make it the immediate edit
+	** target, otherwise stock edit operations (notably Transpose) can still
+	** modify the source pattern until the next video/audio sync update.
+	**
+	** lockMixerCallback() has already cleared the old sync queue before this
+	** helper is reached, so keeping tmpPattern in step also prevents a stale
+	** editor shadow from restoring the source pattern.
+	*/
+	setSongPos(newSongPos, -1, DONT_RESET_SONG_TICK);
+	syncEditorPatternContextToSong();
+}
+
 bool insertNewPatternAfterCurrentSongPos(bool selectNewPosition)
 {
 	if (song.songLength >= 255)
@@ -2016,14 +1804,73 @@ bool insertNewPatternAfterCurrentSongPos(bool selectNewPosition)
 	inheritPatternLengthIfUnused(oldPatt, newPatt);
 	song.orders[newSongPos] = newPatt;
 	song.songLength++;
+	patternLauncherNotifySongOrderChanged();
 
 	if (selectNewPosition)
-		setSongPos(newSongPos, -1, DONT_RESET_SONG_TICK);
+		selectInsertedSongPosition(newSongPos);
 
 	ui.updatePosSections = true;
 	ui.updatePosEdScrollBar = true;
 	ui.updatePatternEditor = true;
 	setSongModifiedFlag();
+
+	return true;
+}
+
+static bool insertDuplicatePatternAfterCurrentSongPos(bool selectNewPosition)
+{
+	if (song.songLength >= 255)
+		return false;
+
+	const int16_t unusedPatt = findUnusedPattern();
+	if (unusedPatt < 0)
+		return false;
+
+	const uint8_t sourcePatt = song.orders[song.songPos];
+	const uint8_t newPatt = (uint8_t)unusedPatt;
+	const int16_t previousNewPattLength = patternNumRows[newPatt];
+	const int16_t sourcePattLength = patternNumRows[sourcePatt];
+	const uint16_t newSongPos = song.songPos + 1;
+	const bool undoStarted = undoPatternInsertBegin(newPatt, "Duplicate pattern");
+	const note_t *sourceData = pattern[sourcePatt];
+
+	/*
+	** Shift+INP is deliberately independent of IPL: it always creates a new
+	** pattern with the source pattern's exact length and data.
+	*/
+	patternNumRows[newPatt] = sourcePattLength;
+	if (sourceData != NULL)
+	{
+		if (!allocatePattern(newPatt))
+		{
+			patternNumRows[newPatt] = previousNewPattLength;
+			if (undoStarted)
+				undoCancelTransaction();
+			return false;
+		}
+
+		note_t *destinationData = pattern[newPatt];
+		ASSERT(destinationData != NULL);
+		memcpy(destinationData, sourceData, (uint32_t)sourcePattLength * TRACK_WIDTH);
+	}
+
+	for (int32_t i = song.songLength; i > newSongPos; i--)
+		song.orders[i] = song.orders[i-1];
+
+	song.orders[newSongPos] = newPatt;
+	song.songLength++;
+	patternLauncherNotifySongOrderChanged();
+
+	if (selectNewPosition)
+		selectInsertedSongPosition(newSongPos);
+
+	ui.updatePosSections = true;
+	ui.updatePosEdScrollBar = true;
+	ui.updatePatternEditor = true;
+	setSongModifiedFlag();
+
+	if (undoStarted)
+		undoPatternInsertCommit();
 
 	return true;
 }
@@ -2041,6 +1888,7 @@ bool appendNewPatternToSong(void)
 	const uint8_t newPatt = (uint8_t)unusedPatt;
 	inheritPatternLengthIfUnused(oldPatt, newPatt);
 	song.orders[song.songLength++] = newPatt;
+	patternLauncherNotifySongOrderChanged();
 
 	ui.updatePosSections = true;
 	ui.updatePosEdScrollBar = true;
@@ -2058,7 +1906,13 @@ void pbPosEdIns(void)
 
 	if (config.specialFlags2 & INP_MODE)
 	{
-		insertNewPatternAfterCurrentSongPos(true);
+		/* This callback runs on mouse-up. Use the modifier snapshot from the
+		** button press so a genuine Shift-click cannot degrade into plain INP
+		** if Shift is released a fraction before the mouse button. */
+		if (getPushButtonModifiersAtMouseDown() & KMOD_SHIFT)
+			insertDuplicatePatternAfterCurrentSongPos(true);
+		else
+			insertNewPatternAfterCurrentSongPos(true);
 	}
 	else
 	{
@@ -2070,6 +1924,7 @@ void pbPosEdIns(void)
 
 		song.orders[song.songPos] = oldPatt;
 		song.songLength++;
+		patternLauncherNotifySongOrderChanged();
 
 		ui.updatePosSections = true;
 		ui.updatePosEdScrollBar = true;
@@ -2113,6 +1968,109 @@ void pbPosEdDel(void)
 	ui.updatePosSections = true;
 	ui.updatePosEdScrollBar = true;
 	setSongModifiedFlag();
+}
+
+static bool patternIsReferenced(uint8_t pattNum)
+{
+	for (uint16_t i = 0; i < song.songLength; i++)
+	{
+		if (song.orders[i] == pattNum)
+			return true;
+	}
+
+	return false;
+}
+
+static uint8_t findBlankPatternExcept(uint8_t excludedPatt)
+{
+	for (uint16_t pattNum = 0; pattNum < MAX_PATTERNS; pattNum++)
+	{
+		if (pattNum != excludedPatt && pattern[pattNum] == NULL &&
+			!patternIsReferenced((uint8_t)pattNum))
+		{
+			return (uint8_t)pattNum;
+		}
+	}
+
+	/*
+	** An XM must retain at least one order entry. This can only be reached
+	** when every other pattern number is already occupied or reserved.
+	*/
+	return excludedPatt;
+}
+
+bool patternMatrixClearPattern(uint8_t pattNum, bool removeSongReferences)
+{
+	const bool hasData = pattern[pattNum] != NULL;
+	const bool isReferenced = patternIsReferenced(pattNum);
+	if (!hasData && (!removeSongReferences || !isReferenced))
+		return false;
+
+	const bool undoStarted = removeSongReferences
+		? undoPatternInsertBegin(pattNum, "Delete Matrix pattern")
+		: undoPatternBegin(pattNum, "Clear Matrix pattern");
+
+	const bool audioWasntLocked = !audio.locked;
+	if (audioWasntLocked)
+		lockAudio();
+
+	if (removeSongReferences && isReferenced)
+	{
+		const int16_t oldSongPos = song.songPos;
+		uint16_t removedBeforeSongPos = 0;
+		uint16_t newSongLength = 0;
+
+		for (uint16_t i = 0; i < song.songLength; i++)
+		{
+			if (song.orders[i] == pattNum)
+			{
+				if (i < (uint16_t)oldSongPos)
+					removedBeforeSongPos++;
+				continue;
+			}
+
+			song.orders[newSongLength++] = song.orders[i];
+		}
+
+		if (newSongLength == 0)
+			song.orders[newSongLength++] = findBlankPatternExcept(pattNum);
+
+		song.songLength = newSongLength;
+		if (song.songLoopStart >= song.songLength)
+			song.songLoopStart = song.songLength - 1;
+
+		int16_t newSongPos = oldSongPos - removedBeforeSongPos;
+		if (newSongPos >= (int16_t)song.songLength)
+			newSongPos = song.songLength - 1;
+		if (newSongPos < 0)
+			newSongPos = 0;
+
+		setSongPos(newSongPos, -1, DONT_RESET_SONG_TICK);
+	}
+
+	if (pattern[pattNum] != NULL)
+	{
+		memset(pattern[pattNum], 0, (uint32_t)patternNumRows[pattNum] * TRACK_WIDTH);
+		killPatternIfUnused(pattNum);
+	}
+
+	if (audioWasntLocked)
+		unlockAudio();
+
+	ui.updatePatternEditor = true;
+	ui.updatePosSections = true;
+	ui.updatePosEdScrollBar = true;
+	setSongModifiedFlag();
+
+	if (undoStarted)
+	{
+		if (removeSongReferences)
+			undoPatternInsertCommit();
+		else
+			undoPatternCommit();
+	}
+
+	return true;
 }
 
 static bool patternIsReferencedElsewhere(uint8_t pattNum)
@@ -2159,16 +2117,9 @@ void pbPosEdPattUp(void)
 
 		song.currNumRows = patternNumRows[song.pattNum];
 		if (song.row >= song.currNumRows)
-		{
 			song.row = song.currNumRows-1;
-			if (!songPlaying)
-				editor.row = song.row;
-		}
 
-		if (!songPlaying)
-			editor.editPattern = (uint8_t)song.pattNum;
-
-		checkMarkLimits();
+		syncEditorPatternContextToSong();
 		ui.updatePatternEditor = true;
 		ui.updatePosSections = true;
 
@@ -2195,16 +2146,9 @@ void pbPosEdPattDown(void)
 
 		song.currNumRows = patternNumRows[song.pattNum];
 		if (song.row >= song.currNumRows)
-		{
 			song.row = song.currNumRows-1;
-			if (!songPlaying)
-				editor.row = song.row;
-		}
 
-		if (!songPlaying)
-			editor.editPattern = (uint8_t)song.pattNum;
-
-		checkMarkLimits();
+		syncEditorPatternContextToSong();
 		ui.updatePatternEditor = true;
 		ui.updatePosSections = true;
 
@@ -2468,16 +2412,9 @@ void pbEditPattUp(void)
 
 		song.currNumRows = patternNumRows[song.pattNum];
 		if (song.row >= song.currNumRows)
-		{
 			song.row = song.currNumRows-1;
-			if (!songPlaying)
-				editor.row = song.row;
-		}
 
-		if (!songPlaying)
-			editor.editPattern = (uint8_t)song.pattNum;
-
-		checkMarkLimits();
+		syncEditorPatternContextToSong();
 		ui.updatePatternEditor = true;
 		ui.updatePosSections = true;
 	}
@@ -2498,16 +2435,9 @@ void pbEditPattDown(void)
 
 		song.currNumRows = patternNumRows[song.pattNum];
 		if (song.row >= song.currNumRows)
-		{
 			song.row = song.currNumRows-1;
-			if (!songPlaying)
-				editor.row = song.row;
-		}
 
-		if (!songPlaying)
-			editor.editPattern = (uint8_t)song.pattNum;
-
-		checkMarkLimits();
+		syncEditorPatternContextToSong();
 		ui.updatePatternEditor = true;
 		ui.updatePosSections = true;
 	}
@@ -2633,6 +2563,13 @@ void drawPosEdNums(int16_t songPos)
 			pattTwoHexOut(32, 32 + (y * 8), song.orders[entry], color1);
 		}
 	}
+
+	/*
+	** Position-editor redraw is the UI-side callback for order-list changes.
+	** The Matrix caches unique song-pattern membership and only redraws if
+	** that classification actually changed.
+	*/
+	patternLauncherNotifySongOrderChanged();
 }
 
 void drawSongLength(void)
@@ -2846,9 +2783,9 @@ void updateInstrumentSwitcher(void)
 	if (ui.aboutScreenShown || ui.configScreenShown || ui.helpScreenShown || ui.nibblesShown)
 		return; // don't redraw instrument switcher when it's not shown!
 
-	if (patternLauncherPanelShown)
+	if (patternLauncherPanelIsShown())
 	{
-		drawPatternLauncherPanel();
+		patternLauncherDrawPanel();
 		return;
 	}
 
@@ -2960,23 +2897,19 @@ void showInstrumentSwitcher(void)
 	if (!ui.instrSwitcherShown)
 		return;
 
-	if (patternLauncherPanelShown)
+	if (patternLauncherPanelIsShown())
 	{
 		for (uint16_t i = 0; i < 16; i++)
 			hidePushButton(PB_RANGE1 + i);
 		for (uint16_t i = 0; i < 8; i++)
 			hideTextBox(TB_INST1 + i);
 
-		drawPatternLauncherBankColumn();
-		for (uint16_t i = 0; i < 8; i++)
-			showPushButton(PB_RANGE1 + i);
 		for (uint16_t i = 0; i < 5; i++)
 			hideTextBox(TB_SAMP1 + i);
 		hidePushButton(PB_SAMPLE_LIST_UP);
 		hidePushButton(PB_SAMPLE_LIST_DOWN);
 		hideScrollBar(SB_SAMPLE_LIST);
-		showPushButton(PB_SWAP_BANK);
-		drawPatternLauncherShell();
+		patternLauncherForceRedraw();
 		return;
 	}
 
@@ -3048,16 +2981,16 @@ void hideInstrumentSwitcher(void)
 
 void pbSwapInstrBank(void)
 {
-	if (patternLauncherPanelShown)
+	if (patternLauncherPanelIsShown())
 	{
-		setPatternLauncherPanelShown(false);
+		patternLauncherSetPanelShown(false);
 		return;
 	}
 
 	if (keyb.leftCtrlPressed)
 	{
-		patternLauncherPage = 0;
-		setPatternLauncherPanelShown(true);
+		patternLauncherSetPage(0);
+		patternLauncherSetPanelShown(true);
 		return;
 	}
 
@@ -3083,7 +3016,7 @@ void pbSwapInstrBank(void)
 
 void pbSetInstrBank1(void)
 {
-	if (patternLauncherPanelShown)
+	if (patternLauncherPanelIsShown())
 	{
 		patternLauncherSetPage(0);
 		return;
@@ -3097,7 +3030,7 @@ void pbSetInstrBank1(void)
 
 void pbSetInstrBank2(void)
 {
-	if (patternLauncherPanelShown)
+	if (patternLauncherPanelIsShown())
 	{
 		patternLauncherSetPage(1);
 		return;
@@ -3111,7 +3044,7 @@ void pbSetInstrBank2(void)
 
 void pbSetInstrBank3(void)
 {
-	if (patternLauncherPanelShown)
+	if (patternLauncherPanelIsShown())
 	{
 		patternLauncherSetPage(2);
 		return;
@@ -3125,7 +3058,7 @@ void pbSetInstrBank3(void)
 
 void pbSetInstrBank4(void)
 {
-	if (patternLauncherPanelShown)
+	if (patternLauncherPanelIsShown())
 	{
 		patternLauncherSetPage(3);
 		return;
@@ -3139,7 +3072,7 @@ void pbSetInstrBank4(void)
 
 void pbSetInstrBank5(void)
 {
-	if (patternLauncherPanelShown)
+	if (patternLauncherPanelIsShown())
 	{
 		patternLauncherSetPage(4);
 		return;
@@ -3153,7 +3086,7 @@ void pbSetInstrBank5(void)
 
 void pbSetInstrBank6(void)
 {
-	if (patternLauncherPanelShown)
+	if (patternLauncherPanelIsShown())
 	{
 		patternLauncherSetPage(5);
 		return;
@@ -3167,7 +3100,7 @@ void pbSetInstrBank6(void)
 
 void pbSetInstrBank7(void)
 {
-	if (patternLauncherPanelShown)
+	if (patternLauncherPanelIsShown())
 	{
 		patternLauncherSetPage(6);
 		return;
@@ -3181,7 +3114,7 @@ void pbSetInstrBank7(void)
 
 void pbSetInstrBank8(void)
 {
-	if (patternLauncherPanelShown)
+	if (patternLauncherPanelIsShown())
 	{
 		patternLauncherSetPage(7);
 		return;

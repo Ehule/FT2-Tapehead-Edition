@@ -423,3 +423,4 @@ void hidePushButton(uint16_t pushButtonID);
 void handlePushButtonsWhileMouseDown(void);
 bool testPushButtonMouseDown(void);
 int16_t testPushButtonMouseRelease(bool runCallback);
+uint16_t getPushButtonModifiersAtMouseDown(void);

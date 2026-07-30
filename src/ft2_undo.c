@@ -22,6 +22,7 @@ typedef enum undoType_t
 {
 	UNDO_NONE = 0,
 	UNDO_PATTERN,
+	UNDO_PATTERN_INSERT,
 	UNDO_SONG,
 	UNDO_SAMPLE,
 	UNDO_INSTRUMENT
@@ -51,6 +52,13 @@ typedef struct patternSnapshot_t
 	note_t *data;
 } patternSnapshot_t;
 
+typedef struct orderSnapshot_t
+{
+	uint8_t orders[MAX_ORDERS];
+	int16_t songPos, row;
+	uint16_t songLength, songLoopStart;
+} orderSnapshot_t;
+
 typedef struct songSnapshot_t
 {
 	patternSnapshot_t patterns[MAX_PATTERNS];
@@ -64,6 +72,11 @@ typedef struct undoEntry_t
 	union
 	{
 		struct { patternSnapshot_t before, after; } pattern;
+		struct
+		{
+			orderSnapshot_t beforeOrder, afterOrder;
+			patternSnapshot_t beforePattern, afterPattern;
+		} patternInsert;
 		struct { songSnapshot_t before, after; } song;
 		struct { uint8_t instrNum, sampleNum; sampleSnapshot_t before, after; } sample;
 		struct { uint8_t instrNum; instrumentSnapshot_t before, after; } instrument;
@@ -108,6 +121,11 @@ static void freeEntry(undoEntry_t *e)
 	{
 		freePatternSnapshot(&e->state.pattern.before);
 		freePatternSnapshot(&e->state.pattern.after);
+	}
+	else if (e->type == UNDO_PATTERN_INSERT)
+	{
+		freePatternSnapshot(&e->state.patternInsert.beforePattern);
+		freePatternSnapshot(&e->state.patternInsert.afterPattern);
 	}
 	else if (e->type == UNDO_SONG)
 	{
@@ -198,6 +216,15 @@ static bool capturePattern(uint16_t patternNum, patternSnapshot_t *dst)
 	return true;
 }
 
+static void captureOrder(orderSnapshot_t *dst)
+{
+	memcpy(dst->orders, song.orders, sizeof (dst->orders));
+	dst->songPos = song.songPos;
+	dst->row = song.row;
+	dst->songLength = song.songLength;
+	dst->songLoopStart = song.songLoopStart;
+}
+
 static bool captureSong(songSnapshot_t *dst)
 {
 	memset(dst, 0, sizeof (*dst));
@@ -234,6 +261,15 @@ static uint32_t patternSnapshotBytes(const patternSnapshot_t *p)
 }
 
 static bool patternsEqual(const patternSnapshot_t *a, const patternSnapshot_t *b);
+
+static bool ordersEqual(const orderSnapshot_t *a, const orderSnapshot_t *b)
+{
+	return a->songPos == b->songPos &&
+		a->row == b->row &&
+		a->songLength == b->songLength &&
+		a->songLoopStart == b->songLoopStart &&
+		memcmp(a->orders, b->orders, sizeof (a->orders)) == 0;
+}
 
 static bool songsEqual(const songSnapshot_t *a, const songSnapshot_t *b)
 {
@@ -326,6 +362,43 @@ void undoPatternCommit(void)
 		return;
 	}
 	pending.bytes = patternSnapshotBytes(&pending.state.pattern.before) + patternSnapshotBytes(&pending.state.pattern.after);
+	commitPending();
+}
+
+bool undoPatternInsertBegin(uint16_t patternNum, const char *description)
+{
+	undoInit();
+	freeEntry(&pending);
+	pending.type = UNDO_PATTERN_INSERT;
+	strncpy(pending.description, description, sizeof (pending.description)-1);
+	captureOrder(&pending.state.patternInsert.beforeOrder);
+	if (!capturePattern(patternNum, &pending.state.patternInsert.beforePattern))
+	{
+		freeEntry(&pending);
+		return false;
+	}
+	return true;
+}
+
+void undoPatternInsertCommit(void)
+{
+	if (pending.type != UNDO_PATTERN_INSERT)
+		return;
+
+	captureOrder(&pending.state.patternInsert.afterOrder);
+	const uint16_t patternNum = pending.state.patternInsert.beforePattern.patternNum;
+	if (!capturePattern(patternNum, &pending.state.patternInsert.afterPattern) ||
+		(ordersEqual(&pending.state.patternInsert.beforeOrder, &pending.state.patternInsert.afterOrder) &&
+		 patternsEqual(&pending.state.patternInsert.beforePattern, &pending.state.patternInsert.afterPattern)))
+	{
+		freeEntry(&pending);
+		return;
+	}
+
+	pending.bytes =
+		(uint32_t)(sizeof (orderSnapshot_t) * 2) +
+		patternSnapshotBytes(&pending.state.patternInsert.beforePattern) +
+		patternSnapshotBytes(&pending.state.patternInsert.afterPattern);
 	commitPending();
 }
 
@@ -468,12 +541,57 @@ static bool restorePattern(const patternSnapshot_t *src)
 	return true;
 }
 
+static void restoreOrderData(const orderSnapshot_t *src)
+{
+	memcpy(song.orders, src->orders, sizeof (src->orders));
+	song.songLength = src->songLength;
+	song.songLoopStart = src->songLoopStart;
+}
+
+static void restoreOrderPosition(const orderSnapshot_t *src)
+{
+	setSongPos(src->songPos, src->row, DONT_RESET_SONG_TICK);
+}
+
+static void restoreOrder(const orderSnapshot_t *src)
+{
+	restoreOrderData(src);
+	restoreOrderPosition(src);
+}
+
 static bool applyEntry(const undoEntry_t *e, bool after)
 {
 	bool ok = false;
 	pauseAudio();
 	if (e->type == UNDO_PATTERN)
 		ok = restorePattern(after ? &e->state.pattern.after : &e->state.pattern.before);
+	else if (e->type == UNDO_PATTERN_INSERT)
+	{
+		const orderSnapshot_t *order = after
+			? &e->state.patternInsert.afterOrder
+			: &e->state.patternInsert.beforeOrder;
+		const patternSnapshot_t *patternState = after
+			? &e->state.patternInsert.afterPattern
+			: &e->state.patternInsert.beforePattern;
+
+		/*
+		** Redo restores the pattern before referencing it from the order list.
+		** Undo removes the order reference first so an originally unused
+		** pattern can be released by restorePattern().
+		*/
+		if (after)
+		{
+			ok = restorePattern(patternState);
+			if (ok)
+				restoreOrder(order);
+		}
+		else
+		{
+			restoreOrderData(order);
+			ok = restorePattern(patternState);
+			restoreOrderPosition(order);
+		}
+	}
 	else if (e->type == UNDO_SONG)
 	{
 		ok = true;
@@ -491,6 +609,11 @@ static bool applyEntry(const undoEntry_t *e, bool after)
 	{
 		setSongModifiedFlag();
 		ui.updatePatternEditor = true;
+		if (e->type == UNDO_PATTERN_INSERT)
+		{
+			ui.updatePosSections = true;
+			ui.updatePosEdScrollBar = true;
+		}
 		editor.updateCurInstr = true;
 		editor.updateCurSmp = true;
 		if (ui.sampleEditorShown) updateSampleEditorSample();

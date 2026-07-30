@@ -20,6 +20,7 @@
 #include "ft2_textboxes.h"
 #include "ft2_tables.h"
 #include "ft2_structs.h"
+#include "ft2_fasttracks.h"
 
 enum
 {
@@ -28,6 +29,7 @@ enum
 };
 
 static double dVolScaleFK1 = 1.0, dVolScaleFK2 = 1.0;
+static bool transposeViewMode;
 
 // for block cut/copy/paste
 static bool blockCopied;
@@ -1034,17 +1036,211 @@ static uint32_t countOverflowingNotes(uint8_t mode, int8_t addValue, bool allIns
 	return notesToDelete;
 }
 
+bool transposeViewModeIsEnabled(void)
+{
+	return transposeViewMode;
+}
+
+void toggleTransposeViewMode(void)
+{
+	transposeViewMode ^= 1;
+}
+
+static void buildTransposeViewTargets(uint8_t mode, uint16_t curPattern,
+	int32_t numRows, int32_t centerRow, int32_t markX1, int32_t markX2,
+	int32_t markY1, int32_t markY2,
+	uint16_t targetPatterns[MAX_CHANNELS],
+	bool targets[MAX_CHANNELS][MAX_PATT_LEN])
+{
+	memset(targets, 0, sizeof (bool) * MAX_CHANNELS * MAX_PATT_LEN);
+	for (int32_t channelIndex = 0; channelIndex < MAX_CHANNELS; channelIndex++)
+		targetPatterns[channelIndex] = curPattern;
+
+	if (curPattern >= MAX_PATTERNS || numRows <= 0)
+		return;
+
+	const pattCoord_t *pattCoord =
+		&pattCoordTable[config.ptnStretch][ui.pattChanScrollShown][ui.extendedPatternEditor];
+	const int32_t screenRows = pattCoord->numUpperRows + 1 + pattCoord->numLowerRows;
+
+	int32_t firstChannel;
+	int32_t lastChannel;
+	if (mode == TRANSP_TRACK)
+	{
+		firstChannel = cursor.ch;
+		lastChannel = cursor.ch;
+	}
+	else
+	{
+		firstChannel = ui.channelOffset;
+		lastChannel = MIN(song.numChannels, ui.channelOffset + ui.numChannelsShown) - 1;
+	}
+
+	if (mode == TRANSP_BLOCK)
+	{
+		if (markY1 >= markY2 || markX1 < 0 || markX2 < 0)
+			return;
+
+		firstChannel = MAX(firstChannel, markX1);
+		lastChannel = MIN(lastChannel, markX2);
+	}
+
+	firstChannel = CLAMP(firstChannel, 0, song.numChannels - 1);
+	lastChannel = CLAMP(lastChannel, 0, song.numChannels - 1);
+	if (firstChannel > lastChannel)
+		return;
+
+	fastTracksSnapshot_t snapshot;
+	fastTracksPOCGetSnapshot(&snapshot);
+
+	for (int32_t screenIndex = 0; screenIndex < screenRows; screenIndex++)
+	{
+		const int32_t displayedRow =
+			centerRow - pattCoord->numUpperRows + screenIndex;
+		if (displayedRow < 0)
+			continue;
+		if (displayedRow >= numRows)
+			break;
+
+		if (mode == TRANSP_BLOCK &&
+			(displayedRow < markY1 || displayedRow >= markY2))
+		{
+			continue;
+		}
+
+		for (int32_t channelIndex = firstChannel;
+			channelIndex <= lastChannel; channelIndex++)
+		{
+			int32_t sourceRow = displayedRow;
+			const fastTracksTrackSnapshot_t *track =
+				&snapshot.tracks[channelIndex];
+			if (track->enabled)
+			{
+				targetPatterns[channelIndex] = track->sourcePattern;
+				const int32_t sourceNumRows =
+					patternNumRows[targetPatterns[channelIndex]] > 0 ?
+					patternNumRows[targetPatterns[channelIndex]] : 1;
+				sourceRow = track->sourceRow +
+					(screenIndex - pattCoord->numUpperRows);
+				sourceRow %= sourceNumRows;
+				if (sourceRow < 0)
+					sourceRow += sourceNumRows;
+			}
+
+			/*
+			** Short patterns can wrap more than once inside the viewport.
+			** A rendered event is still one underlying note, so transpose it
+			** once per click rather than once per repeated screen appearance.
+			*/
+			targets[channelIndex][sourceRow] = true;
+		}
+	}
+}
+
+static uint32_t countTransposeViewOverflow(int8_t addValue,
+	bool allInstrumentsFlag,
+	const uint16_t targetPatterns[MAX_CHANNELS],
+	const bool targets[MAX_CHANNELS][MAX_PATT_LEN])
+{
+	uint32_t notesToDelete = 0;
+	for (int32_t channelIndex = 0; channelIndex < song.numChannels; channelIndex++)
+	{
+		const uint16_t targetPattern = targetPatterns[channelIndex];
+		const note_t *p = pattern[targetPattern];
+		if (p == NULL)
+			continue;
+
+		for (int32_t row = 0; row < patternNumRows[targetPattern]; row++)
+		{
+			if (!targets[channelIndex][row])
+				continue;
+
+			const note_t *note =
+				&p[(row * MAX_CHANNELS) + channelIndex];
+			if ((note->note >= 1 && note->note <= 96) &&
+				(allInstrumentsFlag || note->instr == editor.curInstr) &&
+				((int8_t)note->note + addValue > 96 ||
+				 (int8_t)note->note + addValue <= 0))
+			{
+				notesToDelete++;
+			}
+		}
+	}
+
+	return notesToDelete;
+}
+
+static void transposeViewTargets(int8_t addValue, bool allInstrumentsFlag,
+	const uint16_t targetPatterns[MAX_CHANNELS],
+	const bool targets[MAX_CHANNELS][MAX_PATT_LEN])
+{
+	for (int32_t channelIndex = 0; channelIndex < song.numChannels; channelIndex++)
+	{
+		const uint16_t targetPattern = targetPatterns[channelIndex];
+		note_t *p = pattern[targetPattern];
+		if (p == NULL)
+			continue;
+
+		for (int32_t row = 0; row < patternNumRows[targetPattern]; row++)
+		{
+			if (!targets[channelIndex][row])
+				continue;
+
+			note_t *note = &p[(row * MAX_CHANNELS) + channelIndex];
+			if ((note->note >= 1 && note->note <= 96) &&
+				(allInstrumentsFlag || note->instr == editor.curInstr))
+			{
+				uint8_t transposedNote = note->note + addValue;
+				if (transposedNote > 96)
+					transposedNote = 0;
+
+				note->note = transposedNote;
+			}
+		}
+	}
+}
+
 static void doTranspose(uint8_t mode, int8_t addValue, bool allInstrumentsFlag)
 {
+	uint16_t viewTargetPatterns[MAX_CHANNELS];
+	bool viewTargets[MAX_CHANNELS][MAX_PATT_LEN];
+
 	pauseMusic();
 	const volatile uint16_t curPattern = editor.editPattern;
 	const int32_t numRows = patternNumRows[curPattern];
+	const int32_t centerRow = editor.row;
 	volatile int32_t markX1 = pattMark.markX1;
 	volatile int32_t markX2 = pattMark.markX2;
 	volatile int32_t markY1 = pattMark.markY1;
 	volatile int32_t markY2 = pattMark.markY2;
+	const bool useViewMode = transposeViewMode;
+	if (useViewMode)
+	{
+		buildTransposeViewTargets(mode, curPattern, numRows, centerRow,
+			markX1, markX2, markY1, markY2,
+			viewTargetPatterns, viewTargets);
+	}
 	resumeMusic();
-	
+
+	if (useViewMode)
+	{
+		const uint32_t overflowingNotes = countTransposeViewOverflow(
+			addValue, allInstrumentsFlag, viewTargetPatterns, viewTargets);
+		if (overflowingNotes > 0)
+		{
+			char text[48];
+			sprintf(text, "%u note(s) will be erased! Proceed?", overflowingNotes);
+			if (okBox(2, "System request", text, NULL) != 1)
+				return;
+		}
+
+		transposeViewTargets(addValue, allInstrumentsFlag,
+			viewTargetPatterns, viewTargets);
+		ui.updatePatternEditor = true;
+		setSongModifiedFlag();
+		return;
+	}
+
 	uint32_t overflowingNotes = countOverflowingNotes(mode, addValue, allInstrumentsFlag,
 		curPattern, numRows, markX1, markX2, markY1, markY2);
 	if (overflowingNotes > 0)

@@ -1,10 +1,12 @@
-# FT2 Tapehead Edition — Open Testing
+# FT2 Tapehead Edition — Release Candidate 1
 
 > **Compose like a tracker. Think like a tape machine.**
 
 FT2 Tapehead Edition is an experimental, performance-oriented fork of [ft2-clone](https://github.com/8bitbubsy/ft2-clone). It preserves the familiar FastTracker II workflow while adding new tools for live manipulation, nonlinear composition, MIDI integration, sample navigation, and faster pattern editing.
 
-The project is now open for early testing. It is usable, actively developed, and capable of making real music, but some features remain experimental and documentation is still being assembled.
+RC1 is the first frozen release-candidate baseline. It is usable for everyday
+composition and performance testing, while FasTracks and its intentionally
+asynchronous editing modes remain experimental.
 
 ## What this fork adds
 
@@ -73,7 +75,11 @@ Tapehead Edition uses the XM **Z** effect for persistent, pattern-programmable F
 - `Ctrl+Left-click` a scope — Reset trim to 100%
 - Non-destructive performance mute
 - `Shift+Left-click` a scope — Toggle performance mute
-- Muted tracks continue running internally so envelopes, loops, effects, and timing remain synchronized
+- Performance-muted tracks continue running internally so envelopes, loops,
+  effects, timing, and MIDI Dub output remain active. This can silence FT2's
+  samples while an external destination such as SunVox remains audible.
+- Stock channel mute stops normal channel processing and further MIDI Dub note
+  triggers as well as FT2 sample playback.
 - Short gain ramps reduce clicks when muting
 - Red scope overlay shows performance-mute state
 
@@ -113,11 +119,36 @@ Tapehead Edition uses the XM **Z** effect for persistent, pattern-programmable F
 - `Escape` — Cancel and restore the original pattern
 - Preview data uses a temporary visual tint
 
+### Transpose and VIEW painting
+
+- Manual order scrolling and pattern-number changes remain the immediate
+  Transpose target during Pattern Play; delayed playback synchronization can no
+  longer redirect edits into a previous pattern.
+- The Transpose panel includes an optional `VIEW` checkbox.
+- With `VIEW` off, Track, Pattern, Song, and Block Transpose retain their normal
+  complete-data scopes.
+- With `VIEW` on, Transpose changes only event slots currently rendered in the
+  pattern editor. Each visible FasTracks channel follows its own private row
+  window, including its private source pattern in Song transport.
+- Horizontally hidden tracks and rows outside the current editor window remain
+  unchanged, making high ratios usable as a live “spinning canvas.”
+- Pattern and Song buttons both address all visible canvas tracks in VIEW mode;
+  Track addresses the cursor track and Block intersects the visible canvas with
+  the current block selection.
+- A VIEW click snapshots the rendered slots at that instant. At extreme ratios,
+  adjacent notes can belong to different private-head moments, so notes that
+  began in unison may be captured and transposed differently. The resulting
+  divergence is the intended “painting on a spinning canvas” behavior.
+
 ### Silent Record, IPL, INP, and REC+
 
 - Silent Record Entry allows recording or editing without auditioning every entered note
+- `Ctrl+Grave` (either Ctrl plus the physical `` ` / ~ `` key) toggles Silent Record globally,
+  including during Melodic Walk preview
 - Inherit Pattern Length (`IPL`) lets new patterns inherit the previous pattern's length
 - Insert New Pattern (`INP`) creates a fresh pattern instead of duplicating the current one
+- `Shift`-clicking `INP` creates a new independent copy of the current pattern,
+  including its exact pattern length, regardless of the IPL setting
 - Automatic Pattern Generation / `REC+` can extend the song while recording reaches its end
 - REC+ tracks whether new material was generated during the take
 - REC+ includes exhaustion handling and a hidden game-over state
@@ -220,6 +251,7 @@ When reporting a problem, include your operating system, build method, audio/MID
 - [`docs/FAST_TRACKS.md`](docs/FAST_TRACKS.md)
 - [`docs/PATTERN_INTERPOLATION.md`](docs/PATTERN_INTERPOLATION.md)
 - [`docs/SAMPLE_MAP.md`](docs/SAMPLE_MAP.md)
+- [`docs/RC1_RELEASE_NOTES.md`](docs/RC1_RELEASE_NOTES.md)
 - [`CHANGELOG.md`](CHANGELOG.md)
 - [`HOW-TO-COMPILE.txt`](HOW-TO-COMPILE.txt)
 

@@ -66,52 +66,8 @@ enum
 #define FT2_QUICK_VOLRAMP_MILLISECONDS 5
 #define PROG_NAME_STR "Fasttracker II clone"
 
-// FasTracks transport source selected independently for each tracker channel.
-// Each tracker channel can independently use standard, pattern-relative or
-// song-order-relative playback.
-typedef enum fastTracksMode_t
-{
-	FAST_TRACKS_MODE_STANDARD = 0,
-	FAST_TRACKS_MODE_PATTERN,
-	FAST_TRACKS_MODE_SONG
-} fastTracksMode_t;
-
-// FasTracks controls for all 32 XM channels.
-bool fastTracksPOCMasterIsEnabled(void);
-bool fastTracksPOCIsSelected(int32_t channelIndex);
-fastTracksMode_t fastTracksPOCGetMode(int32_t channelIndex);
-bool fastTracksPOCIsEnabled(int32_t channelIndex);
-bool fastTracksPOCIsClutched(int32_t channelIndex);
-bool fastTracksPOCIsReversed(int32_t channelIndex);
-bool fastTracksPOCTransmissionClutchIsLatched(void);
-bool fastTracksPOCAnyEnabled(void);
-int32_t fastTracksPOCGetSourceRow(int32_t channelIndex);
-int32_t fastTracksPOCGetSourceOrder(int32_t channelIndex);
-int32_t fastTracksPOCGetSourcePattern(int32_t channelIndex);
-bool fastTracksPOCIsMasterAligned(int32_t channelIndex);
-uint8_t fastTracksPOCGetRatioNumerator(int32_t channelIndex);
-uint8_t fastTracksPOCGetRatioDenominator(int32_t channelIndex);
-void fastTracksPOCClutchPress(int32_t channelIndex);
-void fastTracksPOCClutchRelease(int32_t channelIndex);
-void fastTracksPOCSetTransmissionClutch(bool engaged);
-void fastTracksPOCTransmissionClutchToggle(void);
-void fastTracksPOCCycleRatio(int32_t channelIndex);
-void fastTracksPOCSetRatioIndex(int32_t channelIndex, uint8_t ratioIndex);
-void fastTracksPOCSetClutch(int32_t channelIndex, bool engaged);
-void fastTracksPOCRandomizeSelectedRatios(bool syncToMaster);
-void fastTracksPOCSyncSelectedToMaster(void);
-void fastTracksPOCSetAllRatiosOneToOne(void);
-void fastTracksPOCResetAllRatios(void);
-void fastTracksPOCSetMode(int32_t channelIndex, fastTracksMode_t mode);
-void fastTracksPOCSetSelectedMode(fastTracksMode_t mode);
-void fastTracksPOCToggleSongModeForTest(int32_t channelIndex);
-void fastTracksPOCSetTrackEnabled(int32_t channelIndex, bool enabled);
-void fastTracksPOCSyncTrackToMaster(int32_t channelIndex);
-void fastTracksPOCToggle(int32_t channelIndex);
-void fastTracksPOCToggleDirection(int32_t channelIndex);
-void fastTracksPOCResetForLoadedModule(void);
-void fastTracksPOCSetMasterEnabled(bool enabled);
-void fastTracksPOCMasterToggle(void);
+#include "ft2_fasttracks.h"
+#include "ft2_pattern_launcher.h"
 
 enum // sample flags
 {
@@ -365,17 +321,9 @@ void resetMusic(void);
 void startPlaying(int8_t mode, int16_t row);
 void stopPlaying(void);
 void handleRecPlusExhaustion(void);
-void handlePatternLauncherStop(void);
-bool patternLauncherIsEnabled(void);
-int16_t patternLauncherGetCurrent(void);
-uint8_t patternLauncherGetQueueCount(void);
-int16_t patternLauncherGetQueueItem(uint8_t index);
-bool patternLauncherStopIsPending(void);
-uint8_t patternLauncherGetExitMode(void);
-void patternLauncherSetEnabled(bool enabled);
-void patternLauncherRequest(uint8_t patternNum, bool ctrlPressed, bool shiftPressed);
 void stopVoices(void);
 void setSongPos(int16_t songPos, int16_t row, bool resetTick);
+void syncEditorPatternContextToSong(void);
 void pauseMusic(void); // stops reading pattern data
 void resumeMusic(void); // starts reading pattern data
 void setSongModifiedFlag(void);

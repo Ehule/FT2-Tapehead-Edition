@@ -58,6 +58,10 @@ checkBox_t checkBoxes[NUM_CHECKBOXES] =
 	{ 275, 146,  13, 12, toggleTranspMask3 },
 	{ 275, 159,  13, 12, toggleTranspMask4 },
 
+	// ------ TRANSPOSE CHECKBOXES ------
+	//x, y,  w,  h,  funcOnUp
+	{ 3, 94, 48, 12, toggleTransposeViewMode },
+
 	// ------ INSTRUMENT EDITOR CHECKBOXES ------
 	//x,   y,   w,   h,  funcOnUp
 	{   3, 175, 118, 12, cbVEnv },

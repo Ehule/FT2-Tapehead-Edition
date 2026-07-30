@@ -18,6 +18,38 @@ All private transports use the same rational tick accumulator, including `1:1`. 
 
 Song transport continues along its private order list while the Pattern Matrix changes the pattern heard by the master. This separation is intentional: the Matrix can perform one layer while Song-mode FasTracks freewheel underneath it.
 
+The pattern editor renders each Song-mode channel from that private order's
+actual source pattern. The Transpose panel's optional `VIEW` mode can therefore
+modify the events visibly passing under each private head without touching
+rows or tracks outside the current editor window.
+
+## What is heard, seen, and edited
+
+Classic FT2 usually lets three related identities appear to be one:
+
+- the pattern and row currently heard by the replayer;
+- the pattern rows currently drawn in the editor;
+- the pattern object targeted by an edit command.
+
+RC1 makes ordinary navigation publish one atomic pattern context, so normal
+Transpose can no longer lag behind Pattern Play and silently modify a previous
+pattern. FasTracks still separates those identities intentionally when a
+private head is active. Song-mode columns draw from each private head's actual
+source pattern, and VIEW Transpose explicitly edits a snapshot of those drawn
+event slots.
+
+This is FT2's useful “hear no evil, see no evil” quality made explicit: ordinary
+editing keeps the identities together, while FasTracks exposes their creative
+separation only when the user asks for it.
+
+At extreme ratios such as `5:1`, the display is a sampled view of rapidly
+changing private transports. Adjacent notes or tracks can be captured from
+different private-head moments, even if they started in unison. VIEW therefore
+may transpose one visible member of a pair and not the other. The target list is
+frozen for that button press and each underlying event slot is modified at most
+once, so this divergence is intentional sampling behavior rather than a missed
+or repeated Transpose operation.
+
 ## Ratio bank
 
 The live ratio bank cycles in this order:
@@ -117,7 +149,12 @@ Tapehead Edition uses the XM `Z` effect for FasTracks control. The meanings in t
 | `Z2A` | Compatibility alias of `Z27` |
 | `Z2B` | Compatibility alias of `Z24` |
 
-Pattern commands are persistent state changes rather than one-row audio effects. Global commands execute when any playing transport encounters them, including a private FasTracks head. A control lane can therefore encounter global commands at its own ratio.
+Pattern commands are persistent state changes rather than one-row audio effects.
+Global commands are queued when any playing transport encounters them,
+including a private FasTracks head, and then applied in encounter order after
+every channel has advanced for that audio tick. A control lane can therefore
+encounter global commands at its own ratio without making the result depend on
+whether controlled tracks sit before or after it.
 
 Direction is mouse-controlled in this checkpoint; no `Z` direction command is assigned.
 

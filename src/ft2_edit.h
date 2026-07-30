@@ -32,6 +32,8 @@ void toggleTranspMask1(void);
 void toggleTranspMask2(void);
 void toggleTranspMask3(void);
 void toggleTranspMask4(void);
+bool transposeViewModeIsEnabled(void);
+void toggleTransposeViewMode(void);
 void trackTranspCurInsUp(void);
 void trackTranspCurInsDn(void);
 void trackTranspCurIns12Up(void);

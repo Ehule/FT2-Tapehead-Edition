@@ -16,5 +16,6 @@ extern keyb_t keyb; // ft2_keyboard.c
 
 int8_t scancodeKeyToNote(SDL_Scancode scancode);
 void keyUpHandler(SDL_Scancode scancode, SDL_Keycode keycode);
-void keyDownHandler(SDL_Scancode scancode, SDL_Keycode keycode, bool keyWasRepeated);
+void keyDownHandler(SDL_Scancode scancode, SDL_Keycode keycode, SDL_Keymod modifiers,
+	bool keyWasRepeated);
 void readKeyModifiers(void);

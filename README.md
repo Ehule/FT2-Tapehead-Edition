@@ -10,9 +10,10 @@ Rather than reinventing FastTracker II, Tapehead Edition expands it with optiona
 
 # Project Status
 
-**Status:** Open Alpha / Public Testing
+**Status:** Release Candidate 1 / Public Testing
 
-Tapehead Edition is under active development and is stable enough for everyday composition and public testing on Linux and Windows.
+Tapehead Edition is under active development. RC1 freezes the first
+release-candidate baseline for everyday composition and public testing.
 
 The project has grown well beyond a collection of patches and now includes transport experimentation, composition assistants, performance controls, MIDI integration, and numerous workflow enhancements.
 
@@ -20,6 +21,7 @@ If you're new to the project, start with:
 
 - FEATURES.md — complete feature overview
 - CHANGELOG.md — development history
+- docs/RC1_RELEASE_NOTES.md — RC1 behavior, test focus, and known idiosyncrasies
 - docs/FAST_TRACKS.md
 - docs/SAMPLE_MAP.md
 - docs/PATTERN_INTERPOLATION.md
@@ -44,11 +46,15 @@ Major additions over stock ft2-clone include:
 - Sample Map navigation system
 - Pattern Interpolation
 - Melodic Walk generator
+- Pattern Matrix performance launcher
+- Per-track Pattern/Song transport and reverse
+- Shift+INP independent pattern duplication
+- VIEW Transpose “spinning canvas” mode
 - Pattern Navigation popup
 - Configurable vertical cursor navigation
 - Middle-click audition tools
 - Per-track output trim
-- Performance mute
+- Performance mute with live MIDI Dub pass-through
 - Runtime logo loading
 - Portable configuration support
 

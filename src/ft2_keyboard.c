@@ -90,10 +90,8 @@ int8_t scancodeKeyToNote(SDL_Scancode scancode)
 	return note + (editor.curOctave * 12);
 }
 
-void readKeyModifiers(void)
+static void setKeyModifiers(SDL_Keymod modState)
 {
-	const SDL_Keymod modState = SDL_GetModState();
-
 	keyb.leftCtrlPressed = (modState & KMOD_LCTRL) ? true : false;
 	keyb.leftAltPressed = (modState & KMOD_LALT) ? true : false;
 	keyb.leftShiftPressed = (modState & KMOD_LSHIFT) ? true : false;
@@ -106,6 +104,11 @@ void readKeyModifiers(void)
 #ifdef _WIN32
 	keyb.leftWinKeyDown = (modState & KMOD_LGUI) ? true : false;
 #endif
+}
+
+void readKeyModifiers(void)
+{
+	setKeyModifiers(SDL_GetModState());
 }
 
 void keyUpHandler(SDL_Scancode scancode, SDL_Keycode keycode)
@@ -143,10 +146,17 @@ void keyUpHandler(SDL_Scancode scancode, SDL_Keycode keycode)
 	(void)keycode;
 }
 
-void keyDownHandler(SDL_Scancode scancode, SDL_Keycode keycode, bool keyWasRepeated)
+void keyDownHandler(SDL_Scancode scancode, SDL_Keycode keycode, SDL_Keymod modifiers,
+	bool keyWasRepeated)
 {
 	if (keycode == SDLK_UNKNOWN)
 		return;
+
+	/* readInput() snapshots modifiers before SDL's event queue is drained. Use
+	** the modifier mask attached to this exact key event so a chord whose
+	** modifier and primary key arrive in the same queue pass cannot fall
+	** through as an unmodified key. */
+	setKeyModifiers(modifiers);
 
 	// Any keyboard interaction makes the pattern cursor immediately bright again.
 	resetPatternCursorBlink();
@@ -196,6 +206,19 @@ void keyDownHandler(SDL_Scancode scancode, SDL_Keycode keycode, bool keyWasRepea
 		return;
 	}
 
+	/* Silent Record Entry is a global Tapehead command on Ctrl+Grave. Claim it
+	** before the preview handlers so Melodic Walk's plain/Shift+Grave spacing
+	** controls remain available while Ctrl+Grave still toggles Silent Record.
+	** Consume key-repeat events without repeatedly toggling the setting. */
+	if (scancode == SDL_SCANCODE_GRAVE && (modifiers & KMOD_CTRL) &&
+		!(modifiers & (KMOD_SHIFT | KMOD_ALT | KMOD_GUI)))
+	{
+		if (!keyWasRepeated)
+			cbSilentRecEntry();
+
+		return;
+	}
+
 	if (instrumentTransformHandlePreviewKey(scancode, keycode, keyWasRepeated))
 		return;
 
@@ -235,6 +258,32 @@ void keyDownHandler(SDL_Scancode scancode, SDL_Keycode keycode, bool keyWasRepea
 		if (scancode == SDL_SCANCODE_X)
 		{
 			extractSmpRangeToInstrAndStamp();
+			return;
+		}
+	}
+
+	/* Ctrl+Shift+E/X are Sample Editor extraction shortcuts, but E and X are
+	** also physical Fast Tracks keys for channels 13 and 31. Claim these
+	** chords before the global per-track handler while the Sample Editor is
+	** visible. Outside the Sample Editor, the Fast Tracks bindings retain
+	** their normal behavior. Consume key-repeat events without extracting
+	** again so a held chord cannot fill several sample slots accidentally. */
+	if (ui.sampleEditorShown && keyb.leftCtrlPressed &&
+		keyb.leftShiftPressed && !keyb.leftAltPressed)
+	{
+		if (keycode == SDLK_e)
+		{
+			if (!keyWasRepeated)
+				extractSmpFromCursorToSample();
+
+			return;
+		}
+
+		if (keycode == SDLK_x)
+		{
+			if (!keyWasRepeated)
+				extractSmpRangeToSample();
+
 			return;
 		}
 	}
@@ -1176,12 +1225,6 @@ static bool checkModifiedKeys(SDL_Keycode keycode)
 
 		case SDLK_r:
 		{
-			if (keyb.leftCtrlPressed && keyb.leftShiftPressed)
-			{
-				cbSilentRecEntry();
-				return true;
-			}
-
 			if (keyb.leftAltPressed)
 			{
 				if (ui.sampleEditorShown)

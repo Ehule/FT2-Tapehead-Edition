@@ -32,8 +32,16 @@
 #include "ft2_palette.h"
 #include "ft2_structs.h"
 #include "ft2_bmp.h"
+#include "ft2_keyboard.h"
 
 #define BUTTON_GFX_BMP_WIDTH 90
+
+static SDL_Keymod pushButtonModifiersAtMouseDown;
+
+uint16_t getPushButtonModifiersAtMouseDown(void)
+{
+	return (uint16_t)pushButtonModifiersAtMouseDown;
+}
 
 static uint16_t tightButtonTextWidth(const char *text)
 {
@@ -752,6 +760,14 @@ bool testPushButtonMouseDown(void)
 		if (mouse.x >= pushButton->x && mouse.x < pushButton->x+pushButton->w &&
 		    mouse.y >= pushButton->y && mouse.y < pushButton->y+pushButton->h)
 		{
+			/* Modifier-click actions belong to the press gesture. Remember the
+			** exact state here instead of asking again when the button callback
+			** runs on mouse-up. */
+			pushButtonModifiersAtMouseDown = SDL_GetModState();
+			if (keyb.leftCtrlPressed)  pushButtonModifiersAtMouseDown |= KMOD_LCTRL;
+			if (keyb.leftShiftPressed) pushButtonModifiersAtMouseDown |= KMOD_LSHIFT;
+			if (keyb.leftAltPressed)   pushButtonModifiersAtMouseDown |= KMOD_LALT;
+
 			mouse.lastUsedObjectID = i;
 			mouse.lastUsedObjectType = OBJECT_PUSHBUTTON;
 

@@ -501,7 +501,8 @@ static void handleSDLEvents(void)
 		}
 		else if (event.type == SDL_KEYDOWN)
 		{
-			keyDownHandler(event.key.keysym.scancode, event.key.keysym.sym, event.key.repeat);
+			keyDownHandler(event.key.keysym.scancode, event.key.keysym.sym,
+				(SDL_Keymod)event.key.keysym.mod, event.key.repeat);
 		}
 		else if (event.type == SDL_MOUSEBUTTONUP)
 		{

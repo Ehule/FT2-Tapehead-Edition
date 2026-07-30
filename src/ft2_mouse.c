@@ -858,8 +858,14 @@ void mouseButtonDownHandler(uint8_t mouseButton)
 	*/
 
 	const bool instrSwitcherHandled = testInstrSwitcherMouseDown(); // allow normal right click to both change ins. and edit text
-	if (instrSwitcherHandled && mouseButton == SDL_BUTTON_RIGHT && keyb.leftShiftPressed)
-		return; // Tape Head Edition: Shift+right-click clears instrument
+	if (instrSwitcherHandled)
+	{
+		if (patternLauncherPanelIsShown())
+			return; // Matrix owns both mouse buttons inside its panel
+
+		if (mouseButton == SDL_BUTTON_RIGHT && keyb.leftShiftPressed)
+			return; // Tape Head Edition: Shift+right-click clears instrument
+	}
 
 	if (testTextBoxMouseDown()) return;
 	if (testPushButtonMouseDown()) return;

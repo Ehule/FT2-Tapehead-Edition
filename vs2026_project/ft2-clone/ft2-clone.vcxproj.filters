@@ -9,6 +9,8 @@
     <ClCompile Include="..\..\src\ft2_config.c" />
     <ClCompile Include="..\..\src\ft2_edit.c" />
     <ClCompile Include="..\..\src\ft2_events.c" />
+    <ClCompile Include="..\..\src\ft2_fasttracks.c" />
+    <ClCompile Include="..\..\src\ft2_fasttracks_core.c" />
     <ClCompile Include="..\..\src\ft2_gui.c" />
     <ClCompile Include="..\..\src\ft2_inst_ed.c" />
     <ClCompile Include="..\..\src\ft2_interpolation.c" />
@@ -22,6 +24,8 @@
     <ClCompile Include="..\..\src\ft2_palette.c" />
     <ClCompile Include="..\..\src\ft2_pattern_draw.c" />
     <ClCompile Include="..\..\src\ft2_pattern_ed.c" />
+    <ClCompile Include="..\..\src\ft2_pattern_launcher.c" />
+    <ClCompile Include="..\..\src\ft2_pattern_launcher_ui.c" />
     <ClCompile Include="..\..\src\ft2_pushbuttons.c" />
     <ClCompile Include="..\..\src\ft2_radiobuttons.c" />
     <ClCompile Include="..\..\src\ft2_replayer.c" />
@@ -216,7 +220,19 @@
       <Filter>headers</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\ft2_interpolation.h" />
+    <ClInclude Include="..\..\src\ft2_fasttracks.h">
+      <Filter>headers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\ft2_fasttracks_core.h">
+      <Filter>headers</Filter>
+    </ClInclude>
     <ClInclude Include="..\..\src\ft2_pattern_ed.h">
+      <Filter>headers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\ft2_pattern_launcher.h">
+      <Filter>headers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\ft2_pattern_launcher_ui.h">
       <Filter>headers</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\ft2_pushbuttons.h">

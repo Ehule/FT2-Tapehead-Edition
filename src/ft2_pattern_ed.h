@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "ft2_unicode.h"
+#include "ft2_pattern_launcher_ui.h"
 
 enum
 {
@@ -77,11 +78,6 @@ void chanLeft(void);
 void chanRight(void);
 void showPatternEditor(void);
 void updateInstrumentSwitcher(void);
-bool patternLauncherPanelIsShown(void);
-void patternLauncherSetPage(uint8_t page);
-bool patternLauncherHandlePanelClick(int16_t x, int16_t y);
-void handlePatternLauncherPanelRefresh(void);
-void patternLauncherForceRedraw(void);
 void hidePatternEditor(void);
 void patternEditorExtended(void);
 void exitPatternEditorExtended(void);
@@ -116,6 +112,7 @@ void pbPosEdPosUp(void);
 void pbPosEdPosDown(void);
 bool insertNewPatternAfterCurrentSongPos(bool selectNewPosition);
 bool appendNewPatternToSong(void);
+bool patternMatrixClearPattern(uint8_t pattNum, bool removeSongReferences);
 void pbPosEdIns(void);
 void pbPosEdDel(void);
 void pbPosEdPattUp(void);

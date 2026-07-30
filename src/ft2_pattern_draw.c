@@ -5,6 +5,7 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include <string.h>
 #include "ft2_header.h"
 #include "ft2_pattern_ed.h"
 #include "ft2_config.h"
@@ -833,11 +834,12 @@ static void drawFastTracksPOCLed(uint16_t x, uint16_t y, uint32_t color)
 	video.frameBuffer[((y + 2) * SCREEN_W) + x + 1] = color;
 }
 
-static void drawFastTracksPOCStatus(uint16_t yPos)
+static void drawFastTracksPOCStatus(uint16_t yPos, const fastTracksSnapshot_t *snapshot)
 {
 	for (int32_t fastTrackChannel = 0; fastTrackChannel < MAX_CHANNELS; fastTrackChannel++)
 	{
-		if (!fastTracksPOCIsEnabled(fastTrackChannel))
+		const fastTracksTrackSnapshot_t *track = &snapshot->tracks[fastTrackChannel];
+		if (!track->enabled)
 			continue;
 
 		if (fastTrackChannel < ui.channelOffset || fastTrackChannel >= ui.channelOffset + ui.numChannelsShown)
@@ -845,14 +847,14 @@ static void drawFastTracksPOCStatus(uint16_t yPos)
 
 		const int32_t visibleChannel = fastTrackChannel - ui.channelOffset;
 		const uint32_t xPos = 30 + (visibleChannel * ui.patternChannelWidth);
-		const uint8_t numerator = fastTracksPOCGetRatioNumerator(fastTrackChannel);
-		const uint8_t denominator = fastTracksPOCGetRatioDenominator(fastTrackChannel);
-		const int32_t sourceRow = fastTracksPOCGetSourceRow(fastTrackChannel);
-		const fastTracksMode_t transportMode = fastTracksPOCGetMode(fastTrackChannel);
+		const uint8_t numerator = track->ratioNumerator;
+		const uint8_t denominator = track->ratioDenominator;
+		const int32_t sourceRow = track->sourceRow;
+		const fastTracksMode_t transportMode = track->mode;
 		const bool songMode = transportMode == FAST_TRACKS_MODE_SONG;
-		const int32_t sourceOrder = fastTracksPOCGetSourceOrder(fastTrackChannel);
-		const bool clutchHeld = fastTracksPOCIsClutched(fastTrackChannel);
-		const bool reversed = fastTracksPOCIsReversed(fastTrackChannel);
+		const int32_t sourceOrder = track->sourceOrder;
+		const bool clutchHeld = track->clutched;
+		const bool reversed = track->reversed;
 
 		/*
 		** Fixed header zones keep one- and two-digit channel numbers from
@@ -933,7 +935,7 @@ static void drawFastTracksPOCStatus(uint16_t yPos)
 		drawFastTracksPOCLed(syncLedX, (uint16_t)(yPos + 2), ledOffColor);
 		drawFastTracksPOCLed(leadLedX, (uint16_t)(yPos + 2), ledOffColor);
 
-		const bool masterAligned = fastTracksPOCIsMasterAligned(fastTrackChannel);
+		const bool masterAligned = track->masterAligned;
 		if (masterAligned)
 		{
 			/* Deliberately literal green: exact master synchronization should be
@@ -1026,6 +1028,8 @@ void writePattern(int32_t currRow, int32_t currPattern)
 	const int32_t numChannels = ui.numChannelsShown;
 	note_t *pattPtr = pattern[currPattern];
 	const int32_t numRows = patternNumRows[currPattern];
+	fastTracksSnapshot_t fastTracksSnapshot;
+	fastTracksPOCGetSnapshot(&fastTracksSnapshot);
 
 	// increment pattern data pointer by horizontal scrollbar offset/channel
 	if (pattPtr != NULL)
@@ -1069,7 +1073,8 @@ void writePattern(int32_t currRow, int32_t currPattern)
 			for (int32_t j = 0; j < numChannels; j++, p++, xPos += xWidth)
 			{
 				const int32_t absoluteChannel = ui.channelOffset + j;
-				const bool fastTrackVisible = fastTracksPOCIsEnabled(absoluteChannel);
+				const fastTracksTrackSnapshot_t *fastTrack = &fastTracksSnapshot.tracks[absoluteChannel];
+				const bool fastTrackVisible = fastTrack->enabled;
 				const note_t *drawPtr = p;
 
 				if (fastTrackVisible)
@@ -1080,15 +1085,20 @@ void writePattern(int32_t currRow, int32_t currPattern)
 						drawFastTracksPOCArrow(arrowX, (uint32_t)textY);
 					}
 
-					int32_t privateRow = fastTracksPOCGetSourceRow(absoluteChannel) + (i - pattCoord->numUpperRows);
+					const int32_t sourcePattern = fastTrack->sourcePattern;
+					const int32_t sourceNumRows =
+						patternNumRows[sourcePattern] > 0 ?
+						patternNumRows[sourcePattern] : 1;
+					int32_t privateRow =
+						fastTrack->sourceRow + (i - pattCoord->numUpperRows);
 					while (privateRow < 0)
-						privateRow += numRows;
-					while (privateRow >= numRows)
-						privateRow -= numRows;
+						privateRow += sourceNumRows;
+					while (privateRow >= sourceNumRows)
+						privateRow -= sourceNumRows;
 
-					drawPtr = (pattern[currPattern] == NULL)
+					drawPtr = (pattern[sourcePattern] == NULL)
 						? emptyPattern
-						: &pattern[currPattern][(privateRow * MAX_CHANNELS) + absoluteChannel];
+						: &pattern[sourcePattern][(privateRow * MAX_CHANNELS) + absoluteChannel];
 				}
 
 				// Theme-safe Fast Tracks coloring: only populated event fields receive
@@ -1101,7 +1111,7 @@ void writePattern(int32_t currRow, int32_t currPattern)
 
 				if (fastTrackVisible)
 				{
-					const bool clutchHeld = fastTracksPOCIsClutched(absoluteChannel);
+					const bool clutchHeld = fastTrack->clutched;
 					const uint32_t fastTrackColor = clutchHeld
 						? video.palette[PAL_BLCKMRK]
 						: video.palette[PAL_BLCKTXT];
@@ -1143,7 +1153,7 @@ void writePattern(int32_t currRow, int32_t currPattern)
 		writePatternBlockMark(currRow, rowHeight, pattCoord);
 
 	// Draw the Fast Tracks panel first, then restore channel numbers over it.
-	drawFastTracksPOCStatus(pattCoord2->upperRowsY+2);
+	drawFastTracksPOCStatus(pattCoord2->upperRowsY+2, &fastTracksSnapshot);
 
 	// channel numbers must be drawn lastly
 	if (config.ptnChnNumbers)
