@@ -13,6 +13,7 @@
 #include "ft2_keyboard.h"
 #include "ft2_bmp.h"
 #include "ft2_sysreqs.h"
+#include "ft2_poly_matrix.h"
 
 static bool patternLauncherPanelShown;
 static uint8_t patternLauncherPage;
@@ -168,6 +169,17 @@ void patternLauncherDrawPanel(void)
 			const int8_t queuePos = getPatternLauncherQueuePos(patternNum);
 			const bool patternUsed = pattern[patternNum] != NULL;
 			const bool songPattern = patternLauncherSongPatterns[patternNum];
+			const bool polyActive =
+				polyMatrixIsPatternActive((uint8_t)patternNum);
+			const uint8_t polySlot =
+				polyMatrixGetPatternSlot((uint8_t)patternNum);
+			const bool qToPolyPending =
+				patternLauncherPolyHandoffIsPending((uint8_t)patternNum);
+			const uint32_t polyColor =
+				polyMatrixPatternStopPending((uint8_t)patternNum) ?
+				0xFF287A83 :
+				(polyMatrixPatternQHandoffPending((uint8_t)patternNum) ?
+					0xFF2F9D87 : 0xFF35C9D0);
 
 			drawFramework(x, y, 40, 18, FRAMEWORK_TYPE1);
 			if (patternNum == current)
@@ -182,12 +194,25 @@ void patternLauncherDrawPanel(void)
 				else activeColor = blendPatternLauncherColor(0xFF39C85A,
 					video.palette[PAL_DESKTOP], getPatternLauncherBreatheLevel());
 				fillPatternLauncherRect(x + 2, y + 2, 36, 14, activeColor);
+
+				/* A cyan foot shows that the same tile still owns an
+				** independent Poly spool beneath its ordinary Q state. */
+				if (polyActive || qToPolyPending)
+					fillPatternLauncherRect(x + 2, y + 13, 36, 3, polyColor);
 			}
 			else if (queuePos >= 0)
 			{
 				const uint32_t queueColor = blendPatternLauncherColor(video.palette[PAL_BUTTONS],
 					video.palette[PAL_DESKTOP], queueLevels[queuePos]);
 				fillPatternLauncherRect(x + 2, y + 2, 36, 14, queueColor);
+				if (polyActive)
+					fillPatternLauncherRect(x + 2, y + 13, 36, 3, polyColor);
+			}
+			else if (polyActive)
+			{
+				/* Cyan = independently threaded Poly Matrix spool. A pending
+				** graceful pull darkens it until the current revolution ends. */
+				fillPatternLauncherRect(x + 2, y + 2, 36, 14, polyColor);
 			}
 
 			/* Text color describes membership while the cell background is
@@ -207,8 +232,57 @@ void patternLauncherDrawPanel(void)
 					(songPattern ? PAL_PATTEXT : PAL_MOUSEPT) : PAL_DSKTOP2;
 				hexOut(x + 14, y + 5, textPal, patternNum, 2);
 			}
+
+			/* Keep a tiny, stable 1..4 label attached to each active Poly
+			** spool. It remains visible through Q overlap and handoff states. */
+			if (polySlot != 0)
+			{
+				char slotText[2] = { (char)('0' + polySlot), '\0' };
+				textOutTinyOutline(x + 5, y + 5, slotText);
+			}
+
+			/* The queue gradient is deliberately theme-derived, so its four
+			** levels can be subtle in some palettes. Mirror the waiting order
+			** with an explicit 1..4 marker on the right edge. The active Q
+			** tile is already identified by its breathing/semantic color and
+			** is not part of this next-up numbering. */
+			if (queuePos >= 0)
+			{
+				char queueText[2] = { (char)('1' + queuePos), '\0' };
+				textOutTinyOutline(x + 32, y + 5, queueText);
+			}
 		}
 	}
+}
+
+bool patternLauncherHandlePanelMiddleClick(int16_t x, int16_t y, bool shiftPressed)
+{
+	if (!patternLauncherPanelShown || x < 423 || x >= 587 || y < 4 || y >= 156)
+		return false;
+
+	const int16_t col = (x - 423) / 41;
+	const int16_t row = (y - 4) / 19;
+	if (col < 0 || col > 3 || row < 0 || row > 7 ||
+		((x - 423) % 41) >= 40 || ((y - 4) % 19) >= 18)
+		return true;
+
+	const uint8_t patternNum =
+		(uint8_t)((patternLauncherPage * 32) + (row * 4) + col);
+
+	/* An active Q tile transfers at Q's next loop boundary. A tile already
+	** active in Poly keeps the established pull gesture instead. */
+	if (patternLauncherGetCurrent() == patternNum &&
+		!polyMatrixIsPatternActive(patternNum))
+	{
+		patternLauncherRequestPolyHandoff(patternNum);
+	}
+	else
+	{
+		polyMatrixTogglePattern(patternNum, shiftPressed);
+	}
+
+	patternLauncherDrawPanel();
+	return true;
 }
 
 static void drawPatternLauncherShell(void)
@@ -312,6 +386,19 @@ bool patternLauncherHandlePanelClick(int16_t x, int16_t y)
 		return true;
 	}
 
+	/*
+	** Ordinary left-click remains independent. Ctrl+Shift is the explicit
+	** exception: arm an atomic Poly -> Q transfer at the spool's next group
+	** boundary.
+	*/
+	if (keyb.leftCtrlPressed && keyb.leftShiftPressed &&
+		polyMatrixIsPatternActive(patternNum))
+	{
+		polyMatrixRequestQHandoff(patternNum);
+		patternLauncherDrawPanel();
+		return true;
+	}
+
 	patternLauncherRequest(patternNum, keyb.leftCtrlPressed, keyb.leftShiftPressed);
 	patternLauncherDrawPanel();
 	return true;
@@ -323,6 +410,7 @@ void handlePatternLauncherPanelRefresh(void)
 	static int16_t oldQueue[4] = { -2, -2, -2, -2 };
 	static uint8_t oldQueueCount = 0xFF;
 	static uint8_t oldExitMode = 0xFF;
+	static uint8_t oldPolyCount = 0xFF;
 
 	if (!patternLauncherPanelShown || !ui.instrSwitcherShown)
 		return;
@@ -334,9 +422,10 @@ void handlePatternLauncherPanelRefresh(void)
 	const int16_t current = patternLauncherGetCurrent();
 	const uint8_t queueCount = patternLauncherGetQueueCount();
 	const uint8_t exitMode = patternLauncherGetExitMode();
+	const uint8_t polyCount = polyMatrixGetActiveCount();
 	const bool usageChanged = rebuildPatternLauncherVisibleUsage();
 	bool changed = current != oldCurrent || queueCount != oldQueueCount ||
-		exitMode != oldExitMode || usageChanged;
+		exitMode != oldExitMode || polyCount != oldPolyCount || usageChanged;
 	for (uint8_t i = 0; i < 4; i++)
 	{
 		const int16_t queueItem = patternLauncherGetQueueItem(i);
@@ -350,6 +439,7 @@ void handlePatternLauncherPanelRefresh(void)
 		oldCurrent = current;
 		oldQueueCount = queueCount;
 		oldExitMode = exitMode;
+		oldPolyCount = polyCount;
 		patternLauncherDrawPanel();
 	}
 }

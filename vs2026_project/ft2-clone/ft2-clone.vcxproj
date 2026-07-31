@@ -322,6 +322,7 @@
     <ClCompile Include="..\..\src\ft2_pattern_draw.c" />
     <ClCompile Include="..\..\src\ft2_pattern_launcher.c" />
     <ClCompile Include="..\..\src\ft2_pattern_launcher_ui.c" />
+    <ClCompile Include="..\..\src\ft2_poly_matrix.c" />
     <ClCompile Include="..\..\src\ft2_pushbuttons.c" />
     <ClCompile Include="..\..\src\ft2_radiobuttons.c" />
     <ClCompile Include="..\..\src\ft2_random.c" />
@@ -415,6 +416,7 @@
     <ClInclude Include="..\..\src\ft2_pattern_draw.h" />
     <ClInclude Include="..\..\src\ft2_pattern_launcher.h" />
     <ClInclude Include="..\..\src\ft2_pattern_launcher_ui.h" />
+    <ClInclude Include="..\..\src\ft2_poly_matrix.h" />
     <ClInclude Include="..\..\src\ft2_pushbuttons.h" />
     <ClInclude Include="..\..\src\ft2_radiobuttons.h" />
     <ClInclude Include="..\..\src\ft2_random.h" />

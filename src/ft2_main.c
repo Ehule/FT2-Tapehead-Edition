@@ -252,6 +252,7 @@ int main(int argc, char *argv[])
 		readInput();
 		handleEvents();
 		handleRecPlusExhaustion();
+		handlePolyMatrixQHandoff();
 		handlePatternLauncherStop();
 		handlePatternLauncherPanelRefresh();
 		handleRedrawing();

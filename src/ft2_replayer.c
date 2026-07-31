@@ -29,6 +29,7 @@
 #include "ft2_sample_loader.h"
 #include "ft2_tables.h"
 #include "ft2_random.h"
+#include "ft2_poly_matrix.h"
 #include "ft2_structs.h"
 #include "ft2_random.h"
 #include "mixer/ft2_windowed_sinc.h"
@@ -132,8 +133,12 @@ void resetReplayerState(void)
 		ch->patternLoopCounter = 0;
 	}
 	
-	// reset global volume (if song was playing)
-	if (songPlaying)
+	/*
+	** Reset ordinary playback volume as usual, except when Poly already owns
+	** the live performance layer. Starting a Q/Pattern cue must not change
+	** the volume of independently running spools.
+	*/
+	if (songPlaying && !polyMatrixHasAudioWork())
 	{
 		song.globalVolume = 64;
 
@@ -2619,6 +2624,55 @@ void resumeMusic(void) // starts reading pattern data
 	musicPaused = false;
 }
 
+static bool processPolyMatrixChannel(channel_t *ch, int32_t channelIndex,
+	uint16_t tpl)
+{
+	if (polyMatrixOwnsDestination(channelIndex))
+	{
+		const note_t *polyNotes[FAST_TRACKS_MAX_CROSSINGS_PER_TICK];
+		const int32_t polyCount = polyMatrixAdvanceAudio(channelIndex, tpl,
+			polyNotes, FAST_TRACKS_MAX_CROSSINGS_PER_TICK);
+		for (int32_t event = 0; event < polyCount; event++)
+		{
+			note_t isolatedEvent = *polyNotes[event];
+			polyMatrixIsolateEventFromMainTransport(&isolatedEvent);
+			getNewNote(ch, &isolatedEvent);
+		}
+
+		if (polyMatrixConsumeDestinationRelease(channelIndex))
+		{
+			note_t noteOff;
+			memset(&noteOff, 0, sizeof (noteOff));
+			noteOff.note = NOTE_OFF;
+			getNewNote(ch, &noteOff);
+		}
+		else if (polyCount == 0)
+		{
+			handleEffects_TickNonZero(ch);
+		}
+
+		updateVolPanAutoVib(ch);
+		return true;
+	}
+
+	if (polyMatrixConsumeDestinationRelease(channelIndex))
+	{
+		note_t noteOff;
+		memset(&noteOff, 0, sizeof (noteOff));
+		noteOff.note = NOTE_OFF;
+		getNewNote(ch, &noteOff);
+
+		/*
+		** A released tunnel is immediately available to the ordinary layer.
+		** In particular, a Poly -> Q handoff must not consume and suppress
+		** Q's row-00 event on the first tick after the transfer.
+		*/
+		return false;
+	}
+
+	return false;
+}
+
 void tickReplayer(void) // periodically called from audio callback
 {
 #ifdef HAS_MIDI
@@ -2626,6 +2680,27 @@ void tickReplayer(void) // periodically called from audio callback
 #endif
 
 	channel_t *ch;
+
+	/*
+	** Poly Matrix has its own transport lifecycle. It consumes the global
+	** audio tick/BPM, but it does not require Pattern or Song Play to be on
+	** and it never advances the editor's pattern position.
+	*/
+	if (!songPlaying && polyMatrixHasAudioWork())
+	{
+		const uint16_t polyTPL = song.speed > 0 ? song.speed : 1;
+		beginTapeheadGlobalCommandPass();
+
+		ch = channel;
+		for (int32_t i = 0; i < song.numChannels; i++, ch++)
+		{
+			if (!processPolyMatrixChannel(ch, i, polyTPL))
+				updateVolPanAutoVib(ch);
+		}
+
+		finishTapeheadGlobalCommandPass();
+		return;
+	}
 
 	if (!songPlaying)
 	{
@@ -2680,6 +2755,13 @@ void tickReplayer(void) // periodically called from audio callback
 	ch = channel;
 	for (int32_t i = 0; i < song.numChannels; i++, ch++)
 	{
+		if (processPolyMatrixChannel(ch, i, fastTracksTPL))
+		{
+			if (readNewNote)
+				p++;
+			continue;
+		}
+
 		const bool fastTrackEnabled = fastTracksPOCIsEnabled(i);
 		const bool transmissionClutched =
 			fastTrackEnabled && fastTracksPOCTransmissionClutchIsLatched();
@@ -3342,8 +3424,13 @@ void startPlaying(int8_t mode, int16_t row)
 	if (song.speed == 0)
 		song.speed = song.initialSpeed;
 
-	// zero tick sample counter so that it will instantly initiate a tick
-	audio.tickSampleCounterFrac = audio.tickSampleCounter = 0;
+	/*
+	** A standalone Poly transport already has a live audio-tick cadence.
+	** Let the ordinary transport join on its next tick instead of injecting a
+	** shortened tick that would perturb every Poly spool's private phase.
+	*/
+	if (!polyMatrixHasAudioWork())
+		audio.tickSampleCounterFrac = audio.tickSampleCounter = 0;
 
 	unlockMixerCallback();
 
@@ -3378,9 +3465,38 @@ void handleRecPlusExhaustion(void)
 	recPlusEarnedGameOver = false;
 }
 
+void stopPlayingKeepPoly(void)
+{
+	/*
+	** A left-click Matrix cue is allowed to stop its ordinary transport, but
+	** it must not reset Poly spool state or silence Poly-owned tunnels.
+	*/
+	playMode = PLAYMODE_IDLE;
+	songPlaying = false;
+
+	for (uint8_t i = 0; i < MAX_CHANNELS; i++)
+	{
+		if (!polyMatrixOwnsDestination(i))
+			playTone(i, 0, NOTE_OFF, -1, 0, 0);
+	}
+
+	editor.row = song.row;
+	memset(editor.keyOnTab, 0, sizeof (editor.keyOnTab));
+
+	/* Return the editor/main transport context without touching Poly rows. */
+	song.songPos = editor.songPos;
+	song.row = editor.row;
+	song.pattNum = editor.editPattern;
+	song.tick = editor.tick = 1;
+
+	ui.updatePosSections = true;
+	ui.updatePatternEditor = true;
+}
+
 void stopPlaying(void)
 {
 	patternLauncherSetEnabled(false);
+	polyMatrixReset();
 
 	bool songWasPlaying = songPlaying;
 	playMode = PLAYMODE_IDLE;

@@ -27,6 +27,7 @@
 #include "ft2_video.h"
 #include "ft2_structs.h"
 #include "ft2_sysreqs.h"
+#include "ft2_poly_matrix.h"
 
 bool detectBEM(FILE *f);
 bool loadBEM(FILE *f, uint32_t filesize);
@@ -482,6 +483,7 @@ static void setupLoadedModule(void)
 	resetChannels();
 	setSongPos(0, 0, RESET_SONG_TICK);
 	fastTracksPOCResetForLoadedModule();
+	polyMatrixReset();
 	setMixerBPM(song.BPM);
 
 	editor.tmpPattern = editor.editPattern; // set kludge variable

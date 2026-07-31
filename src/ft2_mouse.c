@@ -25,6 +25,7 @@
 #include "ft2_edit.h"
 #include "ft2_replayer.h"
 #include "ft2_tables.h"
+#include "ft2_pattern_launcher_ui.h"
 
 #define NUM_CURSORS 6
 
@@ -772,6 +773,9 @@ void mouseButtonDownHandler(uint8_t mouseButton)
 	if (mouseButton == SDL_BUTTON_MIDDLE)
 	{
 		mouse.middleButtonPressed = true;
+
+		if (patternLauncherHandlePanelMiddleClick(mouse.x, mouse.y, keyb.leftShiftPressed))
+			return;
 
 		if (ui.patternEditorShown)
 		{

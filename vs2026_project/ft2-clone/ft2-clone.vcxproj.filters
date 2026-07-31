@@ -26,6 +26,7 @@
     <ClCompile Include="..\..\src\ft2_pattern_ed.c" />
     <ClCompile Include="..\..\src\ft2_pattern_launcher.c" />
     <ClCompile Include="..\..\src\ft2_pattern_launcher_ui.c" />
+    <ClCompile Include="..\..\src\ft2_poly_matrix.c" />
     <ClCompile Include="..\..\src\ft2_pushbuttons.c" />
     <ClCompile Include="..\..\src\ft2_radiobuttons.c" />
     <ClCompile Include="..\..\src\ft2_replayer.c" />
@@ -233,6 +234,9 @@
       <Filter>headers</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\ft2_pattern_launcher_ui.h">
+      <Filter>headers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\ft2_poly_matrix.h">
       <Filter>headers</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\ft2_pushbuttons.h">
