@@ -1,97 +1,138 @@
-# Poly Matrix Automatic Loom and Handoff Prototype
+# Poly Matrix
 
-This RC1 experiment tests the automatic loom: a pattern supplies a bundle of
-musical threads, and the router sends each thread through an available
-physical channel ("tunnel").
+Poly Matrix is an experimental post-RC1 performance layer inside the Pattern
+Matrix. It treats a pattern as a spool of musical threads and automatically
+routes those threads through available physical channels, or "tunnels."
 
-## Automatic source bundle
+Poly Matrix is runtime-only and non-destructive. It does not rewrite pattern
+data or add Tapehead-specific metadata to an XM file.
 
-Open the Pattern Matrix and middle-click a populated pattern tile. Cursor
-position is no longer involved.
+## Loom vocabulary
 
-Every populated source track in that pattern becomes a thread. Note,
-instrument, volume-column, and effect-only tracks all count as populated. A
-pattern may supply up to eight threads, and up to four Poly patterns may be
-active at once.
+| Term | Meaning |
+|---|---|
+| Spool | One middle-clicked pattern and all of its populated source tracks |
+| Thread | One populated source track within that pattern |
+| Tunnel | The physical FT2 channel through which a thread is played |
+| Q | The ordinary left-click Pattern Matrix foreground and queue transport |
 
-Each thread first tries the same-numbered physical track as its tunnel. If that
-tunnel already belongs to another Poly spool, routing wraps forward to the next
-free physical track. The complete bundle is routed atomically: if all of its
-threads cannot be placed, none of them starts.
+The source thread supplies notes, instruments, volume-column data, and effects.
+The destination tunnel supplies its mixer trim, performance mute, output
+assignment, and FasTracks ratio, direction, and clutch behavior.
 
-The source supplies the pattern events. The destination tunnel retains mixer
-trim, performance mute, output assignment, and its FasTracks ratio, direction,
-and clutch behavior.
+## Automatic routing
 
-## Poly gestures
+Open the Pattern Matrix and middle-click a populated pattern tile. The tracker
+cursor position is not involved.
 
-- Middle-click a free populated tile: start its automatic bundle at row `00`.
-- Middle-click its cyan tile again: let every thread finish its current
-  revolution, then pull the whole bundle together.
-- Shift+Middle-click its cyan tile: pull the whole bundle immediately.
-- Ctrl+Shift+Left-click its cyan tile: arm Poly -> Q handoff.
+Every populated source track in the pattern becomes a thread. Tracks containing
+only instrument, volume-column, or effect data still count. One spool may
+contain up to eight threads, and up to four spools may be active at once.
 
-Each active Poly tile carries a tiny `1` through `4` in launch-slot order. The
-number remains attached while the tile overlaps Q or waits for a handoff. When
-a spool is removed, its number becomes available to the next Poly throw.
+Each thread first requests the same-numbered physical channel. If that tunnel
+already belongs to another Poly spool, the router searches forward and wraps
+around for the next free channel. This makes prepared FasTracks channels act
+like differently configured tunnels while preserving an element of routing
+chance.
 
-Poly -> Q waits until every thread has completed its current revolution. If Q
-is already running, the bundle holds at that group boundary until Q's next
-safe pattern boundary, then Q takes the clicked pattern at row `00`. If Q is
-stopped, Q starts as soon as the Poly bundle reaches its boundary.
+Routing is atomic. Every thread must receive a tunnel or the spool does not
+start. Empty patterns, patterns with more than eight populated tracks, a fifth
+simultaneous spool, and bundles without enough free tunnels are rejected
+without changing the active performance.
 
-Ordinary left-click remains independent and never alters Poly state.
+## Mouse controls
 
-## Q queue markers
+| Gesture | Result |
+|---|---|
+| Middle-click a free populated tile | Start its complete Poly bundle at row `00` |
+| Middle-click an active cyan Poly tile | Arm graceful removal after every thread completes its current revolution |
+| `Shift+Middle-click` an active cyan Poly tile | Pull the complete bundle immediately |
+| `Ctrl+Shift+Left-click` an active cyan Poly tile | Arm a seamless Poly-to-Q handoff |
+| Left-click any tile | Use Q normally without altering Poly |
+| Middle-click the currently playing Q tile | Arm a seamless Q-to-Poly handoff |
 
-The currently playing Q tile keeps its breathing green or semantic exit color.
-Waiting Q tiles carry a tiny `1` through `4` on the right edge, showing their
-next-up order directly instead of relying only on the theme-derived gradient.
-The left edge remains reserved for the stable Poly spool number, so a tile can
-show both states at once without ambiguity.
+Ordinary left-click never stops, restarts, transfers, or resynchronizes an
+active Poly spool. A pattern may therefore be active in Q and Poly at the same
+time.
 
-## Q -> Poly gesture
+## Visual state
 
-Middle-click the currently playing Q tile to arm Q -> Poly handoff. Q finishes
-its current loop, the pattern's populated tracks are routed into Poly at row
-`00`, and:
+Poly and Q use opposite tile edges so both layers remain legible together:
 
-- the next queued Q pattern becomes foreground, if one exists; or
-- the ordinary Q transport stops while Poly continues.
+| Marker | Meaning |
+|---|---|
+| Left `1`-`4` | Stable Poly spool slot |
+| Right `1`-`4` | Waiting Q position; `1` is next |
+| Breathing green tile | Q is playing now |
+| Cyan tile | Poly spool is active |
+| Dark cyan tile | Graceful Poly removal is pending |
+| Green tile with cyan foot | The same pattern is active in Q and Poly |
 
-Middle-clicking a queued-but-not-yet-playing Q tile still performs a normal
-Poly throw because that tile does not yet have a running Q loop boundary.
+Poly numbers remain attached to their spools instead of being renumbered during
+a performance. When a spool is removed, its freed number is reused by the next
+throw. Q numbers update as the queue advances. The currently playing Q tile is
+not numbered on the right because its green state already means "now."
 
-If a tile is already active in both Q and Poly, middle-click retains the
-established Poly pull gesture. The Q color keeps a cyan foot to show the
-simultaneous Poly layer.
+## Poly-to-Q handoff
 
-## Clock and ownership
+`Ctrl+Shift+Left-click` an active Poly tile to arm a transfer. Each thread
+finishes its current revolution, and faster threads wait at their own
+boundaries until the complete bundle is ready.
 
-Poly owns its playback clock. Throwing a spool while FT2 is stopped does not
-start Pattern Play, advance the editor row, or read from the pattern displayed
-in the editor. Pattern/Song Play and Q can start and stop independently.
+If Q is stopped, Q starts the transferred pattern at row `00` as soon as the
+bundle boundary is complete. If Q is already running, the Poly bundle waits for
+Q's next safe pattern boundary and then becomes the foreground Q pattern.
 
-A destination channel is exclusively owned by its Poly thread until release,
-temporarily replacing ordinary pattern feed on that channel. Graceful,
-immediate, and handoff releases all send clean tunnel note-offs.
+The handoff is atomic: the final Poly release cannot suppress Q's first row-00
+event.
 
-Pattern-position effects (`Bxx`, `Dxx`, `E6x`, and `EEx`) are isolated from
-Poly playback and cannot steer the ordinary Pattern/Song transport. `Fxx`
-remains shared because BPM/TPL is the common performance clock.
+## Q-to-Poly handoff
 
-The complete state is runtime-only. Explicit global Stop or module load clears
-both layers, and XM pattern data is never altered.
+Middle-click the currently playing Q tile to arm the reverse transfer. Q
+finishes its current loop, then the pattern's populated tracks are routed into
+Poly at row `00`.
+
+- If Q has another queued pattern, that pattern becomes the foreground cue.
+- If the Q queue is empty, Q stops while Poly continues.
+
+Middle-clicking a waiting Q tile performs a normal Poly throw because that
+pattern does not yet have an active Q loop boundary. If a tile is already
+active in both layers, middle-click retains the normal Poly removal gesture.
+
+## Clock, ownership, and effects
+
+Poly uses the shared audio tick, BPM, and TPL but owns independent pattern rows
+and transport lifecycle. Starting Poly while FT2 is stopped does not start
+Pattern Play, advance the editor row, or read from the pattern displayed in the
+editor. Pattern Play, Song Play, and Q can start and stop without resetting
+Poly phase.
+
+A tunnel is exclusively owned by its Poly thread until release. Ordinary Q,
+Pattern, or Song data for that physical channel is temporarily suppressed,
+while ordinary events on unclaimed channels continue normally. Graceful,
+immediate, and handoff releases send a clean note-off to every released tunnel.
+
+Poly follows a tunnel's FasTracks ratio and reverse direction when FasTracks is
+enabled and unclutched there. A standard or clutched tunnel runs forward at
+`1:1`.
+
+Pattern-position effects `Bxx`, `Dxx`, `E6x`, and `EEx` are isolated from Poly
+playback and cannot steer the ordinary Pattern/Song transport. `Fxx` remains
+shared because tempo is part of the common performance clock.
+
+Explicit global Stop and module loading clear the Poly runtime state.
 
 ## Suggested test
 
-1. Create a pattern with data on several tracks, including one effect-only
+1. Create a pattern with data on several tracks, including an effect-only
    control track.
-2. Middle-click it without moving the tracker cursor and confirm that all
-   populated tracks speak through their routed tunnels.
+2. Middle-click it without moving the tracker cursor and confirm that every
+   populated track is routed.
 3. Prepare several destination tracks with visibly different FasTracks ratios
    and throw additional patterns to force routing contention.
-4. Ctrl+Shift+Left-click a cyan tile and confirm that its entire bundle reaches
-   Q cleanly.
-5. Middle-click the active Q tile and confirm that it returns to Poly after the
-   Q loop, while the next queued Q item takes foreground if present.
+4. Queue ordinary Q patterns and confirm that they continue on unclaimed
+   channels without altering the Poly spools.
+5. `Ctrl+Shift+Left-click` a cyan tile and confirm that the complete bundle
+   reaches Q at a clean boundary.
+6. Middle-click the active Q tile and confirm that it reaches Poly after the Q
+   loop while the next queued Q item, if any, takes the foreground.
