@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <string.h>
 #include <math.h>
 #ifdef _WIN32
 #define WIN32_MEAN_AND_LEAN
@@ -391,6 +392,215 @@ void endFPSCounter(void)
 		runningFrameDuration += SDL_GetPerformanceCounter() - frameStartTime;
 }
 
+/*
+** Tapehead HD keeps the original 632x400 drawing surface and mouse map intact,
+** then reconstructs the finished frame at a higher native resolution.
+**
+** "Round" is the original Scale2x/Scale3x proof-of-concept filter. "Crisp"
+** begins with exact integer expansion, then changes only a single physical
+** corner pixel when two matching source neighbors prove that a diagonal is
+** present. Unlike the discarded sharp experiment, it never thins straight
+** strokes or borrows an arbitrary color from one side of an exposed corner.
+**
+** This is intentionally a presentation layer. It does not change any FT2 UI
+** coordinates, hitboxes, pattern rendering, replay code or editor behavior.
+*/
+static void scale2xFrameBuffer(void)
+{
+	const int32_t dstW = SCREEN_W * 2;
+
+	for (int32_t y = 0; y < SCREEN_H; y++)
+	{
+		const uint32_t *srcPrev = &video.frameBuffer[((y > 0) ? y-1 : y) * SCREEN_W];
+		const uint32_t *srcCurr = &video.frameBuffer[y * SCREEN_W];
+		const uint32_t *srcNext = &video.frameBuffer[((y < SCREEN_H-1) ? y+1 : y) * SCREEN_W];
+		uint32_t *dst0 = &video.presentBuffer[(y * 2) * dstW];
+		uint32_t *dst1 = dst0 + dstW;
+
+		for (int32_t x = 0; x < SCREEN_W; x++)
+		{
+			const int32_t xPrev = (x > 0) ? x-1 : x;
+			const int32_t xNext = (x < SCREEN_W-1) ? x+1 : x;
+			const uint32_t b = srcPrev[x];
+			const uint32_t d = srcCurr[xPrev];
+			const uint32_t e = srcCurr[x];
+			const uint32_t f = srcCurr[xNext];
+			const uint32_t h = srcNext[x];
+			const int32_t dx = x * 2;
+
+			dst0[dx+0] = (d == b && b != f && d != h) ? d : e;
+			dst0[dx+1] = (b == f && b != d && f != h) ? f : e;
+			dst1[dx+0] = (d == h && d != b && h != f) ? d : e;
+			dst1[dx+1] = (h == f && d != h && b != f) ? f : e;
+		}
+	}
+}
+
+static void scale3xFrameBuffer(void)
+{
+	const int32_t dstW = SCREEN_W * 3;
+
+	for (int32_t y = 0; y < SCREEN_H; y++)
+	{
+		const uint32_t *srcPrev = &video.frameBuffer[((y > 0) ? y-1 : y) * SCREEN_W];
+		const uint32_t *srcCurr = &video.frameBuffer[y * SCREEN_W];
+		const uint32_t *srcNext = &video.frameBuffer[((y < SCREEN_H-1) ? y+1 : y) * SCREEN_W];
+		uint32_t *dst0 = &video.presentBuffer[(y * 3) * dstW];
+		uint32_t *dst1 = dst0 + dstW;
+		uint32_t *dst2 = dst1 + dstW;
+
+		for (int32_t x = 0; x < SCREEN_W; x++)
+		{
+			const int32_t xPrev = (x > 0) ? x-1 : x;
+			const int32_t xNext = (x < SCREEN_W-1) ? x+1 : x;
+			const uint32_t a = srcPrev[xPrev];
+			const uint32_t b = srcPrev[x];
+			const uint32_t c = srcPrev[xNext];
+			const uint32_t d = srcCurr[xPrev];
+			const uint32_t e = srcCurr[x];
+			const uint32_t f = srcCurr[xNext];
+			const uint32_t g = srcNext[xPrev];
+			const uint32_t h = srcNext[x];
+			const uint32_t i = srcNext[xNext];
+			const int32_t dx = x * 3;
+
+			dst0[dx+0] = (d == b && d != h && b != f) ? d : e;
+			dst0[dx+1] = (((d == b && d != h && b != f && e != c) ||
+			                 (b == f && b != d && f != h && e != a))) ? b : e;
+			dst0[dx+2] = (b == f && b != d && f != h) ? f : e;
+
+			dst1[dx+0] = (((d == b && d != h && b != f && e != g) ||
+			                 (d == h && d != b && h != f && e != a))) ? d : e;
+			dst1[dx+1] = e;
+			dst1[dx+2] = (((b == f && b != d && f != h && e != i) ||
+			                 (h == f && d != h && b != f && e != c))) ? f : e;
+
+			dst2[dx+0] = (d == h && d != b && h != f) ? d : e;
+			dst2[dx+1] = (((d == h && d != b && h != f && e != i) ||
+			                 (h == f && d != h && b != f && e != g))) ? h : e;
+			dst2[dx+2] = (h == f && d != h && b != f) ? f : e;
+		}
+	}
+}
+
+static void scale2xCrispFrameBuffer(void)
+{
+	const int32_t dstW = SCREEN_W * 2;
+
+	for (int32_t y = 0; y < SCREEN_H; y++)
+	{
+		const uint32_t *srcPrev = &video.frameBuffer[((y > 0) ? y-1 : y) * SCREEN_W];
+		const uint32_t *srcCurr = &video.frameBuffer[y * SCREEN_W];
+		const uint32_t *srcNext = &video.frameBuffer[((y < SCREEN_H-1) ? y+1 : y) * SCREEN_W];
+		uint32_t *dst0 = &video.presentBuffer[(y * 2) * dstW];
+		uint32_t *dst1 = dst0 + dstW;
+
+		for (int32_t x = 0; x < SCREEN_W; x++)
+		{
+			const int32_t xPrev = (x > 0) ? x-1 : x;
+			const int32_t xNext = (x < SCREEN_W-1) ? x+1 : x;
+			const uint32_t up = srcPrev[x];
+			const uint32_t left = srcCurr[xPrev];
+			const uint32_t e = srcCurr[x];
+			const uint32_t right = srcCurr[xNext];
+			const uint32_t down = srcNext[x];
+			const int32_t dx = x * 2;
+
+			dst0[dx+0] = e;
+			dst0[dx+1] = e;
+			dst1[dx+0] = e;
+			dst1[dx+1] = e;
+
+			/* At 2x a one-pixel chamfer is already 25% of the expanded source
+			** pixel, so require the opposite sides to remain distinct as well.
+			*/
+			if (up != down && left != right)
+			{
+				if (up == left && up != e)
+					dst0[dx+0] = up;
+				if (up == right && up != e)
+					dst0[dx+1] = up;
+				if (down == left && down != e)
+					dst1[dx+0] = down;
+				if (down == right && down != e)
+					dst1[dx+1] = down;
+			}
+		}
+	}
+}
+
+static void scale3xCrispFrameBuffer(void)
+{
+	const int32_t dstW = SCREEN_W * 3;
+
+	for (int32_t y = 0; y < SCREEN_H; y++)
+	{
+		const uint32_t *srcPrev = &video.frameBuffer[((y > 0) ? y-1 : y) * SCREEN_W];
+		const uint32_t *srcCurr = &video.frameBuffer[y * SCREEN_W];
+		const uint32_t *srcNext = &video.frameBuffer[((y < SCREEN_H-1) ? y+1 : y) * SCREEN_W];
+		uint32_t *dst0 = &video.presentBuffer[(y * 3) * dstW];
+		uint32_t *dst1 = dst0 + dstW;
+		uint32_t *dst2 = dst1 + dstW;
+
+		for (int32_t x = 0; x < SCREEN_W; x++)
+		{
+			const int32_t xPrev = (x > 0) ? x-1 : x;
+			const int32_t xNext = (x < SCREEN_W-1) ? x+1 : x;
+			const uint32_t up = srcPrev[x];
+			const uint32_t left = srcCurr[xPrev];
+			const uint32_t e = srcCurr[x];
+			const uint32_t right = srcCurr[xNext];
+			const uint32_t down = srcNext[x];
+			const int32_t dx = x * 3;
+
+			for (int32_t i = 0; i < 3; i++)
+			{
+				dst0[dx+i] = e;
+				dst1[dx+i] = e;
+				dst2[dx+i] = e;
+			}
+
+			/* A proven L-shaped neighbor changes one outer corner only. Scale3x's
+			** additional edge propagation is what made the v1 letters too round.
+			*/
+			if (up != down && left != right)
+			{
+				if (up == left && up != e)
+					dst0[dx+0] = up;
+				if (up == right && up != e)
+					dst0[dx+2] = up;
+				if (down == left && down != e)
+					dst2[dx+0] = down;
+				if (down == right && down != e)
+					dst2[dx+2] = down;
+			}
+		}
+	}
+}
+
+static const uint32_t *prepareFrameForPresentation(void)
+{
+	if (!video.hdRendererActive || video.presentBuffer == NULL)
+		return video.frameBuffer;
+
+	if (video.hdStyle == TAPEHEAD_HD_STYLE_ROUND)
+	{
+		if (video.hdScale == 2)
+			scale2xFrameBuffer();
+		else
+			scale3xFrameBuffer();
+	}
+	else
+	{
+		if (video.hdScale == 2)
+			scale2xCrispFrameBuffer();
+		else
+			scale3xCrispFrameBuffer();
+	}
+
+	return video.presentBuffer;
+}
+
 void flipFrame(void)
 {
 	const uint32_t windowFlags = SDL_GetWindowFlags(video.window);
@@ -403,7 +613,8 @@ void flipFrame(void)
 
 	drawRecPlusOverlay();
 
-	SDL_UpdateTexture(video.texture, NULL, video.frameBuffer, SCREEN_W * sizeof (int32_t));
+	const uint32_t *presentFrame = prepareFrameForPresentation();
+	SDL_UpdateTexture(video.texture, NULL, presentFrame, video.textureW * sizeof (uint32_t));
 
 	// SDL 2.0.14 bug on Windows (?): This function consumes ever-increasing memory if the program is minimized
 	if (!minimized)
@@ -997,6 +1208,19 @@ void closeVideo(void)
 		free(video.frameBuffer);
 		video.frameBuffer = NULL;
 	}
+
+	if (video.presentBuffer != NULL)
+	{
+		free(video.presentBuffer);
+		video.presentBuffer = NULL;
+	}
+
+	if (recPlusOverlayBackup != NULL)
+	{
+		free(recPlusOverlayBackup);
+		recPlusOverlayBackup = NULL;
+		recPlusOverlayFrames = 0;
+	}
 }
 
 void setWindowSizeFromConfig(bool updateRenderer)
@@ -1007,7 +1231,29 @@ void setWindowSizeFromConfig(bool updateRenderer)
 	SDL_DisplayMode dm;
 
 	uint8_t oldUpscaleFactor = video.windowModeUpscaleFactor;
-	if (config.windowFlags & WINSIZE_AUTO)
+	if (video.hdRendererActive)
+	{
+		video.windowModeUpscaleFactor = video.hdScale;
+
+		int32_t di = SDL_GetWindowDisplayIndex(video.window);
+		if (di < 0)
+			di = 0;
+
+		/* Never let an experimental HD setting strand the user with a window
+		** larger than the desktop. Keep lowering the physical window factor while
+		** retaining the higher-resolution texture internally.
+		*/
+		if (SDL_GetDesktopDisplayMode(di, &dm) == 0)
+		{
+			while (video.windowModeUpscaleFactor > 1 &&
+			      (dm.w < (SCREEN_W * video.windowModeUpscaleFactor) + 32 ||
+			       dm.h < (SCREEN_H * video.windowModeUpscaleFactor) + 96))
+			{
+				video.windowModeUpscaleFactor--;
+			}
+		}
+	}
+	else if (config.windowFlags & WINSIZE_AUTO)
 	{
 		int32_t di = SDL_GetWindowDisplayIndex(video.window);
 		if (di < 0)
@@ -1090,16 +1336,18 @@ bool recreateTexture(void)
 		video.texture = NULL;
 	}
 
-	if (config.windowFlags & PIXEL_FILTER)
+	if (!video.hdRendererActive && (config.windowFlags & PIXEL_FILTER))
 		SDL_SetHint("SDL_RENDER_SCALE_QUALITY", "best");
 	else
 		SDL_SetHint("SDL_RENDER_SCALE_QUALITY", "nearest");
 
 	// SDL_PIXELFORMAT_ARGB8888 is the fastest mode when using texture streaming
-	video.texture = SDL_CreateTexture(video.renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, SCREEN_W, SCREEN_H);
+	video.texture = SDL_CreateTexture(video.renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
+		video.textureW, video.textureH);
 	if (video.texture == NULL)
 	{
-		showErrorMsgBox("Couldn't create a %dx%d GPU texture:\n\"%s\"\n\nIs your GPU (+ driver) too old?", SCREEN_W, SCREEN_H, SDL_GetError());
+		showErrorMsgBox("Couldn't create a %dx%d GPU texture:\n\"%s\"\n\nIs your GPU (+ driver) too old?",
+			video.textureW, video.textureH, SDL_GetError());
 		return false;
 	}
 
@@ -1113,6 +1361,11 @@ bool setupWindow(void)
 	SDL_DisplayMode dm;
 
 	video.vsync60HzPresent = false;
+	video.hdRendererActive = tapeheadConfig.hdMode;
+	video.hdScale = (tapeheadConfig.hdScale == 2) ? 2 : 3;
+	video.hdStyle = tapeheadConfig.hdStyle;
+	video.textureW = SCREEN_W * (video.hdRendererActive ? video.hdScale : 1);
+	video.textureH = SCREEN_H * (video.hdRendererActive ? video.hdScale : 1);
 
 	uint32_t windowFlags = SDL_WINDOW_ALLOW_HIGHDPI;
 #if defined (__APPLE__) || defined (_WIN32) // yet another quirk!
@@ -1190,7 +1443,7 @@ bool setupRenderer(void)
 	if (!recreateTexture())
 	{
 		showErrorMsgBox("Couldn't create a %dx%d GPU texture:\n\"%s\"\n\nIs your GPU (+ driver) too old?",
-			SCREEN_W, SCREEN_H, SDL_GetError());
+			video.textureW, video.textureH, SDL_GetError());
 		return false;
 	}
 
@@ -1200,6 +1453,16 @@ bool setupRenderer(void)
 	{
 		showErrorMsgBox("Not enough memory!");
 		return false;
+	}
+
+	if (video.hdRendererActive)
+	{
+		video.presentBuffer = (uint32_t *)malloc((size_t)video.textureW * video.textureH * sizeof (uint32_t));
+		if (video.presentBuffer == NULL)
+		{
+			showErrorMsgBox("Not enough memory for the Tapehead HD framebuffer!");
+			return false;
+		}
 	}
 
 	if (!setupSprites())

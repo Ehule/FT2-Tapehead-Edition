@@ -23,6 +23,113 @@ static volatile int16_t patternLauncherSavedSongPos = -1;
 static volatile bool patternLauncherStopCleanupPending;
 static volatile int16_t patternLauncherPolyHandoffPending = -1;
 static volatile int16_t patternLauncherForcedNext = -1;
+static volatile bool patternLauncherRouteActive;
+static volatile int8_t patternLauncherSourceForDestination[MAX_CHANNELS];
+static volatile bool patternLauncherDestinationReleasePending[MAX_CHANNELS];
+
+static bool patternTrackIsPopulated(uint8_t patternNum, uint8_t sourceChannel)
+{
+	if (pattern[patternNum] == NULL || patternNumRows[patternNum] <= 0)
+		return false;
+
+	const note_t *track = &pattern[patternNum][sourceChannel];
+	for (int32_t row = 0; row < patternNumRows[patternNum];
+		row++, track += MAX_CHANNELS)
+	{
+		if (track->note != 0 || track->instr != 0 || track->vol != 0 ||
+			track->efx != 0 || track->efxData != 0)
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+static bool buildPatternLauncherRoute(uint8_t patternNum,
+	int16_t handoffPattern, int8_t sourceForDestination[MAX_CHANNELS])
+{
+	for (int32_t i = 0; i < MAX_CHANNELS; i++)
+		sourceForDestination[i] = -1;
+
+	if (patternNumRows[patternNum] <= 0)
+		return false;
+	if (pattern[patternNum] == NULL)
+		return true;
+
+	bool reserved[MAX_CHANNELS] = { false };
+	for (uint8_t sourceChannel = 0; sourceChannel < song.numChannels;
+		sourceChannel++)
+	{
+		if (!patternTrackIsPopulated(patternNum, sourceChannel))
+			continue;
+
+		int32_t destination = -1;
+		for (int32_t offset = 0; offset < song.numChannels; offset++)
+		{
+			const int32_t candidate =
+				(sourceChannel + offset) % song.numChannels;
+			if (!reserved[candidate] &&
+				polyMatrixDestinationAvailableToQ(candidate, handoffPattern))
+			{
+				destination = candidate;
+				break;
+			}
+		}
+
+		if (destination < 0)
+			return false;
+
+		reserved[destination] = true;
+		sourceForDestination[destination] = (int8_t)sourceChannel;
+	}
+
+	/* Empty Q patterns remain valid timing/sustain loops. They simply own no
+	** tunnels, leaving the entire station available to Poly. */
+	return true;
+}
+
+static bool installPatternLauncherRoute(uint8_t patternNum,
+	int16_t handoffPattern, bool releaseUnusedDestinations)
+{
+	int8_t sourceForDestination[MAX_CHANNELS];
+	if (!buildPatternLauncherRoute(patternNum, handoffPattern,
+		sourceForDestination))
+	{
+		return false;
+	}
+
+	if (releaseUnusedDestinations && patternLauncherRouteActive)
+	{
+		for (int32_t destination = 0; destination < song.numChannels;
+			destination++)
+		{
+			if (patternLauncherSourceForDestination[destination] >= 0 &&
+				sourceForDestination[destination] < 0)
+			{
+				patternLauncherDestinationReleasePending[destination] = true;
+			}
+		}
+	}
+
+	/* Publish the complete route only after every source has a tunnel. */
+	patternLauncherRouteActive = false;
+	for (int32_t i = 0; i < MAX_CHANNELS; i++)
+		patternLauncherSourceForDestination[i] = sourceForDestination[i];
+	patternLauncherRouteActive = true;
+	return true;
+}
+
+static void clearPatternLauncherRoute(bool clearPendingReleases)
+{
+	patternLauncherRouteActive = false;
+	for (int32_t i = 0; i < MAX_CHANNELS; i++)
+	{
+		patternLauncherSourceForDestination[i] = -1;
+		if (clearPendingReleases)
+			patternLauncherDestinationReleasePending[i] = false;
+	}
+}
 
 static void clearPatternLauncherQueue(void)
 {
@@ -85,11 +192,44 @@ uint8_t patternLauncherGetExitMode(void)
 	return (uint8_t)patternLauncherExitMode;
 }
 
+bool patternLauncherHasRouting(void)
+{
+	return patternLauncherEnabled && patternLauncherCurrent >= 0 &&
+		patternLauncherRouteActive;
+}
+
+bool patternLauncherOwnsDestination(int32_t destinationChannel)
+{
+	return patternLauncherHasRouting() && destinationChannel >= 0 &&
+		destinationChannel < song.numChannels &&
+		patternLauncherSourceForDestination[destinationChannel] >= 0;
+}
+
+int32_t patternLauncherGetSourceForDestination(int32_t destinationChannel)
+{
+	if (!patternLauncherOwnsDestination(destinationChannel))
+		return -1;
+
+	return patternLauncherSourceForDestination[destinationChannel];
+}
+
+bool patternLauncherConsumeDestinationRelease(int32_t destinationChannel)
+{
+	if (destinationChannel < 0 || destinationChannel >= song.numChannels)
+		return false;
+
+	const bool pending =
+		patternLauncherDestinationReleasePending[destinationChannel];
+	patternLauncherDestinationReleasePending[destinationChannel] = false;
+	return pending;
+}
+
 void patternLauncherSetEnabled(bool enabled)
 {
 	patternLauncherEnabled = enabled;
 	if (!enabled)
 	{
+		clearPatternLauncherRoute(true);
 		patternLauncherCurrent = -1;
 		clearPatternLauncherQueue();
 		patternLauncherExitMode = PATTERN_LAUNCHER_EXIT_NONE;
@@ -107,6 +247,24 @@ void patternLauncherRequest(uint8_t patternNum, bool ctrlPressed, bool shiftPres
 		patternLauncherSavedSongPos =
 			(songPlaying && playMode != PLAYMODE_PATT && playMode != PLAYMODE_RECPATT) ?
 			song.songPos : -1;
+
+		if (!songPlaying)
+		{
+			if (!installPatternLauncherRoute(patternNum, -1, false))
+				return;
+
+			patternLauncherEnabled = true;
+			patternLauncherPolyHandoffPending = -1;
+			patternLauncherCurrent = patternNum;
+			clearPatternLauncherQueue();
+
+			song.pattNum = patternNum;
+			song.currNumRows = patternNumRows[patternNum];
+			editor.editPattern = patternNum;
+			startPlaying(PLAYMODE_PATT, 0);
+			return;
+		}
+
 		patternLauncherEnabled = true;
 	}
 
@@ -137,18 +295,7 @@ void patternLauncherRequest(uint8_t patternNum, bool ctrlPressed, bool shiftPres
 
 	patternLauncherExitMode = PATTERN_LAUNCHER_EXIT_NONE;
 
-	if (!songPlaying)
-	{
-		patternLauncherPolyHandoffPending = -1;
-		patternLauncherCurrent = patternNum;
-		clearPatternLauncherQueue();
-
-		song.pattNum = patternNum;
-		song.currNumRows = patternNumRows[patternNum];
-		editor.editPattern = patternNum;
-		startPlaying(PLAYMODE_PATT, 0);
-	}
-	else if (patternLauncherQueueCount < PATTERN_LAUNCHER_QUEUE_MAX)
+	if (patternLauncherQueueCount < PATTERN_LAUNCHER_QUEUE_MAX)
 	{
 		patternLauncherQueue[patternLauncherQueueCount++] = patternNum;
 	}
@@ -180,12 +327,13 @@ patternLauncherBoundaryResult_t patternLauncherHandleBoundary(void)
 	{
 		const uint8_t handoffPattern =
 			(uint8_t)patternLauncherPolyHandoffPending;
-		patternLauncherPolyHandoffPending = -1;
 		if (polyMatrixStartPatternAtBoundary(handoffPattern))
 		{
+			patternLauncherPolyHandoffPending = -1;
 			patternLauncherExitMode = PATTERN_LAUNCHER_EXIT_NONE;
 			if (patternLauncherQueueCount == 0)
 			{
+				clearPatternLauncherRoute(false);
 				patternLauncherEnabled = false;
 				patternLauncherCurrent = -1;
 				patternLauncherSavedSongPos = -1;
@@ -195,7 +343,25 @@ patternLauncherBoundaryResult_t patternLauncherHandleBoundary(void)
 				return PATTERN_LAUNCHER_BOUNDARY_STOPPED;
 			}
 
-			patternLauncherCurrent = patternLauncherQueue[0];
+			const uint8_t nextPattern =
+				(uint8_t)patternLauncherQueue[0];
+			if (!installPatternLauncherRoute(nextPattern, -1, false))
+			{
+				/* The transferred Poly spool keeps playing. Q has no safe
+				** tunnel bundle for its next item, so stop Q rather than
+				** evicting an established performance layer. */
+				clearPatternLauncherRoute(false);
+				patternLauncherEnabled = false;
+				patternLauncherCurrent = -1;
+				clearPatternLauncherQueue();
+				patternLauncherSavedSongPos = -1;
+				patternLauncherStopCleanupPending = true;
+				playMode = PLAYMODE_IDLE;
+				songPlaying = false;
+				return PATTERN_LAUNCHER_BOUNDARY_STOPPED;
+			}
+
+			patternLauncherCurrent = nextPattern;
 			for (uint8_t i = 1; i < patternLauncherQueueCount; i++)
 				patternLauncherQueue[i-1] = patternLauncherQueue[i];
 			patternLauncherQueueCount--;
@@ -212,14 +378,18 @@ patternLauncherBoundaryResult_t patternLauncherHandleBoundary(void)
 		const uint8_t handoffPattern = (uint8_t)patternLauncherForcedNext;
 		patternLauncherForcedNext = -1;
 		patternLauncherExitMode = PATTERN_LAUNCHER_EXIT_NONE;
-		patternLauncherCurrent = handoffPattern;
-		removePatternFromQueue(handoffPattern);
-		polyMatrixCompleteQHandoffAtBoundary(handoffPattern);
+		if (installPatternLauncherRoute(handoffPattern, handoffPattern, true))
+		{
+			patternLauncherCurrent = handoffPattern;
+			removePatternFromQueue(handoffPattern);
+			polyMatrixCompleteQHandoffAtBoundary(handoffPattern);
+		}
 	}
 	else if (patternLauncherExitMode != PATTERN_LAUNCHER_EXIT_NONE)
 	{
 		const patternLauncherExitMode_t exitMode = patternLauncherExitMode;
 		patternLauncherExitMode = PATTERN_LAUNCHER_EXIT_NONE;
+		clearPatternLauncherRoute(false);
 		patternLauncherEnabled = false;
 		patternLauncherCurrent = -1;
 		clearPatternLauncherQueue();
@@ -250,12 +420,16 @@ patternLauncherBoundaryResult_t patternLauncherHandleBoundary(void)
 	}
 	else if (patternLauncherQueueCount > 0)
 	{
-		patternLauncherCurrent = patternLauncherQueue[0];
-		for (uint8_t i = 1; i < patternLauncherQueueCount; i++)
-			patternLauncherQueue[i-1] = patternLauncherQueue[i];
+		const uint8_t nextPattern = (uint8_t)patternLauncherQueue[0];
+		if (installPatternLauncherRoute(nextPattern, -1, true))
+		{
+			patternLauncherCurrent = nextPattern;
+			for (uint8_t i = 1; i < patternLauncherQueueCount; i++)
+				patternLauncherQueue[i-1] = patternLauncherQueue[i];
 
-		patternLauncherQueueCount--;
-		patternLauncherQueue[patternLauncherQueueCount] = -1;
+			patternLauncherQueueCount--;
+			patternLauncherQueue[patternLauncherQueueCount] = -1;
+		}
 	}
 
 	if (patternLauncherCurrent >= 0)

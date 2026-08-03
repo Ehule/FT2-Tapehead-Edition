@@ -30,10 +30,15 @@ only instrument, volume-column, or effect data still count. One spool may
 contain up to eight threads, and up to four spools may be active at once.
 
 Each thread first requests the same-numbered physical channel. If that tunnel
-already belongs to another Poly spool, the router searches forward and wraps
-around for the next free channel. This makes prepared FasTracks channels act
-like differently configured tunnels while preserving an element of routing
-chance.
+already belongs to another active Matrix layer, the router searches forward
+and wraps around for the next free channel. This makes prepared FasTracks
+channels act like differently configured tunnels while preserving an element
+of routing chance.
+
+Q uses the same tunnel rule for the populated tracks of its current foreground
+pattern. Poly and Q therefore reserve destinations from one shared station
+map instead of suppressing whichever layer arrived first. Waiting Q items do
+not reserve tunnels until they reach the front of the queue.
 
 Routing is atomic. Every thread must receive a tunnel or the spool does not
 start. Empty patterns, patterns with more than eight populated tracks, a fifth
@@ -48,7 +53,7 @@ without changing the active performance.
 | Middle-click an active cyan Poly tile | Arm graceful removal after every thread completes its current revolution |
 | `Shift+Middle-click` an active cyan Poly tile | Pull the complete bundle immediately |
 | `Ctrl+Shift+Left-click` an active cyan Poly tile | Arm a seamless Poly-to-Q handoff |
-| Left-click any tile | Use Q normally without altering Poly |
+| Left-click any tile | Use Q and route its populated tracks around active Poly tunnels |
 | Middle-click the currently playing Q tile | Arm a seamless Q-to-Poly handoff |
 
 Ordinary left-click never stops, restarts, transfers, or resynchronizes an
@@ -107,10 +112,11 @@ Pattern Play, advance the editor row, or read from the pattern displayed in the
 editor. Pattern Play, Song Play, and Q can start and stop without resetting
 Poly phase.
 
-A tunnel is exclusively owned by its Poly thread until release. Ordinary Q,
-Pattern, or Song data for that physical channel is temporarily suppressed,
-while ordinary events on unclaimed channels continue normally. Graceful,
-immediate, and handoff releases send a clean note-off to every released tunnel.
+A tunnel is exclusively owned by its active Matrix thread until release. Poly
+avoids the current Q destinations, and Q avoids active Poly destinations. If a
+new complete route cannot be built atomically, the established performance is
+left unchanged. Graceful, immediate, queue-change, and handoff releases send a
+clean note-off where a tunnel becomes unused.
 
 Poly follows a tunnel's FasTracks ratio and reverse direction when FasTracks is
 enabled and unclutched there. A standard or clutched tunnel runs forward at
@@ -130,8 +136,8 @@ Explicit global Stop and module loading clear the Poly runtime state.
    populated track is routed.
 3. Prepare several destination tracks with visibly different FasTracks ratios
    and throw additional patterns to force routing contention.
-4. Queue ordinary Q patterns and confirm that they continue on unclaimed
-   channels without altering the Poly spools.
+4. Queue ordinary Q patterns and confirm that their populated tracks wrap to
+   free tunnels without altering the Poly spools.
 5. `Ctrl+Shift+Left-click` a cyan tile and confirm that the complete bundle
    reaches Q at a clean boundary.
 6. Middle-click the active Q tile and confirm that it reaches Poly after the Q

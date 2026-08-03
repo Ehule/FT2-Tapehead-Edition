@@ -6,6 +6,8 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <ctype.h>
+#include <string.h>
 #ifndef _WIN32
 #include <unistd.h>
 #endif
@@ -28,6 +30,7 @@
 #include "ft2_structs.h"
 #include "ft2_sysreqs.h"
 #include "ft2_poly_matrix.h"
+#include "ft2_pattern_launcher_ui.h"
 
 bool detectBEM(FILE *f);
 bool loadBEM(FILE *f, uint32_t filesize);
@@ -484,6 +487,7 @@ static void setupLoadedModule(void)
 	setSongPos(0, 0, RESET_SONG_TICK);
 	fastTracksPOCResetForLoadedModule();
 	polyMatrixReset();
+	patternLauncherResetExposure();
 	setMixerBPM(song.BPM);
 
 	editor.tmpPattern = editor.editPattern; // set kludge variable

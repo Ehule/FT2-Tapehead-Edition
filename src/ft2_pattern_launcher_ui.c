@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <ctype.h>
 #include "ft2_header.h"
 #include "ft2_gui.h"
 #include "ft2_pattern_ed.h"
@@ -14,19 +15,37 @@
 #include "ft2_bmp.h"
 #include "ft2_sysreqs.h"
 #include "ft2_poly_matrix.h"
+#include "ft2_audio.h"
+#include "ft2_sample_launcher.h"
 
 static bool patternLauncherPanelShown;
+static bool sampleLauncherDeckShown;
 static uint8_t patternLauncherPage;
 static uint8_t patternLauncherBreatheFrame;
 static bool patternLauncherSongPatterns[MAX_PATTERNS];
 static bool patternLauncherVisiblePatterns[32];
+static bool patternLauncherExposedPatterns[MAX_PATTERNS];
+static bool patternLauncherExposureInitialized;
 
 static char *patternLauncherPageCaptions[8] = { "00-1F", "20-3F", "40-5F", "60-7F", "80-9F", "A0-BF", "C0-DF", "E0-FF" };
 static char *instrumentBankCaptions[8] = { "01-08", "09-10", "11-18", "19-20", "21-28", "29-30", "31-38", "39-40" };
+static char *sampleLauncherPageCaptions[8] = { "00-1F", "--", "--", "--", "--", "--", "--", "--" };
 
 bool patternLauncherPanelIsShown(void)
 {
 	return patternLauncherPanelShown;
+}
+
+bool patternLauncherPanelIsSampleDeck(void)
+{
+	return patternLauncherPanelShown && sampleLauncherDeckShown;
+}
+
+void patternLauncherResetExposure(void)
+{
+	for (uint16_t i = 0; i < MAX_PATTERNS; i++)
+		patternLauncherExposedPatterns[i] = true;
+	patternLauncherExposureInitialized = true;
 }
 
 static int8_t getPatternLauncherQueuePos(int16_t patternNum)
@@ -97,6 +116,8 @@ static void hexOutPatternLauncherColor(uint16_t xPos, uint16_t yPos,
 
 static bool rebuildPatternLauncherSongUsage(void)
 {
+	if (!patternLauncherExposureInitialized)
+		patternLauncherResetExposure();
 	bool changed = false;
 	bool songPatterns[MAX_PATTERNS] = { false };
 
@@ -150,8 +171,98 @@ void patternLauncherNotifyPatternChanged(uint16_t patternNum)
 		patternLauncherDrawPanel();
 }
 
+static void drawSampleLauncherPanel(void)
+{
+	const int16_t current = sampleLauncherGetQCurrent();
+	const uint8_t count = sampleLauncherGetTileCount();
+	static const uint8_t queueLevels[4] = { 255, 210, 170, 135 };
+	clearRect(421, 3, 166, 152);
+
+	for (int16_t row = 0; row < 8; row++)
+	{
+		for (int16_t col = 0; col < 4; col++)
+		{
+			const uint8_t tile = (uint8_t)((row * 4) + col);
+			const int16_t x = 423 + (col * 41);
+			const int16_t y = 4 + (row * 19);
+			const bool loaded = tile < count;
+			const int8_t queuePos = sampleLauncherGetQQueuePos(tile);
+			const int8_t polySlot = sampleLauncherGetPolySlot(tile);
+			const bool polyStart = sampleLauncherPolyStartPending(tile);
+			const bool polyStop = sampleLauncherPolyStopPending(tile);
+
+			drawFramework(x, y, 40, 18, FRAMEWORK_TYPE1);
+			if (loaded && tile == current)
+			{
+				const uint32_t color = sampleLauncherQStopPending()
+					? 0xFFE34234
+					: blendPatternLauncherColor(0xFF39C85A,
+						video.palette[PAL_DESKTOP], getPatternLauncherBreatheLevel());
+				fillPatternLauncherRect(x + 2, y + 2, 36, 14, color);
+				if (polySlot >= 0 || polyStart)
+					fillPatternLauncherRect(x + 2, y + 13, 36, 3,
+						polyStop ? 0xFF287A83 : 0xFF35C9D0);
+			}
+			else if (queuePos >= 0)
+			{
+				fillPatternLauncherRect(x + 2, y + 2, 36, 14,
+					blendPatternLauncherColor(video.palette[PAL_BUTTONS],
+						video.palette[PAL_DESKTOP], queueLevels[queuePos]));
+			}
+			else if (polySlot >= 0 || polyStart)
+			{
+				fillPatternLauncherRect(x + 2, y + 2, 36, 14,
+					polyStop ? 0xFF287A83 :
+					(polyStart ? 0xFF2F9D87 : 0xFF35C9D0));
+			}
+
+			if (loaded)
+			{
+				char shortName[5] = { 0 };
+				const char *name = sampleLauncherGetTileName(tile);
+				uint8_t writePos = 0;
+				for (uint8_t readPos = 0; name[readPos] != '\0' &&
+					writePos < 4; readPos++)
+				{
+					if (isalnum((unsigned char)name[readPos]))
+						shortName[writePos++] =
+							(char)toupper((unsigned char)name[readPos]);
+				}
+				if (writePos > 0)
+					textOutTinyOutline(x + 10, y + 5, shortName);
+				else
+					hexOut(x + 14, y + 5, PAL_PATTEXT, tile, 2);
+				char busText[2] = {
+					(char)('A' + sampleLauncherGetTileBus(tile)), '\0' };
+				textOutTinyOutline(x + 4, y + 5, busText);
+			}
+			else
+			{
+				hexOut(x + 14, y + 5, PAL_DSKTOP2, tile, 2);
+			}
+
+			if (polySlot >= 0)
+			{
+				char slotText[2] = { (char)('1' + polySlot), '\0' };
+				textOutTinyOutline(x + 32, y + 5, slotText);
+			}
+			else if (queuePos >= 0)
+			{
+				char queueText[2] = { (char)('1' + queuePos), '\0' };
+				textOutTinyOutline(x + 32, y + 5, queueText);
+			}
+		}
+	}
+}
+
 void patternLauncherDrawPanel(void)
 {
+	if (sampleLauncherDeckShown)
+	{
+		drawSampleLauncherPanel();
+		return;
+	}
+
 	const int16_t current = patternLauncherGetCurrent();
 	const uint8_t exitMode = patternLauncherGetExitMode();
 	static const uint8_t queueLevels[4] = { 255, 210, 170, 135 };
@@ -168,6 +279,7 @@ void patternLauncherDrawPanel(void)
 			const int16_t y = 4 + (row * 19);
 			const int8_t queuePos = getPatternLauncherQueuePos(patternNum);
 			const bool patternUsed = pattern[patternNum] != NULL;
+			const bool exposed = patternLauncherExposedPatterns[patternNum];
 			const bool songPattern = patternLauncherSongPatterns[patternNum];
 			const bool polyActive =
 				polyMatrixIsPatternActive((uint8_t)patternNum);
@@ -219,7 +331,14 @@ void patternLauncherDrawPanel(void)
 			** reserved for transport state. Song patterns follow Pattern Text;
 			** populated Matrix-only patterns follow Mouse/channel-header color.
 			*/
-			if (!patternUsed && songPattern)
+			if (!exposed)
+			{
+				hexOutPatternLauncherColor(x + 14, y + 5,
+					blendPatternLauncherColor(video.palette[PAL_DSKTOP2],
+						video.palette[PAL_BUTTONS], 90), patternNum, 2);
+				textOutTinyOutline(x + 5, y + 5, "X");
+			}
+			else if (!patternUsed && songPattern)
 			{
 				const uint32_t dimSongColor = blendPatternLauncherColor(
 					video.palette[PAL_PATTEXT], video.palette[PAL_BUTTONS], 115);
@@ -268,6 +387,19 @@ bool patternLauncherHandlePanelMiddleClick(int16_t x, int16_t y, bool shiftPress
 
 	const uint8_t patternNum =
 		(uint8_t)((patternLauncherPage * 32) + (row * 4) + col);
+	if (sampleLauncherDeckShown)
+	{
+		const uint8_t tile = (uint8_t)((row * 4) + col);
+		if (tile < sampleLauncherGetTileCount() &&
+			!sampleLauncherTogglePoly(tile))
+		{
+			okBox(0, "Sample Matrix", "No more track Lanes available", NULL);
+		}
+		patternLauncherDrawPanel();
+		return true;
+	}
+	if (!patternLauncherExposedPatterns[patternNum])
+		return true;
 
 	/* An active Q tile transfers at Q's next loop boundary. A tile already
 	** active in Poly keeps the established pull gesture instead. */
@@ -278,7 +410,8 @@ bool patternLauncherHandlePanelMiddleClick(int16_t x, int16_t y, bool shiftPress
 	}
 	else
 	{
-		polyMatrixTogglePattern(patternNum, shiftPressed);
+		if (!polyMatrixTogglePattern(patternNum, shiftPressed))
+			okBox(0, "Poly Matrix", "No more track Lanes available", NULL);
 	}
 
 	patternLauncherDrawPanel();
@@ -322,18 +455,21 @@ void patternLauncherForceRedraw(void)
 	drawPatternLauncherBankColumn();
 	for (uint16_t i = 0; i < 8; i++)
 	{
-		pushButtons[PB_RANGE1 + i].caption = patternLauncherPageCaptions[i];
+		pushButtons[PB_RANGE1 + i].caption = sampleLauncherDeckShown
+			? sampleLauncherPageCaptions[i] : patternLauncherPageCaptions[i];
 		showPushButton(PB_RANGE1 + i);
 	}
 
 	pushButtons[PB_SWAP_BANK].caption = "Exit";
-	pushButtons[PB_SWAP_BANK].caption2 = "Matrix";
+	pushButtons[PB_SWAP_BANK].caption2 = sampleLauncherDeckShown ? "Samp." : "Patt.";
 	showPushButton(PB_SWAP_BANK);
 	drawPatternLauncherShell();
 }
 
 void patternLauncherSetPage(uint8_t page)
 {
+	if (sampleLauncherDeckShown)
+		return;
 	patternLauncherPage = page & 7;
 	if (patternLauncherPanelShown)
 		patternLauncherDrawPanel();
@@ -362,6 +498,30 @@ bool patternLauncherHandlePanelClick(int16_t x, int16_t y)
 
 	const uint8_t patternNum =
 		(uint8_t)((patternLauncherPage * 32) + (row * 4) + col);
+	if (sampleLauncherDeckShown)
+	{
+		const uint8_t tile = (uint8_t)((row * 4) + col);
+		if (tile >= sampleLauncherGetTileCount())
+			return true;
+
+		if (keyb.leftAltPressed)
+			sampleLauncherCycleTileBus(tile, audio.monoOutputMode
+				? (uint8_t)(audio.outputBusCount * 2) : audio.outputBusCount);
+		else if (!mouse.rightButtonPressed)
+			sampleLauncherRequestQ(tile);
+
+		patternLauncherDrawPanel();
+		return true;
+	}
+
+	if (keyb.leftAltPressed && !mouse.rightButtonPressed)
+	{
+		patternLauncherExposedPatterns[patternNum] ^= 1;
+		patternLauncherDrawPanel();
+		return true;
+	}
+	if (!patternLauncherExposedPatterns[patternNum])
+		return true;
 
 	if (mouse.rightButtonPressed)
 	{
@@ -418,6 +578,11 @@ void handlePatternLauncherPanelRefresh(void)
 	patternLauncherBreatheFrame++;
 	if (patternLauncherBreatheFrame >= 120)
 		patternLauncherBreatheFrame = 0;
+	if (sampleLauncherDeckShown)
+	{
+		patternLauncherDrawPanel();
+		return;
+	}
 
 	const int16_t current = patternLauncherGetCurrent();
 	const uint8_t queueCount = patternLauncherGetQueueCount();
@@ -447,13 +612,15 @@ void handlePatternLauncherPanelRefresh(void)
 void patternLauncherSetPanelShown(bool shown)
 {
 	patternLauncherPanelShown = shown;
+	if (shown)
+		sampleLauncherDeckShown = false;
 	for (uint16_t i = 0; i < 16; i++)
 		hidePushButton(PB_RANGE1 + i);
 
 	for (uint16_t i = 0; i < 8; i++)
 		pushButtons[PB_RANGE1 + i].caption = shown ? patternLauncherPageCaptions[i] : instrumentBankCaptions[i];
 	pushButtons[PB_SWAP_BANK].caption = shown ? "Exit" : "Swap";
-	pushButtons[PB_SWAP_BANK].caption2 = shown ? "Matrix" : "Bank";
+	pushButtons[PB_SWAP_BANK].caption2 = shown ? "Patt." : "Bank";
 
 	for (uint16_t i = 0; i < 8; i++)
 		hideTextBox(TB_INST1 + i);
@@ -477,4 +644,19 @@ void patternLauncherSetPanelShown(bool shown)
 	{
 		showInstrumentSwitcher();
 	}
+}
+
+void patternLauncherToggleDeck(void)
+{
+	if (!patternLauncherPanelShown)
+		return;
+
+	sampleLauncherDeckShown ^= 1;
+	for (uint16_t i = 0; i < 8; i++)
+	{
+		pushButtons[PB_RANGE1 + i].caption = sampleLauncherDeckShown
+			? sampleLauncherPageCaptions[i] : patternLauncherPageCaptions[i];
+	}
+	pushButtons[PB_SWAP_BANK].caption2 = sampleLauncherDeckShown ? "Samp." : "Patt.";
+	patternLauncherForceRedraw();
 }

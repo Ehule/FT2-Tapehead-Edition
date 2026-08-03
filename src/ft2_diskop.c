@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 #include <math.h>
 #ifdef _WIN32
 #define WIN32_MEAN_AND_LEAN
@@ -40,6 +41,7 @@
 #include "ft2_video.h"
 #include "ft2_inst_ed.h"
 #include "ft2_structs.h"
+#include "ft2_sysreqs.h"
 
 // hide POSIX warnings for chdir()
 #ifdef _MSC_VER
@@ -1036,6 +1038,153 @@ static void diskOpSave(bool checkOverwrite)
 void pbDiskOpSave(void)
 {
 	diskOpSave(config.cfg_OverwriteWarning ? true : false); // check if about to overwrite
+}
+
+
+static bool isSupportedFolderSample(const UNICHAR *fileNameU)
+{
+	char *fileName = unicharToCp850((UNICHAR *)fileNameU, true);
+	if (fileName == NULL)
+		return false;
+
+	const char *extension = strrchr(fileName, '.');
+	bool supported = false;
+	if (extension != NULL && extension[1] != '\0')
+	{
+		extension++;
+		for (uint32_t i = 0; strcmp(supportedSmpExtensions[i], "END_OF_LIST"); i++)
+		{
+			if (!_stricmp(extension, supportedSmpExtensions[i]))
+			{
+				supported = true;
+				break;
+			}
+		}
+	}
+
+	free(fileName);
+	return supported;
+}
+
+static bool currentInstrumentHasSamples(void)
+{
+	if (editor.curInstr == 0 || instr[editor.curInstr] == NULL)
+		return false;
+
+	for (uint32_t i = 0; i < MAX_SMP_PER_INST; i++)
+	{
+		const sample_t *sample = &instr[editor.curInstr]->smp[i];
+		if (sample->dataPtr != NULL || sample->length > 0 || sample->name[0] != '\0')
+			return true;
+	}
+
+	return false;
+}
+
+void showSampleFolderImportDialog(void)
+{
+	if (FReq_Item != DISKOP_ITEM_SAMPLE)
+		return;
+
+	if (FReq_CurPathU == NULL || FReq_Buffer == NULL || FReq_FileCount <= 0)
+	{
+		okBox(0, "System message", "The current folder is not ready yet!", NULL);
+		return;
+	}
+
+	const UNICHAR **fileNamesU = (const UNICHAR **)malloc((size_t)FReq_FileCount * sizeof (UNICHAR *));
+	if (fileNamesU == NULL)
+	{
+		okBox(0, "System message", "Not enough memory!", NULL);
+		return;
+	}
+
+	uint32_t fileCount = 0;
+	for (int32_t i = 0; i < FReq_FileCount; i++)
+	{
+		if (!FReq_Buffer[i].isDir && isSupportedFolderSample(FReq_Buffer[i].nameU))
+			fileNamesU[fileCount++] = FReq_Buffer[i].nameU;
+	}
+
+	if (fileCount == 0)
+	{
+		free(fileNamesU);
+		okBox(0, "System message", "This folder contains no supported sample files!", NULL);
+		return;
+	}
+
+	bool autoMap = true;
+	const int16_t choice = choiceBoxWithCheckBox(SYSREQ_TYPE_FOLDER_IMPORT, "Import folder as:",
+		"One sample each, or all samples in current", "Auto-map from C-4", &autoMap);
+	if (choice == 0 || choice == 3)
+	{
+		free(fileNamesU);
+		return;
+	}
+
+	uint8_t mode;
+	if (choice == 1)
+	{
+		mode = SAMPLE_FOLDER_IMPORT_INSTRUMENTS;
+	}
+	else
+	{
+		mode = SAMPLE_FOLDER_IMPORT_CURRENT_INSTRUMENT;
+		if (editor.curInstr == 0)
+		{
+			free(fileNamesU);
+			okBox(0, "System message", "The zero-instrument cannot hold instrument data!", NULL);
+			return;
+		}
+
+		if (currentInstrumentHasSamples() &&
+			okBox(2, "System request", "Replace the current instrument's sample slots?", NULL) != 1)
+		{
+			free(fileNamesU);
+			return;
+		}
+	}
+
+	loadSampleFolder(FReq_CurPathU, fileNamesU, fileCount, mode, autoMap);
+	free(fileNamesU);
+}
+
+void loadCurrentFolderIntoSampleLauncher(void)
+{
+	if (FReq_Item != DISKOP_ITEM_SAMPLE)
+		return;
+
+	if (FReq_CurPathU == NULL || FReq_Buffer == NULL || FReq_FileCount <= 0)
+	{
+		okBox(0, "System message", "The current folder is not ready yet!", NULL);
+		return;
+	}
+
+	const UNICHAR **fileNamesU = (const UNICHAR **)malloc(
+		(size_t)FReq_FileCount * sizeof (UNICHAR *));
+	if (fileNamesU == NULL)
+	{
+		okBox(0, "System message", "Not enough memory!", NULL);
+		return;
+	}
+
+	uint32_t fileCount = 0;
+	for (int32_t i = 0; i < FReq_FileCount; i++)
+	{
+		if (!FReq_Buffer[i].isDir && isSupportedFolderSample(FReq_Buffer[i].nameU))
+			fileNamesU[fileCount++] = FReq_Buffer[i].nameU;
+	}
+
+	if (fileCount == 0)
+	{
+		free(fileNamesU);
+		okBox(0, "System message", "This folder contains no supported sample files!", NULL);
+		return;
+	}
+
+	loadSampleFolder(FReq_CurPathU, fileNamesU, fileCount,
+		SAMPLE_FOLDER_IMPORT_LAUNCHER, false);
+	free(fileNamesU);
 }
 
 static void fileListPressed(int32_t index)
@@ -2184,6 +2333,7 @@ static void setDiskOpItem(uint8_t item)
 		editor.diskOpReadOnOpen = true;
 	}
 }
+
 
 static void drawDiskOpScreen(void)
 {

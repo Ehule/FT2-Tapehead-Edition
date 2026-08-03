@@ -12,6 +12,7 @@
 #include "../ft2_audio.h"
 #include "../ft2_gui.h"
 #include "../ft2_midi.h"
+#include "../ft2_multichannel.h"
 #include "../ft2_bmp.h"
 #include "../ft2_mouse.h"
 #include "../ft2_video.h"
@@ -126,6 +127,36 @@ static void drawScopeNumber(uint16_t scopeXOffs, uint16_t scopeYOffs, uint8_t ch
 	}
 }
 
+static void drawOutputBusMarker(uint16_t scopeXOffs, uint16_t scopeYOffs,
+	uint16_t scopeLen, int32_t channelIndex)
+{
+	const bool monoOutputMode = tapeheadConfig.monoOutputs;
+	const uint8_t outputCount = monoOutputMode
+		? (uint8_t)MIN(audio.outputChannels != 0
+			? audio.outputChannels : tapeheadConfig.outputBuses * 2,
+			TAPEHEAD_MAX_OUTPUT_BUSES)
+		: tapeheadConfig.outputBuses;
+	if (outputCount <= 1)
+		return;
+
+	const uint8_t primaryBus = monoOutputMode
+		? getChannelPrimaryMonoOutput(channelIndex)
+		: getChannelPrimaryOutputBus(channelIndex);
+	const bool alsoToMain =
+		!monoOutputMode && primaryBus > 0 &&
+		(channelOutputBusMask[channelIndex] & 1);
+
+	int16_t x = scopeXOffs + scopeLen - 6;
+	if (alsoToMain)
+	{
+		x -= 7;
+		charOut(x, scopeYOffs + 27, PAL_MOUSEPT, '+');
+		x += 7;
+	}
+
+	charOut(x, scopeYOffs + 27, PAL_MOUSEPT, 'A' + primaryBus);
+}
+
 /*
 ** Draw the dedicated red performance-mute graphic over the live scope.
 **
@@ -219,6 +250,7 @@ static void redrawScope(int32_t ch)
 			drawScopeNumber(x + 1, y + 1, (uint8_t)i, true);
 	}
 
+	drawOutputBusMarker(x + 1, y + 1, scopeLen, i);
 	scope[ch].wasCleared = false;
 }
 
@@ -386,6 +418,46 @@ bool testScopesMouseDown(void)
 		int32_t chanToToggle = i;
 		if (mouse.y >= 134) // second row of scopes?
 			chanToToggle += chansPerRow; // yes, increase lookup offset
+
+		/*
+		** Alt + left click:
+		** Cycle this physical FT2 channel through exclusive stereo buses, or
+		** through individual hardware outputs while Mono Out is enabled.
+		**
+		** Ctrl + Alt + left click:
+		** Toggle a duplicate feed to Bus A ("To Main") while keeping the
+		** selected auxiliary bus. Audio/event processing still occurs once.
+		*/
+		if (keyb.leftAltPressed &&
+			mouse.leftButtonPressed && !mouse.rightButtonPressed)
+		{
+			const bool audioWasntLocked = !audio.locked;
+			if (audioWasntLocked)
+				lockAudio();
+			if (keyb.leftCtrlPressed)
+			{
+				/* Reserved for the future per-track stereo override in Mono Out. */
+				if (!tapeheadConfig.monoOutputs)
+					toggleChannelMainOutput(chanToToggle);
+			}
+			else if (tapeheadConfig.monoOutputs)
+			{
+				const uint8_t physicalOutputCount = (uint8_t)MIN(
+					audio.outputChannels != 0
+						? audio.outputChannels : tapeheadConfig.outputBuses * 2,
+					TAPEHEAD_MAX_OUTPUT_BUSES);
+				initializeMonoChannelOutputRouting(physicalOutputCount);
+				cycleChannelMonoOutput(chanToToggle, physicalOutputCount);
+			}
+			else
+				cycleChannelOutputBus(chanToToggle, tapeheadConfig.outputBuses);
+			if (audioWasntLocked)
+				unlockAudio();
+
+			scope[chanToToggle].wasCleared = false;
+			redrawScope(chanToToggle);
+			return true;
+		}
 
 		/*
 		** Shift + left click:
@@ -625,6 +697,8 @@ void drawScopes(void)
 				scopeXOffs, scopeYOffs, (uint8_t)i,
 				performanceMute[i]
 			);
+
+		drawOutputBusMarker(scopeXOffs, scopeYOffs, scopeDrawLen, i);
 
 		// draw rec. symbol (if enabled)
 		if (config.multiRecChn[i])

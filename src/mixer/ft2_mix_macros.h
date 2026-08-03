@@ -7,16 +7,21 @@
 /* ----------------------------------------------------------------------- */
 
 #define GET_VOL \
-	const float fVolumeL = v->fCurrVolumeL; \
-	const float fVolumeR = v->fCurrVolumeR;
+	const float fVolumeL = audio.monoOutputMode ? v->fCurrVolumeMono : v->fCurrVolumeL; \
+	const float fVolumeR = audio.monoOutputMode ? 0.0f : v->fCurrVolumeR;
 
 #define GET_VOL_RAMP \
-	fVolumeL = v->fCurrVolumeL; \
-	fVolumeR = v->fCurrVolumeR;
+	fVolumeL = audio.monoOutputMode ? v->fCurrVolumeMono : v->fCurrVolumeL; \
+	fVolumeR = audio.monoOutputMode ? 0.0f : v->fCurrVolumeR;
 
 #define SET_VOL_BACK \
-	v->fCurrVolumeL = fVolumeL; \
-	v->fCurrVolumeR = fVolumeR;
+	if (audio.monoOutputMode) \
+		v->fCurrVolumeMono = fVolumeL; \
+	else \
+	{ \
+		v->fCurrVolumeL = fVolumeL; \
+		v->fCurrVolumeR = fVolumeR; \
+	}
 
 #define GET_MIXER_VARS \
 	const uint64_t delta = v->delta; \
@@ -29,8 +34,8 @@
 	const uint64_t delta = v->delta; \
 	fMixBufferL = audio.fMixBufferL + bufferPos; \
 	fMixBufferR = audio.fMixBufferR + bufferPos; \
-	fVolumeLDelta = v->fVolumeLDelta; \
-	fVolumeRDelta = v->fVolumeRDelta; \
+	fVolumeLDelta = audio.monoOutputMode ? v->fVolumeMonoDelta : v->fVolumeLDelta; \
+	fVolumeRDelta = audio.monoOutputMode ? 0.0f : v->fVolumeRDelta; \
 	position = v->position; \
 	positionFrac = v->positionFrac;
 

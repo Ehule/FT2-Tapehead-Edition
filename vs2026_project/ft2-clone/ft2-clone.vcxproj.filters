@@ -14,9 +14,11 @@
     <ClCompile Include="..\..\src\ft2_gui.c" />
     <ClCompile Include="..\..\src\ft2_inst_ed.c" />
     <ClCompile Include="..\..\src\ft2_interpolation.c" />
+    <ClCompile Include="..\..\src\ft2_jack.c" />
     <ClCompile Include="..\..\src\ft2_keyboard.c" />
     <ClCompile Include="..\..\src\ft2_main.c" />
     <ClCompile Include="..\..\src\ft2_midi.c" />
+    <ClCompile Include="..\..\src\ft2_multichannel.c" />
     <ClCompile Include="..\..\src\ft2_module_loader.c" />
     <ClCompile Include="..\..\src\ft2_module_saver.c" />
     <ClCompile Include="..\..\src\ft2_mouse.c" />
@@ -27,6 +29,8 @@
     <ClCompile Include="..\..\src\ft2_pattern_launcher.c" />
     <ClCompile Include="..\..\src\ft2_pattern_launcher_ui.c" />
     <ClCompile Include="..\..\src\ft2_poly_matrix.c" />
+    <ClCompile Include="..\..\src\ft2_sample_launcher.c" />
+    <ClCompile Include="..\..\src\ft2_sample_launcher_state.c" />
     <ClCompile Include="..\..\src\ft2_pushbuttons.c" />
     <ClCompile Include="..\..\src\ft2_radiobuttons.c" />
     <ClCompile Include="..\..\src\ft2_replayer.c" />
@@ -202,6 +206,9 @@
     <ClInclude Include="..\..\src\ft2_midi.h">
       <Filter>headers</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\src\ft2_multichannel.h">
+      <Filter>headers</Filter>
+    </ClInclude>
     <ClInclude Include="..\..\src\ft2_module_loader.h">
       <Filter>headers</Filter>
     </ClInclude>
@@ -221,6 +228,9 @@
       <Filter>headers</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\ft2_interpolation.h" />
+    <ClInclude Include="..\..\src\ft2_jack.h">
+      <Filter>headers</Filter>
+    </ClInclude>
     <ClInclude Include="..\..\src\ft2_fasttracks.h">
       <Filter>headers</Filter>
     </ClInclude>
@@ -237,6 +247,12 @@
       <Filter>headers</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\ft2_poly_matrix.h">
+      <Filter>headers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\ft2_sample_launcher.h">
+      <Filter>headers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\ft2_sample_launcher_state.h">
       <Filter>headers</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\ft2_pushbuttons.h">

@@ -24,11 +24,14 @@
 #include "ft2_inst_ed.h"
 #include "ft2_diskop.h"
 #include "ft2_midi.h"
+#include "ft2_multichannel.h"
 #include "scopes/ft2_scopes.h"
 #include "ft2_mouse.h"
 #include "ft2_sample_loader.h"
 #include "ft2_tables.h"
 #include "ft2_random.h"
+#include "ft2_pattern_launcher.h"
+#include "ft2_sample_launcher.h"
 #include "ft2_poly_matrix.h"
 #include "ft2_structs.h"
 #include "ft2_random.h"
@@ -151,6 +154,8 @@ void resetReplayerState(void)
 void resetChannels(void)
 {
 	static bool trimValuesInitialized = false;
+
+	initializeChannelOutputRouting();
 
 	if (!trimValuesInitialized)
 	{
@@ -2546,6 +2551,9 @@ static void getNextPos(void)
 		song.pBreakPos = 0;
 		song.posJumpFlag = false;
 
+		/* Pattern and Sample decks share this musical boundary while retaining
+		** completely separate transport and mixer ownership. */
+		sampleLauncherHandleBoundary();
 		const patternLauncherBoundaryResult_t launcherResult = patternLauncherHandleBoundary();
 		if (launcherResult == PATTERN_LAUNCHER_BOUNDARY_STOPPED)
 			return;
@@ -2741,9 +2749,9 @@ void tickReplayer(void) // periodically called from audio callback
 		// ----------------------------------------------
 	}
 
-	const note_t *p = nilPatternLine;
+	const note_t *rowNotes = nilPatternLine;
 	if (readNewNote && pattern[song.pattNum] != NULL)
-		p = &pattern[song.pattNum][song.row * MAX_CHANNELS];
+		rowNotes = &pattern[song.pattNum][song.row * MAX_CHANNELS];
 
 	/* Use one TPL snapshot for every channel on this audio tick. An Fxx
 	** encountered while processing a channel takes effect for all Fast Tracks
@@ -2755,12 +2763,32 @@ void tickReplayer(void) // periodically called from audio callback
 	ch = channel;
 	for (int32_t i = 0; i < song.numChannels; i++, ch++)
 	{
-		if (processPolyMatrixChannel(ch, i, fastTracksTPL))
+		if (patternLauncherConsumeDestinationRelease(i) &&
+			!polyMatrixOwnsDestination(i))
 		{
-			if (readNewNote)
-				p++;
+			note_t noteOff;
+			memset(&noteOff, 0, sizeof (noteOff));
+			noteOff.note = NOTE_OFF;
+			getNewNote(ch, &noteOff);
+		}
+
+		if (processPolyMatrixChannel(ch, i, fastTracksTPL))
+			continue;
+
+		const int32_t sourceChannel = patternLauncherHasRouting() ?
+			patternLauncherGetSourceForDestination(i) : i;
+		if (sourceChannel < 0)
+		{
+			/* Q now owns only the tunnels assigned to populated source
+			** tracks. Unassigned destinations remain available to Poly and
+			** simply preserve their existing voice/effect state. */
+			if (!tickZero)
+				handleEffects_TickNonZero(ch);
+			updateVolPanAutoVib(ch);
 			continue;
 		}
+
+		const note_t *masterNote = &rowNotes[sourceChannel];
 
 		const bool fastTrackEnabled = fastTracksPOCIsEnabled(i);
 		const bool transmissionClutched =
@@ -2795,7 +2823,8 @@ void tickReplayer(void) // periodically called from audio callback
 					if (fastTracksPOCResolveCrossing(i, &crossings[crossing],
 						&sourcePattern, &sourceRow) && pattern[sourcePattern] != NULL)
 					{
-						sourceNote = &pattern[sourcePattern][(sourceRow * MAX_CHANNELS) + i];
+						sourceNote = &pattern[sourcePattern]
+							[(sourceRow * MAX_CHANNELS) + sourceChannel];
 					}
 
 					getNewNote(ch, sourceNote);
@@ -2812,7 +2841,7 @@ void tickReplayer(void) // periodically called from audio callback
 		}
 		else if (readNewNote)
 		{
-			getNewNote(ch, p);
+			getNewNote(ch, masterNote);
 		}
 		else
 		{
@@ -2821,8 +2850,6 @@ void tickReplayer(void) // periodically called from audio callback
 
 		updateVolPanAutoVib(ch);
 
-		if (readNewNote)
-			p++;
 	}
 
 	finishTapeheadGlobalCommandPass();

@@ -5,6 +5,8 @@
 
 #include <stdio.h>
 #include <stdbool.h>
+#include <math.h>
+#include <string.h>
 #include "ft2_header.h"
 #include "ft2_gui.h"
 #include "ft2_video.h"
@@ -757,6 +759,19 @@ void mouseButtonDownHandler(uint8_t mouseButton)
 {
 	if (handleFastTracksLogoRightClick(mouseButton)) return;
 	if (handleFastTracksHeaderRightClick(mouseButton)) return;
+
+	/* Tapehead Edition: Shift-click the Disk Op. Sample selector to import
+	** every supported sample in the current folder as a batch.
+	*/
+	if (mouseButton == SDL_BUTTON_LEFT && ui.diskOpShown && keyb.leftShiftPressed &&
+		mouse.x >= 4 && mouse.x < 60 && mouse.y >= 44 && mouse.y < 58)
+	{
+		if (keyb.leftCtrlPressed)
+			loadCurrentFolderIntoSampleLauncher();
+		else
+			showSampleFolderImportDialog();
+		return;
+	}
 
 	// Tapehead Edition: Ctrl-click the existing Adv. Edit pushbutton to open
 	// the Instrument Transform Editor. A normal click keeps FT2's original

@@ -3,8 +3,11 @@
 #include <crtdbg.h>
 #endif
 
+#include <math.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
 #include "ft2_header.h"
 #include "ft2_config.h"
 #include "scopes/ft2_scopes.h"
@@ -15,6 +18,7 @@
 #include "ft2_tables.h"
 #include "ft2_structs.h"
 #include "ft2_audioselector.h"
+#include "ft2_jack.h"
 #include "mixer/ft2_mix.h"
 #include "mixer/ft2_silence_mix.h"
 
@@ -25,11 +29,19 @@
 
 #define INITIAL_DITHER_SEED 0x12345000
 
-static int32_t smpShiftValue;
 static uint32_t oldAudioFreq, tickTimeLenInt, randSeed = INITIAL_DITHER_SEED;
 static uint64_t tickTimeLenFrac;
-static float fSqrtPanningTable[256+1], fAudioNormalizeMul, fPrngStateL, fPrngStateR;
+static float fSqrtPanningTable[256+1], fAudioNormalizeMul;
+static float fPrngState[TAPEHEAD_MAX_OUTPUT_BUSES * 2];
 static voice_t voice[MAX_CHANNELS * 2];
+#define SAMPLE_LAUNCHER_AUDIO_VOICES 5
+static voice_t sampleLauncherVoice[SAMPLE_LAUNCHER_AUDIO_VOICES];
+static uint8_t sampleLauncherOutputBus[SAMPLE_LAUNCHER_AUDIO_VOICES];
+static bool jackDiagnosticsEnabled;
+static int8_t jackDiagnosticToneBus = -1;
+static uint32_t jackDiagnosticFrames;
+static double jackDiagnosticTonePhase;
+static float jackDiagnosticPeak[TAPEHEAD_MAX_OUTPUT_BUSES * 2];
 
 // globalized
 audio_t audio;
@@ -52,6 +64,83 @@ void stopVoice(int32_t i)
 	v = &voice[MAX_CHANNELS + i];
 	memset(v, 0, sizeof (voice_t));
 	v->panning = 128;
+}
+
+void audioSampleLauncherStop(uint8_t voiceIndex)
+{
+	if (voiceIndex >= SAMPLE_LAUNCHER_AUDIO_VOICES)
+		return;
+
+	memset(&sampleLauncherVoice[voiceIndex], 0, sizeof (voice_t));
+	sampleLauncherVoice[voiceIndex].panning = 128;
+}
+
+void audioSampleLauncherStopAll(void)
+{
+	for (uint8_t i = 0; i < SAMPLE_LAUNCHER_AUDIO_VOICES; i++)
+		audioSampleLauncherStop(i);
+}
+
+void audioSampleLauncherSetOutputBus(uint8_t voiceIndex, uint8_t outputBus)
+{
+	if (voiceIndex < SAMPLE_LAUNCHER_AUDIO_VOICES)
+		sampleLauncherOutputBus[voiceIndex] = outputBus;
+}
+
+void audioSampleLauncherTrigger(uint8_t voiceIndex, const sample_t *sample,
+	uint8_t outputBus)
+{
+	if (voiceIndex >= SAMPLE_LAUNCHER_AUDIO_VOICES || sample == NULL ||
+		sample->dataPtr == NULL || sample->length < 1 || audio.freq == 0)
+	{
+		audioSampleLauncherStop(voiceIndex);
+		return;
+	}
+
+	voice_t *v = &sampleLauncherVoice[voiceIndex];
+	memset(v, 0, sizeof (*v));
+
+	const bool sample16Bit = !!(sample->flags & SAMPLE_16BIT);
+	if (sample16Bit)
+		v->base16 = (const int16_t *)sample->dataPtr;
+	else
+		v->base8 = sample->dataPtr;
+
+	/* Sample-deck loops deliberately use the complete source file and the
+	** interpolation-free mixer for this first checkpoint. This avoids
+	** borrowing or rewriting the XM sample's own loop metadata and keeps the
+	** sample deck independent of the module instrument pool. */
+	v->loopType = LOOP_FORWARD;
+	v->sampleEnd = sample->length;
+	v->loopStart = 0;
+	v->loopLength = sample->length;
+	v->position = 0;
+	v->positionFrac = 0;
+	v->panning = sample->panning;
+	v->fVolume = sample->volume * (1.0f / 64.0f);
+	if (audio.monoOutputMode)
+	{
+		v->fCurrVolumeL = v->fTargetVolumeL = v->fVolume;
+		v->fCurrVolumeR = v->fTargetVolumeR = 0.0f;
+	}
+	else
+	{
+		v->fCurrVolumeL = v->fTargetVolumeL =
+			v->fVolume * fSqrtPanningTable[256-v->panning];
+		v->fCurrVolumeR = v->fTargetVolumeR =
+			v->fVolume * fSqrtPanningTable[v->panning];
+	}
+	v->fCurrVolumeMono = v->fTargetVolumeMono = v->fVolume;
+
+	const uint32_t naturalRate = (uint32_t)getSampleC4Hz((sample_t *)sample);
+	v->delta = ((uint64_t)naturalRate << MIXER_FRAC_BITS) / audio.freq;
+	if (v->delta == 0)
+		v->delta = 1;
+
+	/* 15 routines per bit depth, interpolation type zero, forward loop. */
+	v->mixFuncOffset = (sample16Bit ? 15 : 0) + LOOP_FORWARD;
+	v->active = true;
+	audioSampleLauncherSetOutputBus(voiceIndex, outputBus);
 }
 
 bool setNewAudioSettings(void) // only call this from the main input/video thread
@@ -221,12 +310,14 @@ static void voiceUpdateVolumes(int32_t i, uint8_t status)
 
 	v->fTargetVolumeL = v->fVolume * fSqrtPanningTable[256-v->panning];
 	v->fTargetVolumeR = v->fVolume * fSqrtPanningTable[    v->panning];
+	v->fTargetVolumeMono = v->fVolume;
 
 	if (!audio.volumeRampingFlag)
 	{
 		// volume ramping is disabled, set volume directly
 		v->fCurrVolumeL = v->fTargetVolumeL;
 		v->fCurrVolumeR = v->fTargetVolumeR;
+		v->fCurrVolumeMono = v->fTargetVolumeMono;
 		v->volumeRampLength = 0;
 		return;
 	}
@@ -238,7 +329,8 @@ static void voiceUpdateVolumes(int32_t i, uint8_t status)
 	{
 		// voice is about to start, ramp out/in at the same time
 
-		if (v->fCurrVolumeL > 0.0f || v->fCurrVolumeR > 0.0f)
+		if (v->fCurrVolumeL > 0.0f || v->fCurrVolumeR > 0.0f ||
+			v->fCurrVolumeMono > 0.0f)
 		{
 			// setup fadeout voice
 
@@ -248,19 +340,23 @@ static void voiceUpdateVolumes(int32_t i, uint8_t status)
 
 			const float fVolumeLDiff = 0.0f - f->fCurrVolumeL;
 			const float fVolumeRDiff = 0.0f - f->fCurrVolumeR;
+			const float fVolumeMonoDiff = 0.0f - f->fCurrVolumeMono;
 
 			f->volumeRampLength = audio.quickVolRampSamples; // 5ms
 			f->fVolumeLDelta = fVolumeLDiff * audio.fQuickVolRampSamplesMul;
 			f->fVolumeRDelta = fVolumeRDiff * audio.fQuickVolRampSamplesMul;
+			f->fVolumeMonoDelta = fVolumeMonoDiff * audio.fQuickVolRampSamplesMul;
 
 			f->isFadeOutVoice = true;
 		}
 
 		// make current voice fade in from zero when it starts
-		v->fCurrVolumeL = v->fCurrVolumeR = 0.0f;
+		v->fCurrVolumeL = v->fCurrVolumeR = v->fCurrVolumeMono = 0.0f;
 	}
 
-	if (!voiceTriggerFlag && v->fTargetVolumeL == v->fCurrVolumeL && v->fTargetVolumeR == v->fCurrVolumeR)
+	if (!voiceTriggerFlag && v->fTargetVolumeL == v->fCurrVolumeL &&
+		v->fTargetVolumeR == v->fCurrVolumeR &&
+		v->fTargetVolumeMono == v->fCurrVolumeMono)
 	{
 		v->volumeRampLength = 0; // no ramp needed for now
 	}
@@ -268,6 +364,7 @@ static void voiceUpdateVolumes(int32_t i, uint8_t status)
 	{
 		const float fVolumeLDiff = v->fTargetVolumeL - v->fCurrVolumeL;
 		const float fVolumeRDiff = v->fTargetVolumeR - v->fCurrVolumeR;
+		const float fVolumeMonoDiff = v->fTargetVolumeMono - v->fCurrVolumeMono;
 
 		float fRampLengthMul;
 		if (status & CS_USE_QUICK_VOLRAMP) // 5ms duration
@@ -283,6 +380,7 @@ static void voiceUpdateVolumes(int32_t i, uint8_t status)
 
 		v->fVolumeLDelta = fVolumeLDiff * fRampLengthMul;
 		v->fVolumeRDelta = fVolumeRDiff * fRampLengthMul;
+		v->fVolumeMonoDelta = fVolumeMonoDiff * fRampLengthMul;
 	}
 }
 
@@ -346,6 +444,7 @@ void resetRampVolumes(void)
 	{
 		v->fCurrVolumeL = v->fTargetVolumeL;
 		v->fCurrVolumeR = v->fTargetVolumeR;
+		v->fCurrVolumeMono = v->fTargetVolumeMono;
 		v->volumeRampLength = 0;
 	}
 }
@@ -407,7 +506,7 @@ void updateVoices(void)
 void resetAudioDither(void)
 {
 	randSeed = INITIAL_DITHER_SEED;
-	fPrngStateL = fPrngStateR = 0.0f;
+	memset(fPrngState, 0, sizeof (fPrngState));
 }
 
 static inline int32_t random32(void)
@@ -419,7 +518,8 @@ static inline int32_t random32(void)
 	return (int32_t)randSeed;
 }
 
-static void sendSamples16BitStereo(void *stream, uint32_t sampleBlockLength)
+static void sendSamples16Bit(void *stream, uint32_t sampleBlockLength,
+	uint8_t outputBusCount)
 {
 	int32_t out32;
 	float fOut, fPrng;
@@ -427,82 +527,452 @@ static void sendSamples16BitStereo(void *stream, uint32_t sampleBlockLength)
 	int16_t *streamPtr16 = (int16_t *)stream;
 	for (uint32_t i = 0; i < sampleBlockLength; i++)
 	{
-		// left channel - 1-bit triangular dithering
-		fPrng = (float)random32() * (1.0f / ((float)UINT32_MAX+1.0f)); // -0.5f .. 0.5f
-		fOut = audio.fMixBufferL[i] * fAudioNormalizeMul;
-		fOut = (fOut + fPrng) - fPrngStateL;
-		fPrngStateL = fPrng;
-		out32 = (int32_t)fOut;
-		*streamPtr16++ = (int16_t)(CLAMP(out32, INT16_MIN, INT16_MAX));
+		for (uint8_t bus = 0; bus < outputBusCount; bus++)
+		{
+			const uint8_t leftChannel = bus * 2;
+			const uint8_t rightChannel = leftChannel + 1;
 
-		// right channel - 1-bit triangular dithering
-		fPrng = (float)random32() * (1.0f / ((float)UINT32_MAX+1.0f)); // -0.5f .. 0.5f
-		fOut = audio.fMixBufferR[i] * fAudioNormalizeMul;
-		fOut = (fOut + fPrng) - fPrngStateR;
-		fPrngStateR = fPrng;
-		out32 = (int32_t)fOut;
-		*streamPtr16++ = (int16_t)(CLAMP(out32, INT16_MIN, INT16_MAX));
+			// left channel - 1-bit triangular dithering
+			fPrng = (float)random32() * (1.0f / ((float)UINT32_MAX+1.0f)); // -0.5f .. 0.5f
+			fOut = audio.fBusMixBufferL[bus][i] * fAudioNormalizeMul;
+			fOut = (fOut + fPrng) - fPrngState[leftChannel];
+			fPrngState[leftChannel] = fPrng;
+			out32 = (int32_t)fOut;
+			*streamPtr16++ = (int16_t)(CLAMP(out32, INT16_MIN, INT16_MAX));
 
-		// clear what we read from the mixing buffer
-		audio.fMixBufferL[i] = audio.fMixBufferR[i] = 0.0f;
+			// right channel - 1-bit triangular dithering
+			fPrng = (float)random32() * (1.0f / ((float)UINT32_MAX+1.0f)); // -0.5f .. 0.5f
+			fOut = audio.fBusMixBufferR[bus][i] * fAudioNormalizeMul;
+			fOut = (fOut + fPrng) - fPrngState[rightChannel];
+			fPrngState[rightChannel] = fPrng;
+			out32 = (int32_t)fOut;
+			*streamPtr16++ = (int16_t)(CLAMP(out32, INT16_MIN, INT16_MAX));
+
+			audio.fBusMixBufferL[bus][i] = 0.0f;
+			audio.fBusMixBufferR[bus][i] = 0.0f;
+		}
 	}
 }
 
-static void sendSamples32BitFloatStereo(void *stream, uint32_t sampleBlockLength)
+static void sendSamples32BitFloat(void *stream, uint32_t sampleBlockLength,
+	uint8_t outputBusCount)
 {
 	float fOut;
 
 	float *fStreamPtr32 = (float *)stream;
 	for (uint32_t i = 0; i < sampleBlockLength; i++)
 	{
-		// left channel
-		fOut = audio.fMixBufferL[i] * fAudioNormalizeMul;
-		fOut = CLAMP(fOut, -1.0f, 1.0f);
-		*fStreamPtr32++ = fOut;
+		for (uint8_t bus = 0; bus < outputBusCount; bus++)
+		{
+			// left channel
+			fOut = audio.fBusMixBufferL[bus][i] * fAudioNormalizeMul;
+			fOut = CLAMP(fOut, -1.0f, 1.0f);
+			*fStreamPtr32++ = fOut;
 
-		// right channel
-		fOut = audio.fMixBufferR[i] * fAudioNormalizeMul;
-		fOut = CLAMP(fOut, -1.0f, 1.0f);
-		*fStreamPtr32++ = fOut;
+			// right channel
+			fOut = audio.fBusMixBufferR[bus][i] * fAudioNormalizeMul;
+			fOut = CLAMP(fOut, -1.0f, 1.0f);
+			*fStreamPtr32++ = fOut;
 
-		// clear what we read from the mixing buffer
-		audio.fMixBufferL[i] = audio.fMixBufferR[i] = 0.0f;
+			audio.fBusMixBufferL[bus][i] = 0.0f;
+			audio.fBusMixBufferR[bus][i] = 0.0f;
+		}
 	}
 }
 
-static void doChannelMixing(int32_t bufferPosition, int32_t samplesToMix)
+static void mixVoicePair(voice_t *v, voice_t *r, int32_t bufferPosition,
+	int32_t samplesToMix, int32_t mixOffsetBias)
+{
+	if (v->active)
+	{
+		const bool volRampFlag = (v->volumeRampLength > 0);
+		const bool silent = audio.monoOutputMode
+			? v->fCurrVolumeMono == 0.0f
+			: (v->fCurrVolumeL == 0.0f && v->fCurrVolumeR == 0.0f);
+		if (!volRampFlag && silent)
+			silenceMixRoutine(v, samplesToMix);
+		else
+			mixFuncTab[((int32_t)volRampFlag * mixOffsetBias) + v->mixFuncOffset](
+				v, bufferPosition, samplesToMix);
+	}
+
+	if (r->active) // volume ramp fadeout-voice
+		mixFuncTab[mixOffsetBias + r->mixFuncOffset](r, bufferPosition, samplesToMix);
+}
+
+static void mixSampleLauncherVoice(voice_t *v, int32_t bufferPosition,
+	int32_t samplesToMix)
+{
+	if (!v->active)
+		return;
+
+	const bool silent = audio.monoOutputMode
+		? v->fCurrVolumeMono == 0.0f
+		: (v->fCurrVolumeL == 0.0f && v->fCurrVolumeR == 0.0f);
+	if (silent)
+		silenceMixRoutine(v, samplesToMix);
+	else
+		mixFuncTab[v->mixFuncOffset](v, bufferPosition, samplesToMix);
+}
+
+static void doSampleLauncherMixing(int32_t bufferPosition,
+	int32_t samplesToMix, uint8_t outputBusCount)
+{
+	for (uint8_t i = 0; i < SAMPLE_LAUNCHER_AUDIO_VOICES; i++)
+	{
+		voice_t *v = &sampleLauncherVoice[i];
+		if (!v->active)
+			continue;
+
+		if (audio.monoOutputMode)
+		{
+			uint8_t physicalOutputCount = outputBusCount * 2;
+			if (physicalOutputCount > TAPEHEAD_MAX_OUTPUT_BUSES)
+				physicalOutputCount = TAPEHEAD_MAX_OUTPUT_BUSES;
+			uint8_t destination = sampleLauncherOutputBus[i];
+			if (destination >= physicalOutputCount)
+				destination = 0;
+
+			const uint8_t bus = destination >> 1;
+			float *monoBuffer = (destination & 1)
+				? audio.fBusMixBufferR[bus]
+				: audio.fBusMixBufferL[bus];
+			audio.fMixBufferL = monoBuffer;
+			audio.fMixBufferR = monoBuffer;
+		}
+		else
+		{
+			uint8_t bus = sampleLauncherOutputBus[i];
+			if (bus >= outputBusCount)
+				bus = 0;
+			audio.fMixBufferL = audio.fBusMixBufferL[bus];
+			audio.fMixBufferR = audio.fBusMixBufferR[bus];
+		}
+
+		mixSampleLauncherVoice(v, bufferPosition, samplesToMix);
+	}
+}
+
+static void doChannelMixing(int32_t bufferPosition, int32_t samplesToMix,
+	uint8_t outputBusCount)
 {
 	voice_t *v = voice; // normal voices
 	voice_t *r = &voice[MAX_CHANNELS]; // volume ramp fadeout-voices
 
 	const int32_t mixOffsetBias = 3 * NUM_INTERPOLATORS * 2; // 3 = loop types (off/fwd/pingpong), 2 = bit depths (8-bit/16-bit)
+	const uint16_t availableBusMask = (outputBusCount >= TAPEHEAD_MAX_OUTPUT_BUSES)
+		? UINT16_MAX
+		: (uint16_t)((1U << outputBusCount) - 1);
 
 	for (int32_t i = 0; i < song.numChannels; i++, v++, r++)
 	{
-		if (v->active)
+		if (audio.monoOutputMode)
 		{
-			const bool volRampFlag = (v->volumeRampLength > 0);
-			if (!volRampFlag && v->fCurrVolumeL == 0.0f && v->fCurrVolumeR == 0.0f)
-				silenceMixRoutine(v, samplesToMix);
-			else
-				mixFuncTab[((int32_t)volRampFlag * mixOffsetBias) + v->mixFuncOffset](v, bufferPosition, samplesToMix);
+			/*
+			** In Mono Out mode each bit identifies one physical output channel,
+			** not a stereo pair. Route the mono gain path directly into that
+			** channel. Both generated mixer pointers intentionally target the
+			** same buffer; the right gain is forced to zero by the mixer macros.
+			** This bypasses FT2 pan commands/envelopes without modifying XM data.
+			*/
+			uint8_t physicalOutputCount = outputBusCount * 2;
+			if (physicalOutputCount > TAPEHEAD_MAX_OUTPUT_BUSES)
+				physicalOutputCount = TAPEHEAD_MAX_OUTPUT_BUSES;
+
+			const uint16_t availableOutputMask = (uint16_t)
+				((1U << physicalOutputCount) - 1);
+			uint16_t outputMask = channelMonoOutputMask[i] & availableOutputMask;
+			if (outputMask == 0)
+				outputMask = 1;
+
+			uint8_t outputDestination = 0;
+			while (!(outputMask & (1U << outputDestination)))
+				outputDestination++;
+
+			const uint8_t outputBus = outputDestination >> 1;
+			float *monoBuffer = (outputDestination & 1)
+				? audio.fBusMixBufferR[outputBus]
+				: audio.fBusMixBufferL[outputBus];
+
+			audio.fMixBufferL = monoBuffer;
+			audio.fMixBufferR = monoBuffer;
+			mixVoicePair(v, r, bufferPosition, samplesToMix, mixOffsetBias);
+			continue;
 		}
 
-		if (r->active) // volume ramp fadeout-voice
-			mixFuncTab[mixOffsetBias + r->mixFuncOffset](r, bufferPosition, samplesToMix);
+		/*
+		** A stereo-only device (and offline WAV rendering) folds every logical
+		** bus to A. Otherwise route this physical FT2 channel to its selected
+		** logical bus or buses.
+		*/
+		uint16_t outputMask = 1;
+		if (outputBusCount > 1)
+		{
+			outputMask = channelOutputBusMask[i] & availableBusMask;
+			if (outputMask == 0)
+				outputMask = 1;
+		}
+
+		const bool multipleOutputs = (outputMask & (outputMask - 1)) != 0;
+		if (!multipleOutputs)
+		{
+			/*
+			** The ordinary A/B case has exactly one destination. Point FT2's
+			** generated mixer routines directly at that bus. This is both the
+			** shortest signal path and, importantly, keeps live Bus B voices out
+			** of the neutral scratch/distribution stage that the X220 hardware
+			** diagnostic proved could discard them.
+			*/
+			uint8_t outputBus = 0;
+			while (!(outputMask & (1U << outputBus)))
+				outputBus++;
+
+			audio.fMixBufferL = audio.fBusMixBufferL[outputBus];
+			audio.fMixBufferR = audio.fBusMixBufferR[outputBus];
+			mixVoicePair(v, r, bufferPosition, samplesToMix, mixOffsetBias);
+		}
+		else
+		{
+			/*
+			** A "To Main" route has more than one destination. Render the voice
+			** once into a neutral buffer, then duplicate those samples without
+			** advancing note/effect/sample state a second time.
+			*/
+			float *channelBufferL = audio.fChannelMixBufferL + bufferPosition;
+			float *channelBufferR = audio.fChannelMixBufferR + bufferPosition;
+			memset(channelBufferL, 0, samplesToMix * sizeof (float));
+			memset(channelBufferR, 0, samplesToMix * sizeof (float));
+
+			audio.fMixBufferL = audio.fChannelMixBufferL;
+			audio.fMixBufferR = audio.fChannelMixBufferR;
+			mixVoicePair(v, r, bufferPosition, samplesToMix, mixOffsetBias);
+
+			for (uint8_t bus = 0; bus < outputBusCount; bus++)
+			{
+				if (!(outputMask & (1U << bus)))
+					continue;
+
+				float *busBufferL = audio.fBusMixBufferL[bus] + bufferPosition;
+				float *busBufferR = audio.fBusMixBufferR[bus] + bufferPosition;
+				for (int32_t sample = 0; sample < samplesToMix; sample++)
+				{
+					busBufferL[sample] += channelBufferL[sample];
+					busBufferR[sample] += channelBufferR[sample];
+				}
+			}
+		}
 	}
+
+	/* The Sample deck owns a separate voice pool. It is mixed only after every
+	** XM/Q/Poly channel has advanced, so neither deck can steal the other's
+	** physical tracker voice or transport ownership. */
+	doSampleLauncherMixing(bufferPosition, samplesToMix, outputBusCount);
+
+	audio.fMixBufferL = audio.fBusMixBufferL[0];
+	audio.fMixBufferR = audio.fBusMixBufferR[0];
 }
+
+#ifdef TAPEHEAD_AUDIO_ROUTING_TEST
+bool tapeheadTestRouteSyntheticVoice(uint16_t outputMask,
+	uint8_t renderBusCount, uint8_t staleGlobalBusCount, float *peakBusA,
+	float *peakBusB)
+{
+	if (outputMask == 0 || (outputMask & ~3U) != 0 || renderBusCount != 2 ||
+		staleGlobalBusCount < 1 || peakBusA == NULL || peakBusB == NULL)
+		return false;
+
+	int8_t sampleData[8] = { 64, 64, 64, 64, 64, 64, 64, 64 };
+	float busAL[4] = { 0 }, busAR[4] = { 0 };
+	float busBL[4] = { 0 }, busBR[4] = { 0 };
+	float channelL[4] = { 0 }, channelR[4] = { 0 };
+
+	const int32_t oldNumChannels = song.numChannels;
+	const uint16_t oldOutputMask = channelOutputBusMask[0];
+	const uint8_t oldGlobalBusCount = audio.outputBusCount;
+	voice_t oldVoice = voice[0];
+	voice_t oldFadeVoice = voice[MAX_CHANNELS];
+	float *oldBusAL = audio.fBusMixBufferL[0];
+	float *oldBusAR = audio.fBusMixBufferR[0];
+	float *oldBusBL = audio.fBusMixBufferL[1];
+	float *oldBusBR = audio.fBusMixBufferR[1];
+	float *oldChannelL = audio.fChannelMixBufferL;
+	float *oldChannelR = audio.fChannelMixBufferR;
+
+	song.numChannels = 1;
+	channelOutputBusMask[0] = outputMask;
+	/* Simulate the stale global count that folded the live JACK route to A. */
+	audio.outputBusCount = staleGlobalBusCount;
+	memset(&voice[0], 0, sizeof (voice[0]));
+	memset(&voice[MAX_CHANNELS], 0, sizeof (voice[MAX_CHANNELS]));
+	voice[0].active = true;
+	voice[0].base8 = sampleData;
+	voice[0].sampleEnd = 8;
+	voice[0].delta = 1ULL << MIXER_FRAC_BITS;
+	voice[0].fCurrVolumeL = 1.0f;
+	voice[0].fCurrVolumeR = 1.0f;
+	voice[0].mixFuncOffset = 0;
+	audio.fBusMixBufferL[0] = busAL;
+	audio.fBusMixBufferR[0] = busAR;
+	audio.fBusMixBufferL[1] = busBL;
+	audio.fBusMixBufferR[1] = busBR;
+	audio.fChannelMixBufferL = channelL;
+	audio.fChannelMixBufferR = channelR;
+
+	doChannelMixing(0, 4, renderBusCount);
+
+	*peakBusA = 0.0f;
+	*peakBusB = 0.0f;
+	for (int32_t i = 0; i < 4; i++)
+	{
+		*peakBusA = MAX(*peakBusA, MAX(fabsf(busAL[i]), fabsf(busAR[i])));
+		*peakBusB = MAX(*peakBusB, MAX(fabsf(busBL[i]), fabsf(busBR[i])));
+	}
+
+	audio.fBusMixBufferL[0] = oldBusAL;
+	audio.fBusMixBufferR[0] = oldBusAR;
+	audio.fBusMixBufferL[1] = oldBusBL;
+	audio.fBusMixBufferR[1] = oldBusBR;
+	audio.fChannelMixBufferL = oldChannelL;
+	audio.fChannelMixBufferR = oldChannelR;
+	voice[0] = oldVoice;
+	voice[MAX_CHANNELS] = oldFadeVoice;
+	channelOutputBusMask[0] = oldOutputMask;
+	audio.outputBusCount = oldGlobalBusCount;
+	song.numChannels = oldNumChannels;
+
+	return true;
+}
+
+bool tapeheadTestRouteSyntheticMonoVoice(uint8_t outputDestination,
+	uint8_t panning, float *peaks, uint8_t peakCount)
+{
+	if (outputDestination >= 4 || peaks == NULL || peakCount < 4)
+		return false;
+
+	int8_t sampleData[8] = { 64, 64, 64, 64, 64, 64, 64, 64 };
+	float busAL[4] = { 0 }, busAR[4] = { 0 };
+	float busBL[4] = { 0 }, busBR[4] = { 0 };
+
+	const int32_t oldNumChannels = song.numChannels;
+	const uint16_t oldMonoOutputMask = channelMonoOutputMask[0];
+	const bool oldMonoOutputMode = audio.monoOutputMode;
+	voice_t oldVoice = voice[0];
+	voice_t oldFadeVoice = voice[MAX_CHANNELS];
+	float *oldBusAL = audio.fBusMixBufferL[0];
+	float *oldBusAR = audio.fBusMixBufferR[0];
+	float *oldBusBL = audio.fBusMixBufferL[1];
+	float *oldBusBR = audio.fBusMixBufferR[1];
+
+	song.numChannels = 1;
+	channelMonoOutputMask[0] = (uint16_t)(1U << outputDestination);
+	audio.monoOutputMode = true;
+	memset(&voice[0], 0, sizeof (voice[0]));
+	memset(&voice[MAX_CHANNELS], 0, sizeof (voice[MAX_CHANNELS]));
+	voice[0].active = true;
+	voice[0].base8 = sampleData;
+	voice[0].sampleEnd = 8;
+	voice[0].delta = 1ULL << MIXER_FRAC_BITS;
+	voice[0].panning = panning;
+	voice[0].fCurrVolumeL = panning == 255 ? 0.0625f : 1.0f;
+	voice[0].fCurrVolumeR = panning == 0 ? 0.0f : 1.0f;
+	voice[0].fCurrVolumeMono = 1.0f;
+	voice[0].mixFuncOffset = 0;
+	audio.fBusMixBufferL[0] = busAL;
+	audio.fBusMixBufferR[0] = busAR;
+	audio.fBusMixBufferL[1] = busBL;
+	audio.fBusMixBufferR[1] = busBR;
+
+	doChannelMixing(0, 4, 2);
+
+	memset(peaks, 0, peakCount * sizeof (float));
+	for (int32_t i = 0; i < 4; i++)
+	{
+		peaks[0] = MAX(peaks[0], fabsf(busAL[i]));
+		peaks[1] = MAX(peaks[1], fabsf(busAR[i]));
+		peaks[2] = MAX(peaks[2], fabsf(busBL[i]));
+		peaks[3] = MAX(peaks[3], fabsf(busBR[i]));
+	}
+
+	audio.fBusMixBufferL[0] = oldBusAL;
+	audio.fBusMixBufferR[0] = oldBusAR;
+	audio.fBusMixBufferL[1] = oldBusBL;
+	audio.fBusMixBufferR[1] = oldBusBR;
+	voice[0] = oldVoice;
+	voice[MAX_CHANNELS] = oldFadeVoice;
+	channelMonoOutputMask[0] = oldMonoOutputMask;
+	audio.monoOutputMode = oldMonoOutputMode;
+	song.numChannels = oldNumChannels;
+
+	return true;
+}
+
+bool tapeheadTestRouteSyntheticSampleLauncherVoice(uint8_t outputBus,
+	float *peakBusA, float *peakBusB)
+{
+	if (outputBus >= 2 || peakBusA == NULL || peakBusB == NULL)
+		return false;
+
+	int8_t sampleData[8] = { 64, 64, 64, 64, 64, 64, 64, 64 };
+	float busAL[4] = { 0 }, busAR[4] = { 0 };
+	float busBL[4] = { 0 }, busBR[4] = { 0 };
+
+	const int32_t oldNumChannels = song.numChannels;
+	const bool oldMonoOutputMode = audio.monoOutputMode;
+	voice_t oldLauncherVoice = sampleLauncherVoice[0];
+	const uint8_t oldLauncherBus = sampleLauncherOutputBus[0];
+	float *oldBusAL = audio.fBusMixBufferL[0];
+	float *oldBusAR = audio.fBusMixBufferR[0];
+	float *oldBusBL = audio.fBusMixBufferL[1];
+	float *oldBusBR = audio.fBusMixBufferR[1];
+
+	song.numChannels = 0;
+	audio.monoOutputMode = false;
+	memset(&sampleLauncherVoice[0], 0, sizeof (sampleLauncherVoice[0]));
+	sampleLauncherVoice[0].active = true;
+	sampleLauncherVoice[0].base8 = sampleData;
+	sampleLauncherVoice[0].sampleEnd = 8;
+	sampleLauncherVoice[0].delta = 1ULL << MIXER_FRAC_BITS;
+	sampleLauncherVoice[0].fCurrVolumeL = 1.0f;
+	sampleLauncherVoice[0].fCurrVolumeR = 1.0f;
+	sampleLauncherVoice[0].mixFuncOffset = 0;
+	sampleLauncherOutputBus[0] = outputBus;
+	audio.fBusMixBufferL[0] = busAL;
+	audio.fBusMixBufferR[0] = busAR;
+	audio.fBusMixBufferL[1] = busBL;
+	audio.fBusMixBufferR[1] = busBR;
+
+	doChannelMixing(0, 4, 2);
+
+	*peakBusA = 0.0f;
+	*peakBusB = 0.0f;
+	for (int32_t i = 0; i < 4; i++)
+	{
+		*peakBusA = MAX(*peakBusA, MAX(fabsf(busAL[i]), fabsf(busAR[i])));
+		*peakBusB = MAX(*peakBusB, MAX(fabsf(busBL[i]), fabsf(busBR[i])));
+	}
+
+	audio.fBusMixBufferL[0] = oldBusAL;
+	audio.fBusMixBufferR[0] = oldBusAR;
+	audio.fBusMixBufferL[1] = oldBusBL;
+	audio.fBusMixBufferR[1] = oldBusBR;
+	sampleLauncherVoice[0] = oldLauncherVoice;
+	sampleLauncherOutputBus[0] = oldLauncherBus;
+	audio.monoOutputMode = oldMonoOutputMode;
+	song.numChannels = oldNumChannels;
+	return true;
+}
+#endif
 
 // used for song-to-WAV renderer
 void mixReplayerTickToBuffer(uint32_t samplesToMix, void *stream, uint8_t bitDepth)
 {
-	doChannelMixing(0, samplesToMix);
+	doChannelMixing(0, samplesToMix, 1);
 
 	// normalize mix buffer and send to audio stream
 	if (bitDepth == 16)
-		sendSamples16BitStereo(stream, samplesToMix);
+		sendSamples16Bit(stream, samplesToMix, 1);
 	else
-		sendSamples32BitFloatStereo(stream, samplesToMix);
+		sendSamples32BitFloat(stream, samplesToMix, 1);
 }
 
 int32_t pattQueueReadSize(void)
@@ -683,7 +1153,9 @@ uint64_t getChQueueTimestamp(void)
 
 void lockAudio(void)
 {
-	if (audio.dev != 0)
+	if (tapeheadJackIsOpen())
+		tapeheadJackLock();
+	else if (audio.dev != 0)
 		SDL_LockAudioDevice(audio.dev);
 
 	audio.locked = true;
@@ -691,7 +1163,9 @@ void lockAudio(void)
 
 void unlockAudio(void)
 {
-	if (audio.dev != 0)
+	if (tapeheadJackIsOpen())
+		tapeheadJackUnlock();
+	else if (audio.dev != 0)
 		SDL_UnlockAudioDevice(audio.dev);
 
 	audio.locked = false;
@@ -738,7 +1212,9 @@ void pauseAudio(void) // lock audio + clear voices/scopes + render silence (for 
 		return;
 	}
 
-	if (audio.dev > 0)
+	if (tapeheadJackIsOpen())
+		tapeheadJackPause(true);
+	else if (audio.dev > 0)
 		SDL_PauseAudioDevice(audio.dev, true);
 
 	audio.resetSyncTickTimeFlag = true;
@@ -756,7 +1232,9 @@ void resumeAudio(void) // unlock audio
 	if (!audioPaused)
 		return;
 
-	if (audio.dev > 0)
+	if (tapeheadJackIsOpen())
+		tapeheadJackPause(false);
+	else if (audio.dev > 0)
 		SDL_PauseAudioDevice(audio.dev, false);
 
 	audioPaused = false;
@@ -826,23 +1304,19 @@ static void fillVisualsSyncBuffer(void)
 	}
 }
 
-static void audioCallback(void *userdata, Uint8 *stream, int len)
+static void renderAudioFrames(uint32_t sampleFrames, uint8_t outputBusCount)
 {
-	if (editor.wavIsRendering)
-	{
-		memset(stream, 0, len);
+	if (sampleFrames == 0)
 		return;
-	}
 
-	len >>= smpShiftValue; // bytes -> samples
-	if (len <= 0)
-		return;
+	if (outputBusCount < 1 || outputBusCount > TAPEHEAD_MAX_OUTPUT_BUSES)
+		outputBusCount = 1;
 
 	audio.callbackOngoing = true;
 
 	int32_t bufferPosition = 0;
 
-	uint32_t samplesLeft = len;
+	uint32_t samplesLeft = sampleFrames;
 	while (samplesLeft > 0)
 	{
 		if (audio.tickSampleCounter <= 0) // new replayer tick
@@ -875,49 +1349,249 @@ static void audioCallback(void *userdata, Uint8 *stream, int len)
 		if (audio.tickSampleCounter > 0 && samplesToMix > audio.tickSampleCounter)
 			samplesToMix = audio.tickSampleCounter;
 
-		doChannelMixing(bufferPosition, samplesToMix);
+		doChannelMixing(bufferPosition, samplesToMix, outputBusCount);
 		bufferPosition += samplesToMix;
 
 		audio.tickSampleCounter -= samplesToMix;
 		samplesLeft -= samplesToMix;
 	}
+}
+
+static void audioCallback(void *userdata, Uint8 *stream, int len)
+{
+	if (editor.wavIsRendering)
+	{
+		memset(stream, 0, len);
+		return;
+	}
+
+	len /= audio.bytesPerFrame; // bytes -> sample frames
+	if (len <= 0)
+		return;
+
+	renderAudioFrames((uint32_t)len, audio.outputBusCount);
 
 	if (config.specialFlags & BITDEPTH_16)
-		sendSamples16BitStereo(stream, len);
+		sendSamples16Bit(stream, len, audio.outputBusCount);
 	else
-		sendSamples32BitFloatStereo(stream, len);
+		sendSamples32BitFloat(stream, len, audio.outputBusCount);
 
 	audio.callbackOngoing = false;
 
 	(void)userdata;
 }
 
-static bool setupAudioBuffers(void)
+static void jackAudioCallback(float **outputs, uint32_t sampleFrames,
+	uint8_t outputBusCount, void *userdata)
+{
+	(void)userdata;
+
+	if (editor.wavIsRendering)
+	{
+		for (uint8_t outputChannel = 0;
+			outputChannel < outputBusCount * 2; outputChannel++)
+		{
+			if (outputs[outputChannel] != NULL)
+				memset(outputs[outputChannel], 0, sampleFrames * sizeof (float));
+		}
+		return;
+	}
+
+	/* JACK's configured port count is authoritative for this render cycle. */
+	renderAudioFrames(sampleFrames, outputBusCount);
+
+	for (uint8_t bus = 0; bus < outputBusCount; bus++)
+	{
+		float *outputL = outputs[bus * 2];
+		float *outputR = outputs[(bus * 2) + 1];
+
+		for (uint32_t i = 0; i < sampleFrames; i++)
+		{
+			const float mixerSampleL =
+				audio.fBusMixBufferL[bus][i] * fAudioNormalizeMul;
+			const float mixerSampleR =
+				audio.fBusMixBufferR[bus][i] * fAudioNormalizeMul;
+
+			float testTone = 0.0f;
+			if (jackDiagnosticToneBus == (int8_t)bus)
+			{
+				testTone = sinf((float)jackDiagnosticTonePhase) * 0.125f;
+				const uint32_t sampleRate = audio.haveFreq != 0
+					? audio.haveFreq : 48000;
+				jackDiagnosticTonePhase +=
+					(6.28318530717958647692 * 440.0) / sampleRate;
+				if (jackDiagnosticTonePhase >= 6.28318530717958647692)
+					jackDiagnosticTonePhase -= 6.28318530717958647692;
+			}
+
+			const float sampleL = CLAMP(mixerSampleL + testTone, -1.0f, 1.0f);
+			const float sampleR = CLAMP(mixerSampleR + testTone, -1.0f, 1.0f);
+
+			if (outputL != NULL)
+				outputL[i] = sampleL;
+			if (outputR != NULL)
+				outputR[i] = sampleR;
+
+			/*
+			** Measure the actual JACK port-buffer samples after the diagnostic
+			** tone has been added and written. The original Pass 4 diagnostic
+			** measured mixerSampleL/R above, which accidentally excluded the
+			** injected tone and could therefore report B=0 while claiming to
+			** test Bus B.
+			*/
+			if (jackDiagnosticsEnabled)
+			{
+				const float writtenSampleL = outputL != NULL ? outputL[i] : 0.0f;
+				const float writtenSampleR = outputR != NULL ? outputR[i] : 0.0f;
+				if (audio.monoOutputMode)
+				{
+					const uint8_t outputLIndex = bus * 2;
+					const uint8_t outputRIndex = outputLIndex + 1;
+					jackDiagnosticPeak[outputLIndex] = MAX(
+						jackDiagnosticPeak[outputLIndex], fabsf(writtenSampleL));
+					jackDiagnosticPeak[outputRIndex] = MAX(
+						jackDiagnosticPeak[outputRIndex], fabsf(writtenSampleR));
+				}
+				else
+				{
+					const float peak = MAX(fabsf(writtenSampleL), fabsf(writtenSampleR));
+					jackDiagnosticPeak[bus] = MAX(jackDiagnosticPeak[bus], peak);
+				}
+			}
+
+			audio.fBusMixBufferL[bus][i] = 0.0f;
+			audio.fBusMixBufferR[bus][i] = 0.0f;
+		}
+	}
+
+	if (jackDiagnosticsEnabled)
+	{
+		jackDiagnosticFrames += sampleFrames;
+		const uint32_t reportInterval = audio.haveFreq != 0
+			? audio.haveFreq : 48000;
+		if (jackDiagnosticFrames >= reportInterval)
+		{
+			fprintf(stderr, "Tapehead JACK live peaks:");
+			const uint8_t diagnosticOutputCount = audio.monoOutputMode
+				? (uint8_t)MIN(outputBusCount * 2, TAPEHEAD_MAX_OUTPUT_BUSES)
+				: outputBusCount;
+			for (uint8_t output = 0; output < diagnosticOutputCount; output++)
+				fprintf(stderr, " %c=%.6f", 'A' + output, jackDiagnosticPeak[output]);
+
+			fprintf(stderr, " | routes:");
+			for (int32_t i = 0; i < song.numChannels; i++)
+				fprintf(stderr, " %d=0x%04X", i + 1,
+					getChannelOutputMask(i, audio.monoOutputMode));
+			fputc('\n', stderr);
+			fflush(stderr);
+
+			jackDiagnosticFrames = 0;
+			memset(jackDiagnosticPeak, 0, sizeof (jackDiagnosticPeak));
+		}
+	}
+
+	audio.callbackOngoing = false;
+}
+
+static void configureJackDiagnostics(uint8_t outputBusCount)
+{
+	jackDiagnosticsEnabled = false;
+	jackDiagnosticToneBus = -1;
+	jackDiagnosticFrames = 0;
+	jackDiagnosticTonePhase = 0.0;
+	memset(jackDiagnosticPeak, 0, sizeof (jackDiagnosticPeak));
+
+	const char *debugValue = getenv("TAPEHEAD_JACK_DEBUG");
+	if (debugValue != NULL && debugValue[0] != '\0' && debugValue[0] != '0')
+		jackDiagnosticsEnabled = true;
+
+	const char *toneValue = getenv("TAPEHEAD_JACK_TEST_BUS");
+	if (toneValue != NULL && toneValue[0] != '\0')
+	{
+		int32_t bus = -1;
+		if (toneValue[0] >= 'A' && toneValue[0] <= 'P')
+			bus = toneValue[0] - 'A';
+		else if (toneValue[0] >= 'a' && toneValue[0] <= 'p')
+			bus = toneValue[0] - 'a';
+		else
+			bus = atoi(toneValue) - 1;
+
+		if (bus >= 0 && bus < outputBusCount)
+		{
+			jackDiagnosticToneBus = (int8_t)bus;
+			jackDiagnosticsEnabled = true;
+		}
+	}
+
+	if (jackDiagnosticsEnabled)
+	{
+		fprintf(stderr, "Tapehead JACK diagnostics enabled");
+		if (jackDiagnosticToneBus >= 0)
+		{
+			fprintf(stderr, "; 440Hz test tone injected directly into Bus %c",
+				'A' + jackDiagnosticToneBus);
+		}
+		fputc('\n', stderr);
+		fflush(stderr);
+	}
+}
+
+static bool setupAudioBuffers(uint32_t minimumSampleFrames)
 {
 	const int32_t maxAudioFreq = MAX(MAX_AUDIO_FREQ, MAX_WAV_RENDER_FREQ);
 	int32_t maxSamplesPerTick = (int32_t)ceil(maxAudioFreq / (MIN_BPM / 2.5)) + 1;
+	if (minimumSampleFrames > (uint32_t)maxSamplesPerTick)
+		maxSamplesPerTick = (int32_t)minimumSampleFrames;
 
-	audio.fMixBufferL = (float *)calloc(maxSamplesPerTick, sizeof (float));
-	audio.fMixBufferR = (float *)calloc(maxSamplesPerTick, sizeof (float));
+	for (uint8_t bus = 0; bus < TAPEHEAD_MAX_OUTPUT_BUSES; bus++)
+	{
+		audio.fBusMixBufferL[bus] = (float *)calloc(maxSamplesPerTick, sizeof (float));
+		audio.fBusMixBufferR[bus] = (float *)calloc(maxSamplesPerTick, sizeof (float));
+		if (audio.fBusMixBufferL[bus] == NULL || audio.fBusMixBufferR[bus] == NULL)
+			return false;
+	}
 
-	if (audio.fMixBufferL == NULL || audio.fMixBufferR == NULL)
+	audio.fChannelMixBufferL = (float *)calloc(maxSamplesPerTick, sizeof (float));
+	audio.fChannelMixBufferR = (float *)calloc(maxSamplesPerTick, sizeof (float));
+	if (audio.fChannelMixBufferL == NULL || audio.fChannelMixBufferR == NULL)
 		return false;
+
+	audio.fMixBufferL = audio.fBusMixBufferL[0];
+	audio.fMixBufferR = audio.fBusMixBufferR[0];
 
 	return true;
 }
 
 static void freeAudioBuffers(void)
 {
-	if (audio.fMixBufferL != NULL)
+	audio.fMixBufferL = NULL;
+	audio.fMixBufferR = NULL;
+
+	for (uint8_t bus = 0; bus < TAPEHEAD_MAX_OUTPUT_BUSES; bus++)
 	{
-		free(audio.fMixBufferL);
-		audio.fMixBufferL = NULL;
+		if (audio.fBusMixBufferL[bus] != NULL)
+		{
+			free(audio.fBusMixBufferL[bus]);
+			audio.fBusMixBufferL[bus] = NULL;
+		}
+
+		if (audio.fBusMixBufferR[bus] != NULL)
+		{
+			free(audio.fBusMixBufferR[bus]);
+			audio.fBusMixBufferR[bus] = NULL;
+		}
 	}
 
-	if (audio.fMixBufferR != NULL)
+	if (audio.fChannelMixBufferL != NULL)
 	{
-		free(audio.fMixBufferR);
-		audio.fMixBufferR = NULL;
+		free(audio.fChannelMixBufferL);
+		audio.fChannelMixBufferL = NULL;
+	}
+
+	if (audio.fChannelMixBufferR != NULL)
+	{
+		free(audio.fChannelMixBufferR);
+		audio.fChannelMixBufferR = NULL;
 	}
 }
 
@@ -964,41 +1638,93 @@ bool setupAudio(bool showErrorMsg)
 
 	audio.wantFreq = config.audioFreq;
 	audio.wantSamples = configAudioBufSize;
+	audio.multichannelFallback = false;
 
-	// set up audio device
-	memset(&want, 0, sizeof (want));
-	want.freq = config.audioFreq;
-	want.format = (config.specialFlags & BITDEPTH_32) ? AUDIO_F32 : AUDIO_S16;
-	want.channels = 2;
-	want.callback = audioCallback;
-	want.samples  = configAudioBufSize;
+	const uint8_t requestedOutputChannels = tapeheadConfig.outputBuses * 2;
+	const bool useJack = tapeheadJackDeviceSelected(audio.currOutputDevice);
+	uint32_t openedFreq, openedSamples;
+	uint8_t openedChannels;
+	SDL_AudioFormat openedFormat;
 
-	char *device = audio.currOutputDevice;
-	if (device != NULL && strcmp(device, DEFAULT_AUDIO_DEV_STR) == 0)
-		device = NULL; // force default device
-
-	audio.dev = SDL_OpenAudioDevice(device, 0, &want, &have, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE);
-	if (audio.dev == 0)
+	if (useJack)
 	{
-		audio.dev = SDL_OpenAudioDevice(NULL, 0, &want, &have, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE);
-		if (audio.currOutputDevice != NULL)
+		configureJackDiagnostics(tapeheadConfig.outputBuses);
+		if (!tapeheadJackOpen(tapeheadConfig.outputBuses, jackAudioCallback, NULL,
+			&openedFreq, &openedSamples))
 		{
-			free(audio.currOutputDevice);
-			audio.currOutputDevice = NULL;
+			if (showErrorMsg)
+			{
+				showErrorMsgBox(
+					"Couldn't open Tapehead JACK virtual outputs:\n%s",
+					tapeheadJackGetLastError());
+			}
+			return false;
 		}
-		audio.currOutputDevice = strdup(DEFAULT_AUDIO_DEV_STR);
+
+		openedChannels = requestedOutputChannels;
+		openedFormat = AUDIO_F32;
+	}
+	else
+	{
+		// set up SDL audio device
+		memset(&want, 0, sizeof (want));
+		want.freq = config.audioFreq;
+		want.format = (config.specialFlags & BITDEPTH_32) ? AUDIO_F32 : AUDIO_S16;
+		want.channels = requestedOutputChannels;
+		want.callback = audioCallback;
+		want.samples  = configAudioBufSize;
+
+		char *device = audio.currOutputDevice;
+		if (device != NULL && strcmp(device, DEFAULT_AUDIO_DEV_STR) == 0)
+			device = NULL; // force default device
+
+		audio.dev = SDL_OpenAudioDevice(device, 0, &want, &have, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE);
+		if (audio.dev == 0 && requestedOutputChannels > 2)
+		{
+			/*
+			** Preserve the logical routing even when this device cannot expose the
+			** requested channel count. The mixer folds all buses to ordinary stereo.
+			*/
+			want.channels = 2;
+			audio.dev = SDL_OpenAudioDevice(device, 0, &want, &have, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE);
+			audio.multichannelFallback = audio.dev != 0;
+		}
 
 		if (audio.dev == 0)
 		{
-			if (showErrorMsg)
-				showErrorMsgBox("Couldn't open audio device:\n\"%s\"\n\nDo you have an audio device enabled and plugged in?", SDL_GetError());
+			want.channels = requestedOutputChannels;
+			audio.dev = SDL_OpenAudioDevice(NULL, 0, &want, &have, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE);
+			if (audio.dev == 0 && requestedOutputChannels > 2)
+			{
+				want.channels = 2;
+				audio.dev = SDL_OpenAudioDevice(NULL, 0, &want, &have, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE);
+				audio.multichannelFallback = audio.dev != 0;
+			}
 
-			return false;
+			if (audio.currOutputDevice != NULL)
+			{
+				free(audio.currOutputDevice);
+				audio.currOutputDevice = NULL;
+			}
+			audio.currOutputDevice = strdup(DEFAULT_AUDIO_DEV_STR);
+
+			if (audio.dev == 0)
+			{
+				if (showErrorMsg)
+					showErrorMsgBox("Couldn't open audio device:\n\"%s\"\n\nDo you have an audio device enabled and plugged in?", SDL_GetError());
+
+				return false;
+			}
 		}
+
+		openedFreq = have.freq;
+		openedSamples = have.samples;
+		openedChannels = have.channels;
+		openedFormat = have.format;
 	}
 
 	// test if the received audio format is compatible
-	if (have.format != AUDIO_S16 && have.format != AUDIO_F32)
+	if (openedFormat != AUDIO_S16 && openedFormat != AUDIO_F32)
 	{
 		if (showErrorMsg)
 			showErrorMsgBox("Couldn't open audio device:\nThis program only supports 16-bit or 32-bit float audio streams. Sorry!");
@@ -1009,10 +1735,16 @@ bool setupAudio(bool showErrorMsg)
 
 	// test if the received audio stream is compatible
 
-	if (have.channels != 2)
+	if (openedChannels < 2 || openedChannels > TAPEHEAD_MAX_OUTPUT_BUSES * 2 ||
+		(openedChannels & 1))
 	{
 		if (showErrorMsg)
-			showErrorMsgBox("Couldn't open audio device:\nThis program only supports stereo audio streams. Sorry!");
+		{
+			showErrorMsgBox(
+				"Couldn't open audio device:\n"
+				"Tapehead requires an even output count between 2 and %d channels. Sorry!",
+				TAPEHEAD_MAX_OUTPUT_BUSES * 2);
+		}
 
 		closeAudio();
 		return false;
@@ -1029,7 +1761,7 @@ bool setupAudio(bool showErrorMsg)
 	}
 	*/
 
-	if (!setupAudioBuffers())
+	if (!setupAudioBuffers(openedSamples))
 	{
 		if (showErrorMsg)
 			showErrorMsgBox("Not enough memory!");
@@ -1040,23 +1772,35 @@ bool setupAudio(bool showErrorMsg)
 
 	// set new bit depth flag
 
-	int8_t newBitDepth = 16;
 	config.specialFlags &= ~BITDEPTH_32;
 	config.specialFlags |=  BITDEPTH_16;
 
-	if (have.format == AUDIO_F32)
+	if (openedFormat == AUDIO_F32)
 	{
-		newBitDepth = 24;
 		config.specialFlags &= ~BITDEPTH_16;
 		config.specialFlags |=  BITDEPTH_32;
 	}
 
-	audio.haveFreq = have.freq;
-	audio.haveSamples = have.samples;
-	config.audioFreq = audio.freq = have.freq;
+	audio.haveFreq = openedFreq;
+	audio.haveSamples = openedSamples;
+	audio.outputChannels = openedChannels;
+	audio.outputBusCount = openedChannels / 2;
+	audio.monoOutputMode = tapeheadConfig.monoOutputs;
+	initializeMonoChannelOutputRouting((uint8_t)MIN(
+		openedChannels, TAPEHEAD_MAX_OUTPUT_BUSES));
+	audio.bytesPerFrame = openedChannels *
+		((openedFormat == AUDIO_F32) ? sizeof (float) : sizeof (int16_t));
+	config.audioFreq = audio.freq = openedFreq;
 
-	calcAudioLatencyVars(have.samples, have.freq);
-	smpShiftValue = (newBitDepth == 16) ? 2 : 3;
+	calcAudioLatencyVars(openedSamples, openedFreq);
+
+	if (audio.multichannelFallback)
+	{
+		fprintf(stderr,
+			"Tapehead: requested %u stereo output buses, but the selected "
+			"device opened in stereo. Logical buses are folded to Bus A.\n",
+			tapeheadConfig.outputBuses);
+	}
 
 	// make a copy of the new known working audio settings
 
@@ -1097,6 +1841,9 @@ bool setupAudio(bool showErrorMsg)
 
 void closeAudio(void)
 {
+	if (tapeheadJackIsOpen())
+		tapeheadJackClose();
+
 	if (audio.dev > 0)
 	{
 		SDL_PauseAudioDevice(audio.dev, true);

@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdarg.h>
 #include "ft2_config.h"
 #include "ft2_gui.h"
 #include "ft2_mouse.h"
@@ -23,7 +24,7 @@ void (*loaderMsgBox)(const char *, ...);
 int16_t (*loaderSysReq)(int16_t, const char *, const char *, void (*)(void));
 // ----------------
 
-#define NUM_SYSREQ_TYPES 9
+#define NUM_SYSREQ_TYPES 10
 
 #define MAX_PUSHBUTTONS 5
 static char *buttonText[NUM_SYSREQ_TYPES][MAX_PUSHBUTTONS] =
@@ -39,7 +40,8 @@ static char *buttonText[NUM_SYSREQ_TYPES][MAX_PUSHBUTTONS] =
 	{ "Mono", "Stereo", "Cancel", "","" },            // "audio sampling" dialog
 	{ "OK", "Preview", "Cancel", "","" },             // sample editor effects filters
 	{ "Set cursor", "Reset P00", "Cancel", "", "" },       // Pattern Timeline origin
-	{ "Remap all", "Remap range", "Cancel", "", "" }      // Instrument Transform
+	{ "Remap all", "Remap range", "Cancel", "", "" },     // Instrument Transform
+	{ "Instr./samples", "Current instr.", "Cancel", "", "" } // Folder sample import
 };
 
 static SDL_Keycode shortCut[NUM_SYSREQ_TYPES][5] =
@@ -55,7 +57,8 @@ static SDL_Keycode shortCut[NUM_SYSREQ_TYPES][5] =
 	{ SDLK_m, SDLK_s, SDLK_c, 0,      0 }, // "audio sampling" dialog
 	{ SDLK_o, SDLK_p, SDLK_c, 0,      0 }, // sample editor effects filters
 	{ SDLK_s, SDLK_r, SDLK_c, 0,      0 }, // Pattern Timeline origin
-	{ SDLK_a, SDLK_r, SDLK_c, 0,      0 }  // Instrument Transform
+	{ SDLK_a, SDLK_r, SDLK_c, 0,      0 }, // Instrument Transform
+	{ SDLK_i, SDLK_u, SDLK_c, 0,      0 }  // Folder sample import
 };
 
 typedef struct quitType_t
@@ -93,7 +96,7 @@ void myLoaderMsgBoxThreadSafe(const char *fmt, ...)
 	vsnprintf(strBuf, sizeof (strBuf), fmt, args);
 	va_end(args);
 
-	okBoxThreadSafe(0, "System message", fmt, NULL);
+	okBoxThreadSafe(0, "System message", strBuf, NULL);
 }
 
 void myLoaderMsgBox(const char *fmt, ...)
@@ -106,7 +109,7 @@ void myLoaderMsgBox(const char *fmt, ...)
 	vsnprintf(strBuf, sizeof (strBuf), fmt, args);
 	va_end(args);
 
-	okBox(0, "System message", fmt, NULL);
+	okBox(0, "System message", strBuf, NULL);
 }
 
 static void drawWindow(uint16_t w)
@@ -193,7 +196,8 @@ static bool mouseButtonUpLogic(uint8_t mouseButton)
 
 // WARNING: This routine must ONLY be called from the main input/video thread!
 // If the checkBoxCallback argument is set, then you get a "Do not show again" checkbox.
-int16_t okBox(int16_t type, const char *headline, const char *text, void (*checkBoxCallback)(void))
+static int16_t okBoxInternal(int16_t type, const char *headline, const char *text,
+	void (*checkBoxCallback)(void), const char *checkBoxText, bool *checkBoxState)
 {
 #define DEFAULT_PUSHBUTTON_WIDTH 80
 
@@ -266,22 +270,22 @@ int16_t okBox(int16_t type, const char *headline, const char *text, void (*check
 	{
 		p->caption = buttonText[type][i];
 		p->x = ((SCREEN_W - tx) / 2) + (i * 100);
-		p->y = y + 42;
+		p->y = y + (checkBoxState != NULL ? 48 : 42);
 		p->w = buttonWidthHi;
 		p->h = 16;
 		p->visible = true;
 	}
 
 	// set up "don't show again" checkbox (if callback present)
-	bool hasCheckbox = (checkBoxCallback != NULL);
+	bool hasCheckbox = (checkBoxCallback != NULL || checkBoxState != NULL);
 	if (hasCheckbox)
 	{
 		checkBox_t *c = &checkBoxes[0];
 		c->x = x + 5;
-		c->y = y + 50;
+		c->y = y + (checkBoxState != NULL ? 34 : 50);
 		c->clickAreaWidth = 116;
 		c->clickAreaHeight = 12;
-		c->checked = false;
+		c->checked = checkBoxState != NULL ? *checkBoxState : false;
 		c->callbackFunc = checkBoxCallback;
 		c->visible = true;
 	}
@@ -386,7 +390,8 @@ int16_t okBox(int16_t type, const char *headline, const char *text, void (*check
 		if (hasCheckbox)
 		{
 			drawCheckBox(0);
-			textOutShadow(x + 21, y + 52, PAL_FORGRND, PAL_BUTTON2, "Don't show again");
+			textOutShadow(x + 21, y + (checkBoxState != NULL ? 36 : 52), PAL_FORGRND, PAL_BUTTON2,
+				checkBoxText != NULL ? checkBoxText : "Don't show again");
 		}
 
 		flipFrame();
@@ -397,7 +402,11 @@ int16_t okBox(int16_t type, const char *headline, const char *text, void (*check
 		hidePushButton(i);
 
 	if (hasCheckbox)
+	{
+		if (checkBoxState != NULL)
+			*checkBoxState = checkBoxes[0].checked;
 		hideCheckBox(0);
+	}
 
 	mouse.lastUsedObjectID = oldLastUsedObjectID;
 	mouse.lastUsedObjectType = oldLastUsedObjectType;
@@ -407,6 +416,17 @@ int16_t okBox(int16_t type, const char *headline, const char *text, void (*check
 
 	SDL_EventState(SDL_DROPFILE, SDL_ENABLE);
 	return returnVal;
+}
+
+int16_t okBox(int16_t type, const char *headline, const char *text, void (*checkBoxCallback)(void))
+{
+	return okBoxInternal(type, headline, text, checkBoxCallback, NULL, NULL);
+}
+
+int16_t choiceBoxWithCheckBox(int16_t type, const char *headline, const char *text,
+	const char *checkBoxText, bool *checkBoxState)
+{
+	return okBoxInternal(type, headline, text, NULL, checkBoxText, checkBoxState);
 }
 
 /* WARNING:

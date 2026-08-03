@@ -74,7 +74,7 @@ if(UNIX)
             target_link_libraries(ft2-clone PRIVATE fts)
         endif()
         target_link_libraries(ft2-clone
-            PRIVATE asound)
+            PRIVATE asound dl)
         target_compile_definitions(ft2-clone
             PRIVATE __LINUX_ALSA__)
     endif()

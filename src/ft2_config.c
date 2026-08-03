@@ -38,6 +38,8 @@
 #include "ft2_tables.h"
 #include "ft2_bmp.h"
 #include "ft2_structs.h"
+#include "ft2_multichannel.h"
+#include "scopes/ft2_scopes.h"
 
 config_t config; // globalized
 tapeheadConfig_t tapeheadConfig;
@@ -598,11 +600,34 @@ static void writeDefaultTapeheadConfig(const UNICHAR *filePathU)
 	fputs("; Tapehead Edition advanced configuration\n", f);
 	fputs("; Changes are loaded when the program starts.\n", f);
 	fputs("; Invalid or missing values use the safe built-in defaults.\n\n", f);
+	fputs("[Video]\n\n", f);
+	fputs("; Experimental crisp HD renderer. The layout and mouse map stay exactly\n", f);
+	fputs("; 632x400, but the final image is rebuilt at 2x or 3x resolution.\n", f);
+	fputs("; Disable this here if the HD window is unsuitable for the current display.\n", f);
+	fputs("HDMode=false\n\n", f);
+	fputs("; Accepted values: 2 or 3. The window is safely reduced if it cannot fit.\n", f);
+	fputs("HDScale=3\n\n", f);
+	fputs("; crisp keeps square geometry; round restores the softer HD v1 filter.\n", f);
+	fputs("; The old sharp name is accepted as an alias for crisp.\n", f);
+	fputs("; Accepted values: crisp, sharp or round.\n", f);
+	fputs("HDStyle=crisp\n\n", f);
+	fputs("[Launcher]\n\n", f);
+	fputs("; Open directly into the combined Pattern/Sample launcher deck.\n", f);
+	fputs("Enabled=false\n\n", f);
 	fputs("[Keyboard]\n\n", f);
 	fputs("; Backspace navigates to the parent directory while Disk Op is open.\n", f);
 	fputs("DiskOpBackspaceParent=false\n\n", f);
 	fputs("; Backspace deletes the current note row and pulls later notes upward.\n", f);
 	fputs("PatternBackspacePullUp=false\n\n", f);
+	fputs("[Audio]\n\n", f);
+	fputs("; Logical stereo output buses requested from the selected audio device or\n", f);
+	fputs("; exposed as separate ports by \"Tapehead JACK Virtual Outputs\" on Linux.\n", f);
+	fputs("; 1 is ordinary stereo; accepted range is 1-16 (2-32 output channels).\n", f);
+	fputs("; Unsupported multichannel modes safely fall back to stereo.\n", f);
+	fputs("OutputBuses=1\n\n", f);
+	fputs("; Route each tracker lane to one physical mono output instead of a stereo bus.\n", f);
+	fputs("; The Config -> Audio checkbox can also change this while FT2 is running.\n", f);
+	fputs("MonoOutputs=false\n\n", f);
 	fputs("[Undo]\n\n", f);
 	fputs("; Undo history memory ceiling in megabytes (accepted range: 4-1024).\n", f);
 	fputs("UndoMemoryMB=32\n", f);
@@ -613,6 +638,12 @@ void loadTapeheadConfig(void)
 {
 	tapeheadConfig.diskOpBackspaceParent = false;
 	tapeheadConfig.patternBackspacePullUp = false;
+	tapeheadConfig.monoOutputs = false;
+	tapeheadConfig.hdMode = false;
+	tapeheadConfig.launcherMode = false;
+	tapeheadConfig.outputBuses = 1;
+	tapeheadConfig.hdScale = 3;
+	tapeheadConfig.hdStyle = TAPEHEAD_HD_STYLE_CRISP;
 	tapeheadConfig.undoMemoryMB = 32;
 
 	UNICHAR *filePathU = getFullTapeheadConfigPathU();
@@ -631,7 +662,10 @@ void loadTapeheadConfig(void)
 	enum
 	{
 		TAPEHEAD_SECTION_NONE,
+		TAPEHEAD_SECTION_VIDEO,
+		TAPEHEAD_SECTION_LAUNCHER,
 		TAPEHEAD_SECTION_KEYBOARD,
+		TAPEHEAD_SECTION_AUDIO,
 		TAPEHEAD_SECTION_UNDO
 	} section = TAPEHEAD_SECTION_NONE;
 
@@ -645,8 +679,14 @@ void loadTapeheadConfig(void)
 		{
 			char *close = strchr(text, ']');
 			if (close != NULL) *close = '\0';
-			if (!_stricmp(text + 1, "Keyboard"))
+			if (!_stricmp(text + 1, "Video"))
+				section = TAPEHEAD_SECTION_VIDEO;
+			else if (!_stricmp(text + 1, "Launcher"))
+				section = TAPEHEAD_SECTION_LAUNCHER;
+			else if (!_stricmp(text + 1, "Keyboard"))
 				section = TAPEHEAD_SECTION_KEYBOARD;
+			else if (!_stricmp(text + 1, "Audio"))
+				section = TAPEHEAD_SECTION_AUDIO;
 			else if (!_stricmp(text + 1, "Undo"))
 				section = TAPEHEAD_SECTION_UNDO;
 			else
@@ -664,12 +704,50 @@ void loadTapeheadConfig(void)
 		char *key = trimText(text);
 		char *value = trimText(equals + 1);
 
-		if (section == TAPEHEAD_SECTION_KEYBOARD)
+		if (section == TAPEHEAD_SECTION_VIDEO)
+		{
+			if (!_stricmp(key, "HDMode"))
+			{
+				parseBoolValue(value, &tapeheadConfig.hdMode);
+			}
+			else if (!_stricmp(key, "HDScale"))
+			{
+				uint32_t hdScale;
+				if (parseUInt32Value(value, &hdScale) && hdScale >= 2 && hdScale <= 3)
+					tapeheadConfig.hdScale = (uint8_t)hdScale;
+			}
+			else if (!_stricmp(key, "HDStyle"))
+			{
+				if (!_stricmp(value, "round"))
+					tapeheadConfig.hdStyle = TAPEHEAD_HD_STYLE_ROUND;
+				else if (!_stricmp(value, "crisp") || !_stricmp(value, "sharp"))
+					tapeheadConfig.hdStyle = TAPEHEAD_HD_STYLE_CRISP;
+			}
+		}
+		else if (section == TAPEHEAD_SECTION_LAUNCHER &&
+			!_stricmp(key, "Enabled"))
+		{
+			parseBoolValue(value, &tapeheadConfig.launcherMode);
+		}
+		else if (section == TAPEHEAD_SECTION_KEYBOARD)
 		{
 			if (!_stricmp(key, "DiskOpBackspaceParent"))
 				parseBoolValue(value, &tapeheadConfig.diskOpBackspaceParent);
 			else if (!_stricmp(key, "PatternBackspacePullUp"))
 				parseBoolValue(value, &tapeheadConfig.patternBackspacePullUp);
+		}
+		else if (section == TAPEHEAD_SECTION_AUDIO && !_stricmp(key, "OutputBuses"))
+		{
+			uint32_t outputBuses;
+			if (parseUInt32Value(value, &outputBuses) &&
+				outputBuses >= 1 && outputBuses <= 16)
+			{
+				tapeheadConfig.outputBuses = (uint8_t)outputBuses;
+			}
+		}
+		else if (section == TAPEHEAD_SECTION_AUDIO && !_stricmp(key, "MonoOutputs"))
+		{
+			parseBoolValue(value, &tapeheadConfig.monoOutputs);
 		}
 		else if (section == TAPEHEAD_SECTION_UNDO && !_stricmp(key, "UndoMemoryMB"))
 		{
@@ -1131,6 +1209,9 @@ static void setConfigAudioCheckButtonStates(void)
 
 	checkBoxes[CB_CONF_VOL_RAMP].checked = (config.specialFlags & NO_VOLRAMP_FLAG) ? false : true;
 	showCheckBox(CB_CONF_VOL_RAMP);
+
+	checkBoxes[CB_CONF_MONO_OUTPUTS].checked = tapeheadConfig.monoOutputs;
+	showCheckBox(CB_CONF_MONO_OUTPUTS);
 }
 
 static void setConfigLayoutCheckButtonStates(void)
@@ -1433,6 +1514,7 @@ void showConfigScreen(void)
 			showPushButton(PB_CONFIG_MASTVOL_UP);
 
 			textOutShadow(114,   4, PAL_FORGRND, PAL_DSKTOP2, "Audio output devices:");
+			textOutShadow(289,   4, PAL_FORGRND, PAL_DSKTOP2, "Mono");
 			textOutShadow(114,  91, PAL_FORGRND, PAL_DSKTOP2, "Audio input devices (sampling):");
 
 			textOutShadow(114, 157, PAL_FORGRND, PAL_DSKTOP2, "Input rate:");
@@ -1721,6 +1803,7 @@ void hideConfigScreen(void)
 	hideRadioButtonGroup(RB_GROUP_CONFIG_FREQ_SLIDES);
 	hideCheckBox(CB_CONF_PRECISE_BPM);
 	hideCheckBox(CB_CONF_VOL_RAMP);
+	hideCheckBox(CB_CONF_MONO_OUTPUTS);
 	hidePushButton(PB_CONFIG_AUDIO_RESCAN);
 	hidePushButton(PB_CONFIG_AUDIO_OUTPUT_DOWN);
 	hidePushButton(PB_CONFIG_AUDIO_OUTPUT_UP);
@@ -2046,6 +2129,30 @@ void cbConfigVolRamp(void)
 {
 	config.specialFlags ^= NO_VOLRAMP_FLAG;
 	audioSetVolRamp((config.specialFlags & NO_VOLRAMP_FLAG) ? false : true);
+}
+
+void cbMonoOutputs(void)
+{
+	const uint8_t physicalOutputCount = (uint8_t)MIN(
+		audio.outputChannels != 0 ? audio.outputChannels : tapeheadConfig.outputBuses * 2,
+		TAPEHEAD_MAX_OUTPUT_BUSES);
+
+	initializeMonoChannelOutputRouting(physicalOutputCount);
+
+	const bool audioWasntLocked = !audio.locked;
+	if (audioWasntLocked)
+		lockAudio();
+	tapeheadConfig.monoOutputs = checkBoxes[CB_CONF_MONO_OUTPUTS].checked;
+	audio.monoOutputMode = tapeheadConfig.monoOutputs;
+
+	/* Refresh both gain banks smoothly when switching modes during playback. */
+	for (int32_t i = 0; i < song.numChannels; i++)
+		channel[i].status |= CS_UPDATE_VOL | CS_USE_QUICK_VOLRAMP;
+	if (audioWasntLocked)
+		unlockAudio();
+
+	if (ui.scopesShown)
+		drawScopes();
 }
 
 // CONFIG LAYOUT

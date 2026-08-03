@@ -11,7 +11,9 @@
 #include "ft2_gui.h"
 #include "ft2_mouse.h"
 #include "ft2_audioselector.h"
+#include "ft2_jack.h"
 #include "ft2_structs.h"
+#include "ft2_video.h"
 
 enum
 {
@@ -262,7 +264,19 @@ bool testAudioDeviceListsMouseDown(void)
 				strcpy(audio.currOutputDevice, devString);
 
 			if (!setNewAudioSettings())
-				okBox(0, "System message", "Couldn't open audio output device!", NULL);
+			{
+				if (tapeheadJackDeviceSelected(devString))
+				{
+					showErrorMsgBox(
+						"Couldn't open Tapehead JACK virtual outputs:\n%s\n\n"
+						"Start JACK/PipeWire-JACK, then select this device again.",
+						tapeheadJackGetLastError());
+				}
+				else
+				{
+					okBox(0, "System message", "Couldn't open audio output device!", NULL);
+				}
+			}
 			else
 				drawAudioOutputList();
 		}
@@ -383,29 +397,33 @@ void rescanAudioDevices(void)
 
 	// GET AUDIO OUTPUT DEVICES
 
-	audio.outputDeviceNum = 1 + SDL_GetNumAudioDevices(false);
-	if (audio.outputDeviceNum > MAX_AUDIO_DEVICES)
-		audio.outputDeviceNum = MAX_AUDIO_DEVICES;
-
+	audio.outputDeviceNum = 0;
 	audio.outputDeviceNames[0] = strdup(DEFAULT_AUDIO_DEV_STR);
+	audio.outputDeviceNum = 1;
 
-	for (int32_t i = 1; i < audio.outputDeviceNum; i++)
+	/* Native JACK ports are a virtual Tapehead destination, not an SDL device. */
+	if (tapeheadJackLibraryAvailable() && audio.outputDeviceNum < MAX_AUDIO_DEVICES)
+		audio.outputDeviceNames[audio.outputDeviceNum++] = strdup(TAPEHEAD_JACK_DEVICE_NAME);
+
+	const int32_t sdlOutputDeviceNum = SDL_GetNumAudioDevices(false);
+	for (int32_t i = 0; i < sdlOutputDeviceNum && audio.outputDeviceNum < MAX_AUDIO_DEVICES; i++)
 	{
-		const char *deviceName = SDL_GetAudioDeviceName(i-1, false);
+		const char *deviceName = SDL_GetAudioDeviceName(i, false);
 		if (deviceName == NULL)
-		{
-			audio.outputDeviceNum--; // hide device
 			continue;
-		}
 
 		const uint32_t stringLen = (uint32_t)strlen(deviceName);
 
-		audio.outputDeviceNames[i] = (char *)malloc(stringLen + 1);
-		if (audio.outputDeviceNames[i] == NULL)
+		char *copiedName = (char *)malloc(stringLen + 1);
+		if (copiedName == NULL)
 			break;
 
 		if (stringLen > 0)
-			strcpy(audio.outputDeviceNames[i], deviceName);
+			strcpy(copiedName, deviceName);
+		else
+			copiedName[0] = '\0';
+
+		audio.outputDeviceNames[audio.outputDeviceNum++] = copiedName;
 	}
 
 	// GET AUDIO INPUT DEVICES

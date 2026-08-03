@@ -25,6 +25,7 @@ If you're new to the project, start with:
 - docs/FAST_TRACKS.md
 - docs/SAMPLE_MAP.md
 - docs/PATTERN_INTERPOLATION.md
+- docs/MULTICHANNEL_PASS2.md
 
 ---
 
@@ -54,6 +55,7 @@ Major additions over stock ft2-clone include:
 - Configurable vertical cursor navigation
 - Middle-click audition tools
 - Per-track output trim
+- Native JACK/PipeWire-JACK virtual stereo buses for REAPER and multichannel hardware
 - Performance mute with live MIDI Dub pass-through
 - Runtime logo loading
 - Portable configuration support

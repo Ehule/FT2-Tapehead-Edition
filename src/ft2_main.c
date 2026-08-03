@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 #include <math.h> // modf()
 #ifdef _WIN32
@@ -38,6 +39,8 @@
 #include "ft2_structs.h"
 #include "ft2_hpc.h"
 #include "ft2_smpfx.h"
+#include "ft2_sample_launcher.h"
+#include "ft2_pattern_launcher_ui.h"
 
 static void initializeVars(void);
 static void cleanUpAndExit(void); // never call this inside the main loop
@@ -217,6 +220,8 @@ int main(int argc, char *argv[])
 	pauseAudio();
 	resumeAudio();
 	rescanAudioDevices();
+	if (tapeheadConfig.launcherMode)
+		patternLauncherSetPanelShown(true);
 
 #ifdef _WIN32 // on Windows we show the window at this point
 	SDL_ShowWindow(video.window);
@@ -365,6 +370,7 @@ static void cleanUpAndExit(void) // never call this inside the main loop!
 	}
 #endif
 
+	sampleLauncherFree();
 	closeAudio();
 	closeReplayer();
 	closeVideo();

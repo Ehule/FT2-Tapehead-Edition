@@ -39,6 +39,8 @@ void polyMatrixCompleteQHandoffAtBoundary(uint8_t patternNum);
 bool polyMatrixHasAudioWork(void);
 bool polyMatrixConsumeDestinationRelease(int32_t destinationChannel);
 void polyMatrixIsolateEventFromMainTransport(note_t *event);
+bool polyMatrixDestinationAvailableToQ(int32_t destinationChannel,
+	int16_t handoffPattern);
 
 /* Audio-thread interface. */
 bool polyMatrixStartPatternAtBoundary(uint8_t patternNum);

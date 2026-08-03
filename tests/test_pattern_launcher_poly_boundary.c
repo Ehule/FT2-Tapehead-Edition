@@ -11,6 +11,7 @@ bool songPlaying;
 int8_t playMode;
 song_t song;
 editor_t editor;
+note_t *pattern[MAX_PATTERNS];
 int16_t patternNumRows[MAX_PATTERNS];
 
 static int32_t stopPlayingCalls;
@@ -22,6 +23,7 @@ static int32_t polyCompleteCalls;
 static int32_t polyCompleteAtBoundaryCalls;
 static bool polyReadyHandoff;
 static uint8_t polyReadyPattern;
+static bool polyDestinationAvailable[MAX_CHANNELS];
 
 void startPlaying(int8_t mode, int16_t row)
 {
@@ -78,15 +80,26 @@ void polyMatrixCompleteQHandoffAtBoundary(uint8_t patternNum)
 	polyCompleteAtBoundaryCalls++;
 }
 
+bool polyMatrixDestinationAvailableToQ(int32_t destinationChannel,
+	int16_t handoffPattern)
+{
+	(void)handoffPattern;
+	return destinationChannel >= 0 && destinationChannel < MAX_CHANNELS &&
+		polyDestinationAvailable[destinationChannel];
+}
+
 static void resetFixture(void)
 {
 	memset(&song, 0, sizeof (song));
 	memset(&editor, 0, sizeof (editor));
+	memset(pattern, 0, sizeof (pattern));
 	memset(patternNumRows, 0, sizeof (patternNumRows));
+	memset(polyDestinationAvailable, true, sizeof (polyDestinationAvailable));
 	patternLauncherSetEnabled(false);
 	songPlaying = true;
 	playMode = PLAYMODE_PATT;
 	song.songLength = 1;
+	song.numChannels = 4;
 	song.currNumRows = 4;
 	patternNumRows[5] = 4;
 	patternNumRows[6] = 4;
@@ -230,6 +243,22 @@ static void testPolyToQHandoffStartsQWhenStopped(void)
 	assert(polyCompleteCalls == 1);
 }
 
+static void testCueRoutesAroundPolyOwnedTunnel(void)
+{
+	static note_t source[MAX_PATT_LEN * MAX_CHANNELS];
+
+	resetFixture();
+	memset(source, 0, sizeof (source));
+	pattern[5] = source;
+	source[0].note = 48;
+	polyDestinationAvailable[0] = false;
+
+	beginCue(5);
+	assert(!patternLauncherOwnsDestination(0));
+	assert(patternLauncherOwnsDestination(1));
+	assert(patternLauncherGetSourceForDestination(1) == 0);
+}
+
 int main(void)
 {
 	testCueExitPreservesPolySpools();
@@ -239,6 +268,7 @@ int main(void)
 	testQToPolyHandoffAdvancesExistingQueue();
 	testPolyToQHandoffGetsNextQBoundary();
 	testPolyToQHandoffStartsQWhenStopped();
-	puts("7 Pattern Matrix/Poly ownership boundary tests passed.");
+	testCueRoutesAroundPolyOwnedTunnel();
+	puts("8 Pattern Matrix/Poly ownership boundary tests passed.");
 	return 0;
 }

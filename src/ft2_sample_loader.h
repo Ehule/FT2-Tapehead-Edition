@@ -17,6 +17,15 @@ void normalize32BitFloatToSigned16Bit(float *fSampleData, uint32_t sampleLength)
 void normalize64BitFloatToSigned16Bit(double *dSampleData, uint32_t sampleLength);
 
 bool loadSample(UNICHAR *filenameU, uint8_t sampleSlot, bool loadAsInstrFlag);
+enum
+{
+	SAMPLE_FOLDER_IMPORT_INSTRUMENTS = 0,
+	SAMPLE_FOLDER_IMPORT_CURRENT_INSTRUMENT = 1,
+	SAMPLE_FOLDER_IMPORT_LAUNCHER = 2
+};
+
+bool loadSampleFolder(const UNICHAR *folderPathU, const UNICHAR *const *fileNamesU,
+	uint32_t fileCount, uint8_t mode, bool autoMap);
 void removeSampleIsLoadingFlag(void);
 
 // globals for sample loaders

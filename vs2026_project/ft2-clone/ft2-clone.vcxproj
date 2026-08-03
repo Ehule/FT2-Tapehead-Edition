@@ -310,9 +310,11 @@
     <ClCompile Include="..\..\src\ft2_hpc.c" />
     <ClCompile Include="..\..\src\ft2_inst_ed.c" />
     <ClCompile Include="..\..\src\ft2_interpolation.c" />
+    <ClCompile Include="..\..\src\ft2_jack.c" />
     <ClCompile Include="..\..\src\ft2_keyboard.c" />
     <ClCompile Include="..\..\src\ft2_main.c" />
     <ClCompile Include="..\..\src\ft2_midi.c" />
+    <ClCompile Include="..\..\src\ft2_multichannel.c" />
     <ClCompile Include="..\..\src\ft2_module_loader.c" />
     <ClCompile Include="..\..\src\ft2_module_saver.c" />
     <ClCompile Include="..\..\src\ft2_mouse.c" />
@@ -323,6 +325,8 @@
     <ClCompile Include="..\..\src\ft2_pattern_launcher.c" />
     <ClCompile Include="..\..\src\ft2_pattern_launcher_ui.c" />
     <ClCompile Include="..\..\src\ft2_poly_matrix.c" />
+    <ClCompile Include="..\..\src\ft2_sample_launcher.c" />
+    <ClCompile Include="..\..\src\ft2_sample_launcher_state.c" />
     <ClCompile Include="..\..\src\ft2_pushbuttons.c" />
     <ClCompile Include="..\..\src\ft2_radiobuttons.c" />
     <ClCompile Include="..\..\src\ft2_random.c" />
@@ -405,8 +409,10 @@
     <ClInclude Include="..\..\src\ft2_hpc.h" />
     <ClInclude Include="..\..\src\ft2_inst_ed.h" />
     <ClInclude Include="..\..\src\ft2_interpolation.h" />
+    <ClInclude Include="..\..\src\ft2_jack.h" />
     <ClInclude Include="..\..\src\ft2_keyboard.h" />
     <ClInclude Include="..\..\src\ft2_midi.h" />
+    <ClInclude Include="..\..\src\ft2_multichannel.h" />
     <ClInclude Include="..\..\src\ft2_module_loader.h" />
     <ClInclude Include="..\..\src\ft2_module_saver.h" />
     <ClInclude Include="..\..\src\ft2_mouse.h" />
@@ -417,6 +423,8 @@
     <ClInclude Include="..\..\src\ft2_pattern_launcher.h" />
     <ClInclude Include="..\..\src\ft2_pattern_launcher_ui.h" />
     <ClInclude Include="..\..\src\ft2_poly_matrix.h" />
+    <ClInclude Include="..\..\src\ft2_sample_launcher.h" />
+    <ClInclude Include="..\..\src\ft2_sample_launcher_state.h" />
     <ClInclude Include="..\..\src\ft2_pushbuttons.h" />
     <ClInclude Include="..\..\src\ft2_radiobuttons.h" />
     <ClInclude Include="..\..\src\ft2_random.h" />

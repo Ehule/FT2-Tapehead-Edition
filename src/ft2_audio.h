@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <SDL2/SDL.h>
+#include "ft2_multichannel.h"
 #include "ft2_replayer.h"
 
 enum
@@ -36,10 +37,11 @@ typedef struct audio_t
 	char *currInputDevice, *currOutputDevice, *lastWorkingAudioDeviceName;
 	char *inputDeviceNames[MAX_AUDIO_DEVICES], *outputDeviceNames[MAX_AUDIO_DEVICES];
 	volatile bool locked, resetSyncTickTimeFlag, volumeRampingFlag, callbackOngoing;
-	bool linearPeriodsFlag, rescanAudioDevicesSupported, sincInterpolation;
+	bool linearPeriodsFlag, rescanAudioDevicesSupported, sincInterpolation, multichannelFallback, monoOutputMode;
 	volatile uint8_t interpolationType;
+	uint8_t outputChannels, outputBusCount;
 	int32_t inputDeviceNum, outputDeviceNum, lastWorkingAudioFreq, lastWorkingAudioBits;
-	uint32_t quickVolRampSamples, freq;
+	uint32_t quickVolRampSamples, freq, bytesPerFrame;
 
 	int32_t tickSampleCounter;
 	uint32_t samplesPerTickInt, samplesPerTickIntTab[(MAX_BPM-MIN_BPM)+1];
@@ -50,7 +52,11 @@ typedef struct audio_t
 
 	uint64_t tickTime64, tickTime64Frac;
 
-	float *fMixBufferL, *fMixBufferR, fQuickVolRampSamplesMul, fSamplesPerTickIntMul;
+	float *fMixBufferL, *fMixBufferR;
+	float *fBusMixBufferL[TAPEHEAD_MAX_OUTPUT_BUSES];
+	float *fBusMixBufferR[TAPEHEAD_MAX_OUTPUT_BUSES];
+	float *fChannelMixBufferL, *fChannelMixBufferR;
+	float fQuickVolRampSamplesMul, fSamplesPerTickIntMul;
 
 	SDL_AudioDeviceID dev;
 	uint32_t wantFreq, haveFreq, wantSamples, haveSamples;
@@ -72,6 +78,7 @@ typedef struct
 
 	const float *fSincLUT;
 	float fVolume, fCurrVolumeL, fCurrVolumeR, fVolumeLDelta, fVolumeRDelta, fTargetVolumeL, fTargetVolumeR;
+	float fCurrVolumeMono, fVolumeMonoDelta, fTargetVolumeMono;
 } voice_t;
 
 #ifdef _MSC_VER
@@ -135,7 +142,21 @@ void setMixerBPM(int32_t bpm);
 void audioSetVolRamp(bool volRamp);
 void audioSetInterpolationType(uint8_t interpolationType);
 void stopVoice(int32_t i);
+void audioSampleLauncherTrigger(uint8_t voiceIndex, const sample_t *sample,
+	uint8_t outputBus);
+void audioSampleLauncherStop(uint8_t voiceIndex);
+void audioSampleLauncherStopAll(void);
+void audioSampleLauncherSetOutputBus(uint8_t voiceIndex, uint8_t outputBus);
 bool setupAudio(bool showErrorMsg);
+#ifdef TAPEHEAD_AUDIO_ROUTING_TEST
+bool tapeheadTestRouteSyntheticVoice(uint16_t outputMask,
+	uint8_t renderBusCount, uint8_t staleGlobalBusCount, float *peakBusA,
+	float *peakBusB);
+bool tapeheadTestRouteSyntheticMonoVoice(uint8_t outputDestination,
+	uint8_t panning, float *peaks, uint8_t peakCount);
+bool tapeheadTestRouteSyntheticSampleLauncherVoice(uint8_t outputBus,
+	float *peakBusA, float *peakBusB);
+#endif
 void closeAudio(void);
 void pauseAudio(void);
 void resumeAudio(void);

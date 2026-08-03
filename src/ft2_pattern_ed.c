@@ -2983,7 +2983,10 @@ void pbSwapInstrBank(void)
 {
 	if (patternLauncherPanelIsShown())
 	{
-		patternLauncherSetPanelShown(false);
+		if (keyb.leftCtrlPressed)
+			patternLauncherToggleDeck();
+		else
+			patternLauncherSetPanelShown(false);
 		return;
 	}
 

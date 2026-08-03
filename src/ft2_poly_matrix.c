@@ -4,6 +4,7 @@
 #include "ft2_header.h"
 #include "ft2_audio.h"
 #include "ft2_fasttracks.h"
+#include "ft2_pattern_launcher.h"
 #include "ft2_poly_matrix.h"
 
 typedef struct polyMatrixThread_t
@@ -101,18 +102,20 @@ static int32_t collectSourceChannels(uint8_t patternNum,
 }
 
 static bool destinationIsFree(int32_t destinationChannel,
-	const bool reserved[MAX_CHANNELS])
+	const bool reserved[MAX_CHANNELS], bool allowQOverlap)
 {
 	return destinationChannel >= 0 && destinationChannel < song.numChannels &&
 		findDestination(destinationChannel, NULL) == NULL &&
 		!destinationReleasePending[destinationChannel] &&
+		(allowQOverlap ||
+		 !patternLauncherOwnsDestination(destinationChannel)) &&
 		!reserved[destinationChannel];
 }
 
 static int32_t chooseDestination(uint8_t preferred,
-	const bool reserved[MAX_CHANNELS])
+	const bool reserved[MAX_CHANNELS], bool allowQOverlap)
 {
-	if (destinationIsFree(preferred, reserved))
+	if (destinationIsFree(preferred, reserved, allowQOverlap))
 		return preferred;
 
 	/* Wrap forward from the preferred tunnel. Occupied tunnels deliberately
@@ -120,7 +123,7 @@ static int32_t chooseDestination(uint8_t preferred,
 	for (int32_t offset = 1; offset < song.numChannels; offset++)
 	{
 		const int32_t candidate = (preferred + offset) % song.numChannels;
-		if (destinationIsFree(candidate, reserved))
+		if (destinationIsFree(candidate, reserved, allowQOverlap))
 			return candidate;
 	}
 
@@ -138,7 +141,7 @@ static volatile polyMatrixSpool_t *findFreeSpool(void)
 	return NULL;
 }
 
-static bool startPatternUnlocked(uint8_t patternNum)
+static bool startPatternUnlocked(uint8_t patternNum, bool allowQOverlap)
 {
 	if (findPattern(patternNum) != NULL)
 		return true;
@@ -157,7 +160,7 @@ static bool startPatternUnlocked(uint8_t patternNum)
 	for (int32_t i = 0; i < sourceCount; i++)
 	{
 		const int32_t destination =
-			chooseDestination(sourceChannels[i], reserved);
+			chooseDestination(sourceChannels[i], reserved, allowQOverlap);
 		if (destination < 0)
 			return false;
 
@@ -233,7 +236,7 @@ bool polyMatrixTogglePattern(uint8_t patternNum, bool immediate)
 	}
 	else
 	{
-		result = startPatternUnlocked(patternNum);
+		result = startPatternUnlocked(patternNum, false);
 	}
 
 	if (audioWasntLocked)
@@ -246,7 +249,7 @@ bool polyMatrixStartPatternAtBoundary(uint8_t patternNum)
 	/* Called by the replayer at an ordinary Q boundary. The audio callback is
 	** already the exclusive writer, so attempting SDL_LockAudioDevice here
 	** would deadlock. */
-	return startPatternUnlocked(patternNum);
+	return startPatternUnlocked(patternNum, true);
 }
 
 bool polyMatrixIsPatternActive(uint8_t patternNum)
@@ -434,6 +437,22 @@ bool polyMatrixConsumeDestinationRelease(int32_t destinationChannel)
 	const bool pending = destinationReleasePending[destinationChannel];
 	destinationReleasePending[destinationChannel] = false;
 	return pending;
+}
+
+bool polyMatrixDestinationAvailableToQ(int32_t destinationChannel,
+	int16_t handoffPattern)
+{
+	if (destinationChannel < 0 || destinationChannel >= song.numChannels)
+		return false;
+
+	volatile polyMatrixSpool_t *owner = NULL;
+	if (findDestination(destinationChannel, &owner) == NULL)
+		return !destinationReleasePending[destinationChannel];
+
+	/* During an atomic Poly -> Q handoff, Q may reserve the transferring
+	** spool's existing tunnels before Poly publishes their release. */
+	return handoffPattern >= 0 && owner != NULL &&
+		owner->patternNum == (uint8_t)handoffPattern;
 }
 
 void polyMatrixIsolateEventFromMainTransport(note_t *event)

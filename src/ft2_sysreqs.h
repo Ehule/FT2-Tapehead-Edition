@@ -9,6 +9,8 @@ enum
 	ASK_TYPE_LOAD_SONG = 1,
 };
 
+#define SYSREQ_TYPE_FOLDER_IMPORT 9
+
 // for thread-safe version of okBox()
 typedef struct okBoxData_t
 {
@@ -21,6 +23,8 @@ typedef struct okBoxData_t
 // If the checkBoxCallback argument is set, then you get a "Do not show again" checkbox.
 int16_t okBoxThreadSafe(int16_t type, const char *headline, const char *text, void (*checkBoxCallback)(void));
 int16_t okBox(int16_t type, const char *headline, const char *text, void (*checkBoxCallback)(void));
+int16_t choiceBoxWithCheckBox(int16_t type, const char *headline, const char *text,
+	const char *checkBoxText, bool *checkBoxState);
 // -----------
 
 int16_t quitBox(bool skipQuitMsg);

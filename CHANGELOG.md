@@ -15,6 +15,107 @@ All notable changes to FT2 Tapehead Edition are documented here.
 
 This project is under active development. Experimental features are identified clearly so that working checkpoints can be preserved before further changes are made.
 
+## Experimental mono hardware routing — Pass 8
+
+- Added a live `Mono` checkbox to Config -> Audio. Stereo routing remains the
+  default and can be restored without changing any XM panning data.
+- Added a separate mono routing bank: each scope letter represents one physical
+  output (`A=1`, `B=2`, `C=3`, `D=4`, etc.) while Mono Out is enabled.
+- Initialized mono routes by physical tracker lane, repeating across available
+  outputs, so a four-output device begins `1=A`, `2=B`, `3=C`, `4=D`.
+- Routed voices from a dedicated mono gain path before FT2 stereo panning. Pan
+  commands and envelopes remain stored but cannot leak into adjacent outputs.
+- Kept the VST-style persistent output endpoint: switching Mono Out does not
+  reopen SDL/JACK or remove live Graph connections.
+- Reserved Ctrl+Alt-click in Mono Out for the proposed future per-track stereo
+  override. Ordinary Alt-click cycles the available mono destinations.
+- Expanded JACK diagnostics to meter physical `A-D` outputs individually in
+  Mono Out mode.
+- Added exclusive-delivery tests for all four outputs at both `800` and `8FF`,
+  alongside the existing stereo A/B/A+B regression coverage.
+
+## Experimental multichannel output — Pass 7 VST-style JACK lifecycle
+
+- Fixed the Pass 6 startup regression where selecting Tapehead JACK Virtual
+  Outputs opened the client but never activated its process callback, leaving
+  FT2's audio-driven replayer apparently frozen.
+- Matched the FT2 plugin's lifecycle model: open/register first, finish mixer
+  buffer setup, activate exactly once on the initial resume, and keep the
+  client active across later editor pause/resume operations.
+- Added a second pause check after the JACK callback acquires the shared mixer
+  lock, closing the race between a pending callback and editor changes to
+  voice/sample pointers.
+- Corrected the native JACK regression test to exercise FT2's real
+  open-then-resume path instead of manually activating the fake client.
+
+## Experimental multichannel output — Pass 6 JACK connection persistence
+
+- Kept the native JACK client and all named output ports active while FT2
+  pauses audio for instrument, sample, undo, module, and editor operations.
+- Replaced JACK client deactivation during those operations with a realtime-safe
+  silence flag, so the live QjackCtl Graph connections are not destroyed.
+- Waited for any already-running mixer callback before allowing an editor
+  operation to alter voice or sample pointers.
+- Added a simulated JACK regression test proving pause outputs silence, resume
+  restores all four port buffers, and neither action reactivates or deactivates
+  the client. Final shutdown remains the only deactivation.
+
+## Experimental multichannel output — Pass 5 live-routing fix
+
+- Confirmed from the X220/JACK hardware trace that channel route masks changed
+  correctly (`0x0001` to `0x0002`) while real tracker audio vanished before
+  reaching the Bus B JACK port.
+- Restored direct mixer-to-bus delivery for every exclusive A, B, or later
+  single-bus route, bypassing the neutral scratch-copy stage for the ordinary
+  case.
+- Retained Pass 3's authoritative per-render JACK bus count, so the stale
+  stereo-count failure from Pass 2 cannot fold an exclusive B route back to A.
+- Kept the neutral render-and-copy path only for intentional multi-destination
+  routes such as A+B (`To Main`), preserving single execution of tracker voice
+  and event state.
+- Retained the opt-in Pass 4B JACK meters for hardware confirmation without a
+  diagnostic test tone.
+
+## Experimental multichannel output — Pass 3
+
+- Repaired the live JACK Bus B silence reproduced with the Echo Indigo DJx.
+- Made JACK's configured output-bus count authoritative for each render cycle,
+  preventing a stale stereo device count from folding Bus B into Bus A.
+- Rendered each physical FT2 channel once into a neutral scratch buffer before
+  distributing it to A-only, B-only, or To Main duplicate destinations.
+- Added a live mixer delivery regression test covering A, B, and A+B while the
+  stored global bus count is deliberately stale.
+- Removed the `channel` shadowing warning from the JACK audio callback.
+
+## Experimental multichannel output — Pass 2
+
+- Added a native Linux JACK/PipeWire-JACK backend that dynamically loads the
+  installed JACK runtime without requiring JACK development headers.
+- Added `Tapehead JACK Virtual Outputs` to the existing Config > Audio output
+  device list whenever a compatible JACK runtime is installed.
+- Exposed every configured stereo bus as named ports such as `bus_A_L`,
+  `bus_A_R`, `bus_B_L`, and `bus_B_R` for REAPER or hardware patching.
+- Kept JACK sample rendering planar and 32-bit float while preserving the
+  existing SDL interleaved output and safe stereo fold-down paths.
+- Added a non-blocking realtime lock: JACK renders silence instead of making
+  its process thread wait while Tapehead performs a protected editor change.
+- Added a simulated JACK-server test covering runtime loading, port creation,
+  four-channel buffer delivery, pause/resume, locking, and shutdown.
+
+## Experimental multichannel output — Pass 1
+
+- Added sixteen fixed-capacity logical stereo buses (`A` through `P`).
+- Added `OutputBuses=1-16` under `[Audio]` in `tapehead.ini`.
+- Added per-physical-channel output routing with `Alt+Left-click` over scopes.
+- Added `Ctrl+Alt+Left-click` “To Main” duplication without replaying tracker
+  events or advancing a sample voice twice.
+- Added multichannel SDL stream negotiation and 16-bit/float interleaving for
+  2 through 32 output channels.
+- Added safe stereo fallback/fold-down when the selected device cannot expose
+  the requested layout.
+- Preserved stereo song-to-WAV rendering and kept routing runtime-only.
+- Made Poly Matrix threads inherit the destination tunnel's output assignment.
+
 ## RC1 — 2026-07-30
 
 RC1 freezes the tested Structural Checkpoint 01L as the first release-candidate

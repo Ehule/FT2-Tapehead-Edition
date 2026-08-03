@@ -94,6 +94,7 @@ checkBox_t checkBoxes[NUM_CHECKBOXES] =
 	{   3,  91,  77, 12, cbToggleAutoSaveConfig },
 	{ 389, 158,  89, 12, cbPreciseBPM },
 	{ 512, 158, 107, 12, cbConfigVolRamp },
+	{ 272,   2,  53, 12, cbMonoOutputs },
 	{ 113,  14, 108, 12, cbConfigPattStretch },
 	{ 113,  27, 117, 12, cbConfigHexCount },
 	{ 113,  40,  81, 12, cbConfigAccidential },

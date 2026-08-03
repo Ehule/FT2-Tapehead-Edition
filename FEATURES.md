@@ -10,6 +10,17 @@ asynchronous editing modes remain experimental.
 
 ## What this fork adds
 
+### Experimental combined launcher
+
+- Separate Pattern and Sample decks sharing XM BPM/TPL and launch boundaries
+- Independent Sample Q voice plus four Sample Poly voices
+- Folder-fed Sample deck with natural sorting and up to 32 files
+- Non-destructive Pattern exposure mask
+- Per-Sample multichannel destination cycling
+- Optional direct launcher startup through `tapehead.ini`
+
+See `docs/LAUNCHER_CHECKPOINT_01.md` for controls and current boundaries.
+
 ### Fast Tracks
 
 Fast Tracks gives each tracker channel its own pattern-row transport while retaining FT2's shared master clock.
@@ -82,6 +93,22 @@ Tapehead Edition uses the XM **Z** effect for persistent, pattern-programmable F
   triggers as well as FT2 sample playback.
 - Short gain ramps reduce clicks when muting
 - Red scope overlay shows performance-mute state
+
+### Experimental multichannel output
+
+- Up to sixteen logical stereo buses (`A` through `P`)
+- Configurable exposed bus count through `[Audio] OutputBuses` in
+  `tapehead.ini`
+- `Alt+Left-click` a scope — Cycle that physical FT2 channel's output bus
+- `Ctrl+Alt+Left-click` a scope — Toggle an additional feed to Bus A
+- Bus markers appear at the lower-right corner of scopes
+- Poly Matrix threads inherit the output assignment of their destination tunnel
+- Native Linux `Tapehead JACK Virtual Outputs` device exposes every bus as a
+  named stereo port pair for REAPER, PipeWire graphs, or direct hardware routing
+- Multichannel-capable SDL devices remain supported without JACK
+- Stereo-only devices fold every logical bus safely to Bus A
+- Setup and test notes are documented in
+  [docs/MULTICHANNEL_PASS2.md](docs/MULTICHANNEL_PASS2.md)
 
 ### Pattern Editor audition
 

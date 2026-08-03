@@ -16,6 +16,13 @@ static bool fastTrackClutched[MAX_CHANNELS];
 static bool fastTrackReversed[MAX_CHANNELS];
 static uint8_t fastTrackNumerator[MAX_CHANNELS];
 static uint8_t fastTrackDenominator[MAX_CHANNELS];
+static bool qOwnedDestination[MAX_CHANNELS];
+
+bool patternLauncherOwnsDestination(int32_t destinationChannel)
+{
+	return destinationChannel >= 0 && destinationChannel < MAX_CHANNELS &&
+		qOwnedDestination[destinationChannel];
+}
 
 void lockAudio(void)
 {
@@ -61,6 +68,7 @@ static void resetFixture(void)
 	memset(fastTrackEnabled, 0, sizeof (fastTrackEnabled));
 	memset(fastTrackClutched, 0, sizeof (fastTrackClutched));
 	memset(fastTrackReversed, 0, sizeof (fastTrackReversed));
+	memset(qOwnedDestination, 0, sizeof (qOwnedDestination));
 
 	for (int32_t i = 0; i < MAX_CHANNELS; i++)
 	{
@@ -115,6 +123,21 @@ static void testOccupiedTunnelWrapsForward(void)
 	assert(polyMatrixTogglePattern(9, false));
 	assert(polyMatrixGetDestination(8) == 1);
 	assert(polyMatrixGetDestination(9) == 2);
+}
+
+static void testQOwnedTunnelWrapsForward(void)
+{
+	static note_t source[MAX_PATT_LEN * MAX_CHANNELS];
+
+	resetFixture();
+	memset(source, 0, sizeof (source));
+	pattern[18] = source;
+	patternNumRows[18] = 4;
+	source[0].note = 48;
+	qOwnedDestination[0] = true;
+
+	assert(polyMatrixTogglePattern(18, false));
+	assert(polyMatrixGetDestinationForSource(18, 0) == 1);
 }
 
 static void testPolySlotLabelsRemainStable(void)
@@ -366,6 +389,7 @@ int main(void)
 {
 	testInitialRowAndOneToOneClock();
 	testOccupiedTunnelWrapsForward();
+	testQOwnedTunnelWrapsForward();
 	testPolySlotLabelsRemainStable();
 	testGracefulPullStopsAtWrap();
 	testImmediatePullQueuesDestinationRelease();
@@ -375,6 +399,6 @@ int main(void)
 	testPolyToQHandoffWaitsForWholeBundle();
 	testMoreThanEightThreadsIsRejected();
 	testPolyEventsCannotSteerMainTransport();
-	puts("11 native Poly Matrix core tests passed.");
+	puts("12 native Poly Matrix core tests passed.");
 	return 0;
 }

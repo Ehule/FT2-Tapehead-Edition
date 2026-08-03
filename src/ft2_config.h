@@ -255,6 +255,7 @@ void rbWinSize4x(void);
 void cbToggleAutoSaveConfig(void);
 void cbPreciseBPM(void);
 void cbConfigVolRamp(void);
+void cbMonoOutputs(void);
 void cbConfigPattStretch(void);
 void cbConfigHexCount(void);
 void cbConfigAccidential(void);
@@ -295,10 +296,22 @@ void sbMasterVol(uint32_t pos);
 void sbMIDISens(uint32_t pos);
 
 
+enum
+{
+	TAPEHEAD_HD_STYLE_CRISP = 0,
+	TAPEHEAD_HD_STYLE_ROUND = 1
+};
+
 typedef struct tapeheadConfig_t
 {
 	bool diskOpBackspaceParent;
 	bool patternBackspacePullUp;
+	bool monoOutputs;
+	bool hdMode;
+	bool launcherMode;
+	uint8_t outputBuses;
+	uint8_t hdScale;
+	uint8_t hdStyle;
 	uint32_t undoMemoryMB;
 } tapeheadConfig_t;
 
