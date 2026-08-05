@@ -59,6 +59,9 @@ same runner.
 
 ## Intentionally next
 
+The dedicated full-window two-matrix surface is implemented in
+`LAUNCHER_CHECKPOINT_02.md`.
+
 - Drag-and-drop Sample tile rearrangement
 - Sidecar session save/load
 - Capturable cross-deck scenes
@@ -66,4 +69,3 @@ same runner.
 - A dedicated large launcher layout instead of the borrowed FT2 instrument
   switcher surface
 - Live Linux/JACK and Windows hardware validation
-

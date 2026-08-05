@@ -9,6 +9,10 @@
 
 #include <stdio.h>
 #include <stdbool.h>
+#include <string.h>
+#ifndef _WIN32
+#include <strings.h>
+#endif
 #include "ft2_header.h"
 #include "ft2_edit.h"
 #include "ft2_config.h"
@@ -109,6 +113,11 @@ static void midiDubSend3(uint8_t status, uint8_t data1, uint8_t data2)
 		midiDubSend3Raw(status, data1, data2);
 }
 
+static inline uint8_t midiDubChannelForTrack(uint8_t channelIndex)
+{
+	return tapeheadConfig.midiDubTrackChannels[channelIndex];
+}
+
 void midiDubNoteOff(uint8_t channelIndex)
 {
 	if (!midi.dubEnable || channelIndex >= MAX_CHANNELS)
@@ -118,7 +127,7 @@ void midiDubNoteOff(uint8_t channelIndex)
 	if (activeNote == 0)
 		return;
 
-	const uint8_t midiChannel = channelIndex & 15;
+	const uint8_t midiChannel = midiDubChannelForTrack(channelIndex);
 	midiDubSend3(0x80 | midiChannel, activeNote, 0);
 	midiDubActiveNote[channelIndex] = 0;
 	midiDubGateTicks[channelIndex] = 0;
@@ -133,7 +142,7 @@ void midiDubNoteOn(uint8_t channelIndex, uint8_t note, uint8_t velocity)
 	** behavior and prevents stacked notes from surviving retriggers. */
 	midiDubNoteOff(channelIndex);
 
-	const uint8_t midiChannel = channelIndex & 15;
+	const uint8_t midiChannel = midiDubChannelForTrack(channelIndex);
 	const uint8_t midiNote = note + 11; // FT2 note 1 (C-0) -> MIDI note 12
 	if (velocity == 0)
 		velocity = 100;
@@ -164,7 +173,7 @@ void midiDubPanic(void)
 	{
 		const uint8_t activeNote = midiDubActiveNote[i];
 		if (activeNote != 0)
-			midiDubSend3Raw(0x80 | (i & 15), activeNote, 0);
+			midiDubSend3Raw(0x80 | midiDubChannelForTrack(i), activeNote, 0);
 
 		midiDubActiveNote[i] = 0;
 	}

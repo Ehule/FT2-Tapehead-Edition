@@ -32,6 +32,7 @@
 #include "ft2_gui.h"
 #include "ft2_pattern_ed.h"
 #include "ft2_sample_loader.h"
+#include "ft2_sample_launcher.h"
 #include "ft2_sample_saver.h"
 #include "ft2_diskop.h"
 #include "ft2_wav_renderer.h"
@@ -42,6 +43,8 @@
 #include "ft2_inst_ed.h"
 #include "ft2_structs.h"
 #include "ft2_sysreqs.h"
+#include "ft2_baker.h"
+#include "ft2_keyboard.h"
 
 // hide POSIX warnings for chdir()
 #ifdef _MSC_VER
@@ -80,6 +83,7 @@ static char *modTmpFName, *insTmpFName, *smpTmpFName, *patTmpFName, *trkTmpFName
 static char *modTmpFNameUTF8; // for window title
 static uint8_t FReq_Item;
 static bool FReq_ShowAllFiles, insPathSet, smpPathSet, patPathSet, trkPathSet, firstTimeOpeningDiskOp = true;
+static bool bakeMergeExactDuplicates = true;
 static int32_t FReq_EntrySelected = -1, FReq_FileCount, FReq_DirPos, lastMouseY;
 static UNICHAR *FReq_CurPathU, *FReq_ModCurPathU, *FReq_InsCurPathU, *FReq_SmpCurPathU, *FReq_PatCurPathU, *FReq_TrkCurPathU;
 static DirRec *FReq_Buffer;
@@ -869,7 +873,25 @@ void createFileOverwriteText(char *filename, char *buffer)
 	sprintf(buffer, "Overwrite file \"%s\"?", nameTmp);
 }
 
-static void diskOpSave(bool checkOverwrite)
+static void addBakedFilenameSuffix(void)
+{
+	char *extension = strrchr(FReq_FileName, '.');
+	if (extension == NULL)
+		extension = FReq_FileName + strlen(FReq_FileName);
+
+	const size_t baseLength = (size_t)(extension - FReq_FileName);
+	if (baseLength >= 6 && !_strnicmp(&FReq_FileName[baseLength-6], "-BAKED", 6))
+		return;
+
+	const size_t extensionLength = strlen(extension) + 1;
+	if (strlen(FReq_FileName) + 6 > PATH_MAX)
+		return;
+
+	memmove(extension + 6, extension, extensionLength);
+	memcpy(extension, "-BAKED", 6);
+}
+
+static void diskOpSave(bool checkOverwrite, bool bakeCompositionRequested)
 {
 	UNICHAR *fileNameU;
 
@@ -898,6 +920,44 @@ static void diskOpSave(bool checkOverwrite)
 		default:
 		case DISKOP_ITEM_MODULE:
 		{
+			if (bakeCompositionRequested)
+			{
+				diskOpChangeFilenameExt(".xm");
+				addBakedFilenameSuffix();
+
+				const int16_t bakeMode = choiceBoxWithCheckBox(SYSREQ_TYPE_BAKE_MODULE,
+					"Bake Module", "Fast: silent pass   Live: perform loops, then Stop",
+					"Merge exact duplicate voices", &bakeMergeExactDuplicates);
+				if (bakeMode != 1 && bakeMode != 2)
+					return;
+
+				if (checkOverwrite && fileExistsAnsi(FReq_FileName))
+				{
+					createFileOverwriteText(FReq_FileName, FReq_SysReqText);
+					if (okBox(2, "System request", FReq_SysReqText, NULL) != 1)
+						return;
+				}
+
+				fileNameU = cp850ToUnichar(FReq_FileName);
+				if (fileNameU == NULL)
+				{
+					okBox(0, "System message", "General I/O error during baking!", NULL);
+					return;
+				}
+
+				if (bakeMode == 1)
+				{
+					bakeComposition(fileNameU, bakeMergeExactDuplicates);
+				}
+				else
+				{
+					exitDiskOpScreen();
+					armLiveCompositionBake(fileNameU, bakeMergeExactDuplicates);
+				}
+				free(fileNameU);
+				return;
+			}
+
 			switch (editor.moduleSaveMode)
 			{
 				         case MOD_SAVE_MODE_MOD: diskOpChangeFilenameExt(".mod"); break;
@@ -1037,7 +1097,8 @@ static void diskOpSave(bool checkOverwrite)
 
 void pbDiskOpSave(void)
 {
-	diskOpSave(config.cfg_OverwriteWarning ? true : false); // check if about to overwrite
+	const bool bakeCompositionRequested = FReq_Item == DISKOP_ITEM_MODULE && keyb.leftShiftPressed;
+	diskOpSave(config.cfg_OverwriteWarning ? true : false, bakeCompositionRequested);
 }
 
 
@@ -1180,6 +1241,44 @@ void loadCurrentFolderIntoSampleLauncher(void)
 		free(fileNamesU);
 		okBox(0, "System message", "This folder contains no supported sample files!", NULL);
 		return;
+	}
+
+	const uint8_t bank = sampleLauncherGetBank();
+	const uint32_t capacity = (SAMPLE_LAUNCHER_BANK_COUNT - bank) *
+		SAMPLE_LAUNCHER_TILES_PER_BANK;
+	const uint32_t importCount = MIN(fileCount, capacity);
+	const uint8_t bankCount = (uint8_t)((importCount +
+		SAMPLE_LAUNCHER_TILES_PER_BANK - 1) / SAMPLE_LAUNCHER_TILES_PER_BANK);
+	bool replacesSamples = false;
+	for (uint8_t i = 0; i < bankCount; i++)
+		replacesSamples |= sampleLauncherBankHasSamples(bank + i);
+
+	if (replacesSamples)
+	{
+		char message[96];
+		const uint16_t first = bank * SAMPLE_LAUNCHER_TILES_PER_BANK;
+		const uint16_t last = first +
+			(bankCount * SAMPLE_LAUNCHER_TILES_PER_BANK) - 1;
+		snprintf(message, sizeof (message), "Replace Sample Bank range %02X-%02X?",
+			first, last);
+		if (okBox(2, "Sample Matrix", message, NULL) != 1)
+		{
+			free(fileNamesU);
+			return;
+		}
+	}
+
+	if (fileCount > capacity)
+	{
+		char message[112];
+		snprintf(message, sizeof (message),
+			"Only %u samples fit from bank %02X through EF. Continue?",
+			capacity, bank * SAMPLE_LAUNCHER_TILES_PER_BANK);
+		if (okBox(2, "Sample Matrix", message, NULL) != 1)
+		{
+			free(fileNamesU);
+			return;
+		}
 	}
 
 	loadSampleFolder(FReq_CurPathU, fileNamesU, fileCount,

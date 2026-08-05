@@ -316,11 +316,19 @@ typedef struct sampleFolderFile_t
 
 typedef struct sampleFolderImportJob_t
 {
-	uint8_t mode, instrument;
+	uint8_t mode, instrument, launcherBank, launcherBankCount;
+	uint8_t launcherInstrument[SAMPLE_LAUNCHER_BANK_COUNT][2];
 	bool autoMap;
 	uint32_t fileCount;
 	sampleFolderFile_t *files;
+	char launcherName[23];
+	uint16_t matrixTiles[SAMPLE_LAUNCHER_MAX_TILES];
+	uint32_t matrixRequested, matrixOmitted;
 } sampleFolderImportJob_t;
+
+static volatile bool matrixImportResultReady;
+static volatile uint32_t matrixImportAdded, matrixImportRequested,
+	matrixImportOmitted;
 
 static void freeSampleFolderJob(sampleFolderImportJob_t *job)
 {
@@ -359,6 +367,30 @@ static char *getFolderImportSortName(const UNICHAR *pathU)
 
 	free(path);
 	return copy;
+}
+
+static void getFolderImportName(const UNICHAR *folderPathU, char name[23])
+{
+	name[0] = '\0';
+	char *path = unicharToCp850((UNICHAR *)folderPathU, true);
+	if (path == NULL)
+		return;
+
+	size_t length = strlen(path);
+	while (length > 0 && (path[length-1] == '/' || path[length-1] == '\\'))
+		path[--length] = '\0';
+
+	char *base = path;
+	for (char *p = path; *p != '\0'; p++)
+	{
+		if (*p == '/' || *p == '\\')
+			base = p + 1;
+	}
+	sanitizeFilename(base);
+	strncpy(name, base, 22);
+	name[22] = '\0';
+	fixString(name, 21);
+	free(path);
 }
 
 static int naturalSampleNameCompare(const void *a, const void *b)
@@ -583,6 +615,38 @@ static instr_t *makeSingleSampleInstrument(sample_t *sample)
 	return newInstrument;
 }
 
+static instr_t *makeLauncherBankInstrument(sample_t *samples,
+	uint32_t sampleCount, uint32_t first)
+{
+	instr_t *newInstrument = (instr_t *)calloc(1, sizeof (instr_t));
+	if (newInstrument == NULL)
+		return NULL;
+
+	initFolderInstrument(newInstrument);
+	for (uint32_t i = 0; i < MAX_SMP_PER_INST && first + i < sampleCount; i++)
+	{
+		const int16_t compensatedNote =
+			(int16_t)samples[first+i].relativeNote - (int16_t)i;
+		samples[first+i].relativeNote =
+			(int8_t)CLAMP(compensatedNote, INT8_MIN, INT8_MAX);
+		newInstrument->note2SampleLUT[NOTE_C4 + i] = (uint8_t)i;
+		memcpy(&newInstrument->smp[i], &samples[first+i], sizeof (sample_t));
+		memset(&samples[first+i], 0, sizeof (sample_t));
+		sanitizeSample(&newInstrument->smp[i]);
+		fixSample(&newInstrument->smp[i]);
+	}
+	return newInstrument;
+}
+
+static void freeFolderInstrument(instr_t *instrument)
+{
+	if (instrument == NULL)
+		return;
+	for (uint32_t i = 0; i < MAX_SMP_PER_INST; i++)
+		freeTmpSample(&instrument->smp[i]);
+	free(instrument);
+}
+
 static int32_t loadSampleFolderThread(void *ptr)
 {
 	sampleFolderImportJob_t *job = (sampleFolderImportJob_t *)ptr;
@@ -606,17 +670,102 @@ static int32_t loadSampleFolderThread(void *ptr)
 
 	if (job->mode == SAMPLE_FOLDER_IMPORT_LAUNCHER)
 	{
-		for (uint32_t i = 0; i < decodedCount; i++)
+		instr_t *newInstrument[SAMPLE_LAUNCHER_BANK_COUNT][2] = { { NULL } };
+		for (uint8_t bankOffset = 0; bankOffset < job->launcherBankCount;
+			bankOffset++)
 		{
-			sanitizeSample(&decodedSamples[i]);
-			fixSample(&decodedSamples[i]);
+			for (uint8_t half = 0; half < 2; half++)
+			{
+				if (job->launcherInstrument[bankOffset][half] == 0)
+					continue;
+
+				const uint32_t first =
+					((uint32_t)bankOffset * SAMPLE_LAUNCHER_TILES_PER_BANK) +
+					((uint32_t)half * MAX_SMP_PER_INST);
+				newInstrument[bankOffset][half] = makeLauncherBankInstrument(
+					decodedSamples, decodedCount, first);
+				if (newInstrument[bankOffset][half] == NULL)
+				{
+					for (uint8_t freeBank = 0; freeBank <= bankOffset; freeBank++)
+					{
+						for (uint8_t freeHalf = 0; freeHalf < 2; freeHalf++)
+							freeFolderInstrument(newInstrument[freeBank][freeHalf]);
+					}
+					loaderMsgBox("Not enough memory!");
+					goto folderLoadError;
+				}
+			}
 		}
 
-		sampleLauncherAdoptDecodedFolder(decodedSamples, decodedCount);
-		editor.updateCurSmp = true; /* clears the shared loader-busy flag */
+		lockMixerCallback();
+		sampleLauncherReset();
+		for (uint8_t bankOffset = 0; bankOffset < job->launcherBankCount;
+			bankOffset++)
+		{
+			const uint8_t bank = job->launcherBank + bankOffset;
+			sampleLauncherClearBank(bank);
+			for (uint8_t half = 0; half < 2; half++)
+			{
+				const uint8_t destination =
+					job->launcherInstrument[bankOffset][half];
+				if (destination == 0)
+					continue;
+
+				char instrumentName[23];
+				sampleLauncherMakeInstrumentName(bank, half,
+					job->launcherName, instrumentName);
+				freeInstr(destination);
+				instr[destination] = newInstrument[bankOffset][half];
+				newInstrument[bankOffset][half] = NULL;
+				memset(song.instrName[destination], 0,
+					sizeof (song.instrName[destination]));
+				memcpy(song.instrName[destination], instrumentName, 22);
+				fixInstrAndSampleNames(destination);
+			}
+			sampleLauncherAttachBank(bank,
+				job->launcherInstrument[bankOffset][0],
+				job->launcherInstrument[bankOffset][1]);
+		}
+		unlockMixerCallback();
+
+		editor.curInstr = job->launcherInstrument[0][0];
+		editor.curSmp = 0;
+		setSongModifiedFlag();
+		editor.updateCurSmp = true;
 		freeDecodedFolderSamples(decodedSamples, decodedCount);
 		freeSampleFolderJob(job);
 		return true;
+	}
+
+	if (job->mode == SAMPLE_FOLDER_IMPORT_MATRIX_OPEN)
+	{
+		uint32_t added = 0;
+		for (uint32_t i = 0; i < decodedCount; i++)
+		{
+			const sampleLauncherPlaceResult_t result =
+				sampleLauncherMoveDecodedSampleToTile(job->matrixTiles[i],
+					&decodedSamples[i]);
+			if (result != SAMPLE_LAUNCHER_PLACE_OK)
+				break;
+			added++;
+		}
+		if (added > 0)
+		{
+			sampleLauncherSelectTileInEditor(job->matrixTiles[0]);
+			editor.updateCurSmp = true;
+		}
+		matrixImportAdded = added;
+		matrixImportRequested = job->matrixRequested;
+		matrixImportOmitted = job->matrixOmitted + (decodedCount - added);
+		matrixImportResultReady = true;
+		freeDecodedFolderSamples(decodedSamples, decodedCount);
+		freeSampleFolderJob(job);
+		if (added == 0)
+		{
+			setMouseBusy(false);
+			sampleIsLoading = false;
+		}
+		return added > 0;
 	}
 
 	if (job->mode == SAMPLE_FOLDER_IMPORT_CURRENT_INSTRUMENT)
@@ -760,6 +909,11 @@ bool loadSampleFolder(const UNICHAR *folderPathU, const UNICHAR *const *fileName
 	job->mode = mode;
 	job->autoMap = autoMap;
 	job->instrument = editor.curInstr;
+	if (mode == SAMPLE_FOLDER_IMPORT_LAUNCHER)
+	{
+		job->launcherBank = sampleLauncherGetBank();
+		getFolderImportName(folderPathU, job->launcherName);
+	}
 	job->fileCount = fileCount;
 	job->files = (sampleFolderFile_t *)calloc(fileCount, sizeof (sampleFolderFile_t));
 	if (job->files == NULL)
@@ -784,15 +938,27 @@ bool loadSampleFolder(const UNICHAR *folderPathU, const UNICHAR *const *fileName
 	}
 
 	qsort(job->files, job->fileCount, sizeof (sampleFolderFile_t), naturalSampleNameCompare);
-	if (mode == SAMPLE_FOLDER_IMPORT_LAUNCHER &&
-		job->fileCount > SAMPLE_LAUNCHER_MAX_TILES)
+	if (mode == SAMPLE_FOLDER_IMPORT_LAUNCHER)
 	{
-		for (uint32_t i = SAMPLE_LAUNCHER_MAX_TILES; i < job->fileCount; i++)
+		const uint32_t capacity = (SAMPLE_LAUNCHER_BANK_COUNT - job->launcherBank) *
+			SAMPLE_LAUNCHER_TILES_PER_BANK;
+		if (job->fileCount > capacity)
 		{
-			free(job->files[i].pathU);
-			free(job->files[i].sortName);
+			for (uint32_t i = capacity; i < job->fileCount; i++)
+			{
+				free(job->files[i].pathU);
+				free(job->files[i].sortName);
+			}
+			job->fileCount = capacity;
 		}
-		job->fileCount = SAMPLE_LAUNCHER_MAX_TILES;
+
+		if (!sampleLauncherPrepareRangeImport(job->launcherBank,
+			job->fileCount, job->launcherInstrument, &job->launcherBankCount))
+		{
+			freeSampleFolderJob(job);
+			loaderMsgBox("Not enough empty instrument slots for this Sample Bank range!");
+			return false;
+		}
 	}
 	else if (mode == SAMPLE_FOLDER_IMPORT_CURRENT_INSTRUMENT && job->fileCount > MAX_SMP_PER_INST)
 	{
@@ -836,6 +1002,107 @@ bool loadSampleFolder(const UNICHAR *folderPathU, const UNICHAR *const *fileName
 	}
 
 	SDL_DetachThread(thread);
+	return true;
+}
+
+bool loadSamplesToMatrix(const UNICHAR *folderPathU,
+	const UNICHAR *const *fileNamesU, uint32_t fileCount, uint16_t startTile,
+	bool replaceExactTile)
+{
+	if (sampleIsLoading || folderPathU == NULL || fileNamesU == NULL ||
+		fileCount == 0 || startTile >= SAMPLE_LAUNCHER_MAX_TILES)
+	{
+		return false;
+	}
+
+	loaderMsgBox = myLoaderMsgBoxThreadSafe;
+	loaderSysReq = okBoxThreadSafe;
+	sampleFolderImportJob_t *job = calloc(1, sizeof (*job));
+	if (job == NULL)
+		return false;
+	job->mode = SAMPLE_FOLDER_IMPORT_MATRIX_OPEN;
+	job->matrixRequested = fileCount;
+	job->files = calloc(fileCount, sizeof (*job->files));
+	if (job->files == NULL)
+	{
+		freeSampleFolderJob(job);
+		return false;
+	}
+
+	uint32_t destinationCount = 0;
+	if (replaceExactTile)
+	{
+		job->matrixTiles[destinationCount++] = startTile;
+	}
+	else
+	{
+		for (uint16_t tile = startTile;
+			tile < SAMPLE_LAUNCHER_MAX_TILES && destinationCount < fileCount;
+			tile++)
+		{
+			if (!sampleLauncherTileIsLoaded(tile) &&
+				!sampleLauncherTileNaturalStorageIsLoaded(tile))
+			{
+				job->matrixTiles[destinationCount++] = tile;
+			}
+		}
+	}
+	if (destinationCount == 0)
+	{
+		freeSampleFolderJob(job);
+		return false;
+	}
+	if (destinationCount > fileCount)
+		destinationCount = fileCount;
+	if (!sampleLauncherCanImportToTiles(job->matrixTiles, destinationCount))
+	{
+		freeSampleFolderJob(job);
+		loaderMsgBox("Not enough free instrument slots for these Matrix tiles!");
+		return false;
+	}
+	job->matrixOmitted = fileCount - destinationCount;
+	job->fileCount = destinationCount;
+	for (uint32_t i = 0; i < destinationCount; i++)
+	{
+		job->files[i].pathU = joinFolderSamplePath(folderPathU, fileNamesU[i]);
+		if (job->files[i].pathU != NULL)
+			job->files[i].sortName = getFolderImportSortName(job->files[i].pathU);
+		if (job->files[i].pathU == NULL || job->files[i].sortName == NULL)
+		{
+			freeSampleFolderJob(job);
+			return false;
+		}
+	}
+
+	/* Browser order is already natural and user selection order is visual order.
+	** Keep it intact so highlighted files land predictably on successive tiles. */
+	UNICHAR_STRNCPY(editor.tmpFilenameU, job->files[0].pathU, PATH_MAX);
+	editor.tmpFilenameU[PATH_MAX] = 0;
+	matrixImportResultReady = false;
+	sampleIsLoading = true;
+	mouseAnimOn();
+	thread = SDL_CreateThread(loadSampleFolderThread,
+		"sample matrix import thread", job);
+	if (thread == NULL)
+	{
+		sampleIsLoading = false;
+		setMouseBusy(false);
+		freeSampleFolderJob(job);
+		return false;
+	}
+	SDL_DetachThread(thread);
+	return true;
+}
+
+bool sampleMatrixImportTakeResult(uint32_t *added, uint32_t *requested,
+	uint32_t *omitted)
+{
+	if (!matrixImportResultReady)
+		return false;
+	if (added != NULL) *added = matrixImportAdded;
+	if (requested != NULL) *requested = matrixImportRequested;
+	if (omitted != NULL) *omitted = matrixImportOmitted;
+	matrixImportResultReady = false;
 	return true;
 }
 

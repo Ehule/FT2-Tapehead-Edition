@@ -42,6 +42,7 @@ Major additions over stock ft2-clone include:
 - MIDI Dub / MIDI Output
 - Silent Record
 - REC+ automatic song expansion
+- Fast Tracks-to-XM baker with silent one-pass and live looping performance modes (Shift + module Save)
 - Inherit Pattern Length (IPL)
 - Insert New Pattern (INP)
 - Sample Map navigation system
@@ -131,6 +132,25 @@ simply preserve the Z commands while ignoring their playback behavior.
 ## MIDI
 
 MIDI Dub allows tracker playback to be transmitted as live MIDI data for driving external synthesizers, DAWs, or modular software while composing inside FT2.
+
+Outgoing MIDI channels are assigned per tracker track in the `[MIDIDub]`
+section of `tapehead.ini`. The default is tracks 1-16 to channels 1-16, repeated
+for tracks 17-32. Change any `Track01` through `Track32` value to a MIDI channel
+from 1 through 16; multiple tracks may intentionally share the same channel.
+
+## Deck Matrix
+
+Deck Matrix is a second full-window control surface for the same live FT2
+module. Its Pattern and Sample decks retain independent Q/Poly ownership while
+sharing the tracker's BPM/TPL clock. The Sample side provides eight pages of 32
+tiles. Each page is stored as two tagged, ordinary 16-sample instruments, so
+the files remain available to FT2's Sample Editor and survive an XM save.
+
+The bottom transport strip navigates the real song order and separates `STOP
+SNG`, `STOP DECK`, and `STOP ALL`. The **Tracker** button returns to the normal
+editor without creating a second playback engine.
+
+See `docs/DECK_MATRIX_CP03.md` for the complete controls.
 
 ## Editing
 

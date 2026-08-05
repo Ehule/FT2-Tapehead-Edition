@@ -7,11 +7,13 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <string.h>
 #include "../ft2_header.h"
 #include "../ft2_module_loader.h"
 #include "../ft2_sample_ed.h"
 #include "../ft2_tables.h"
 #include "../ft2_sysreqs.h"
+#include "../ft2_sample_launcher.h"
 
 /* ModPlug Tracker & OpenMPT supports up to 32 samples per instrument for XMs -  we don't.
 ** For such modules, we use a temporary array here to store the extra sample data lengths
@@ -181,6 +183,8 @@ bool loadXM(FILE *f, uint32_t filesize)
 
 	if (instrHasMoreThan16Samples)
 		loaderMsgBox("Warning: Module contains instrument(s) with >16 samples. The extra samples will be discarded!");
+
+	sampleLauncherReadXMMetadata(f, filesize);
 
 	return true;
 }

@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <math.h>
+#include <string.h>
 #ifndef _WIN32
 #include <unistd.h> // chdir() in UNICHAR_CHDIR()
 #endif
@@ -32,6 +33,7 @@
 #include "ft2_replayer.h"
 #include "ft2_smpfx.h"
 #include "ft2_sysreqs.h"
+#include "ft2_sample_launcher.h"
 
 static const char sharpNote1Char[12] = { 'C', 'C', 'D', 'D', 'E', 'F', 'F', 'G', 'G', 'A', 'A', 'B' };
 static const char sharpNote2Char[12] = { '-', '#', '-', '#', '-', '-', '#', '-', '#', '-', '#', '-' };
@@ -762,6 +764,8 @@ void xchgSmp(void) // dstSmp <-> srcSmp
 	sample_t *src = &instr[editor.curInstr]->smp[editor.srcSmp];
 	sample_t *dst = &instr[editor.curInstr]->smp[editor.curSmp];
 
+	if (sampleLauncherInstrumentIsMapped(editor.curInstr))
+		sampleLauncherReset();
 	lockMixerCallback();
 	const sample_t dstTmp = *dst;
 	*dst = *src;
@@ -3420,6 +3424,8 @@ void sampMinimize(void)
 	if (okBox(1, "System request", "Minimize sample?", NULL) != 1)
 		return;
 	
+	if (sampleLauncherInstrumentIsMapped(editor.curInstr))
+		sampleLauncherReset();
 	lockMixerCallback();
 
 	s->length = s->loopStart + s->loopLength;

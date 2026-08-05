@@ -10,6 +10,7 @@ enum
 };
 
 #define SYSREQ_TYPE_FOLDER_IMPORT 9
+#define SYSREQ_TYPE_BAKE_MODULE 10
 
 // for thread-safe version of okBox()
 typedef struct okBoxData_t

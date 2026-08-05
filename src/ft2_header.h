@@ -52,6 +52,10 @@
 #define PATH_MAX MAX_PATH
 #endif
 
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
+
 #ifndef PI
 #define PI 3.14159265358979323846264338327950288
 #endif

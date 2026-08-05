@@ -16,6 +16,7 @@ int16_t patternNumRows[MAX_PATTERNS];
 
 static int32_t stopPlayingCalls;
 static int32_t stopPlayingKeepPolyCalls;
+static int32_t startPlayingCalls;
 static bool polyAudioWork;
 static bool polyBoundaryStartSucceeds;
 static int32_t polyBoundaryStartCalls;
@@ -28,8 +29,16 @@ static bool polyDestinationAvailable[MAX_CHANNELS];
 void startPlaying(int8_t mode, int16_t row)
 {
 	(void)row;
+	startPlayingCalls++;
 	playMode = mode;
 	songPlaying = true;
+}
+
+void setNewSongPos(int32_t pos)
+{
+	song.songPos = (int16_t)pos;
+	editor.songPos = (int16_t)pos;
+	song.pattNum = song.orders[pos];
 }
 
 void stopPlaying(void)
@@ -106,6 +115,7 @@ static void resetFixture(void)
 	patternNumRows[7] = 4;
 	stopPlayingCalls = 0;
 	stopPlayingKeepPolyCalls = 0;
+	startPlayingCalls = 0;
 	polyAudioWork = true;
 	polyBoundaryStartSucceeds = true;
 	polyBoundaryStartCalls = 0;
@@ -114,6 +124,8 @@ static void resetFixture(void)
 	polyReadyHandoff = false;
 	polyReadyPattern = 0;
 }
+
+static void beginCue(uint8_t patternNum);
 
 static void testCueExitPreservesPolySpools(void)
 {
@@ -152,6 +164,20 @@ static void testCueExitUsesOrdinaryStopWithoutPoly(void)
 	handlePatternLauncherStop();
 	assert(stopPlayingCalls == 1);
 	assert(stopPlayingKeepPolyCalls == 0);
+}
+
+static void testAnyWaitingCueCanBeCancelled(void)
+{
+	resetFixture();
+	beginCue(5);
+	patternLauncherRequest(6, false, false);
+	patternLauncherRequest(7, false, false);
+	assert(patternLauncherGetQueueCount() == 2);
+
+	patternLauncherRequest(6, false, false);
+	assert(patternLauncherGetQueueCount() == 1);
+	assert(patternLauncherGetQueueItem(0) == 7);
+	assert(patternLauncherGetCurrent() == 5);
 }
 
 static void testStoppedCueUsesRequestedPatternLength(void)
@@ -259,16 +285,88 @@ static void testCueRoutesAroundPolyOwnedTunnel(void)
 	assert(patternLauncherGetSourceForDestination(1) == 0);
 }
 
+static void testStopDeckResumesInterruptedSong(void)
+{
+	resetFixture();
+	song.songLength = 4;
+	song.songPos = 2;
+	song.orders[2] = 6;
+	playMode = PLAYMODE_SONG;
+	patternLauncherRequest(5, false, false);
+	assert(patternLauncherHandleBoundary() == PATTERN_LAUNCHER_BOUNDARY_HANDLED);
+	assert(patternLauncherGetCurrent() == 5);
+	patternLauncherStopDeckQ();
+	assert(!patternLauncherIsEnabled());
+	assert(song.songPos == 2);
+	assert(playMode == PLAYMODE_SONG);
+	assert(songPlaying);
+	assert(startPlayingCalls == 1);
+}
+
+static void testStopDeckStopsCueStartedFromIdle(void)
+{
+	resetFixture();
+	songPlaying = false;
+	playMode = PLAYMODE_IDLE;
+	patternLauncherRequest(5, false, false);
+	startPlayingCalls = 0;
+	patternLauncherStopDeckQ();
+	assert(!patternLauncherIsEnabled());
+	assert(!songPlaying);
+	assert(startPlayingCalls == 0);
+	assert(stopPlayingKeepPolyCalls == 1);
+}
+
+static void testHardStopCancelsWaitingCueOnly(void)
+{
+	resetFixture();
+	beginCue(5);
+	patternLauncherRequest(6, false, false);
+	patternLauncherRequest(7, false, false);
+	assert(patternLauncherHardStop(6));
+	assert(patternLauncherGetCurrent() == 5);
+	assert(patternLauncherGetQueueCount() == 1);
+	assert(patternLauncherGetQueueItem(0) == 7);
+	assert(songPlaying);
+}
+
+static void testHardStopPullsActiveQImmediately(void)
+{
+	resetFixture();
+	song.songLength = 4;
+	song.songPos = 2;
+	song.orders[2] = 6;
+	playMode = PLAYMODE_SONG;
+	patternLauncherRequest(5, false, false);
+	assert(patternLauncherHandleBoundary() ==
+		PATTERN_LAUNCHER_BOUNDARY_HANDLED);
+	patternLauncherRequest(7, false, false);
+
+	assert(patternLauncherHardStop(5));
+	assert(!patternLauncherIsEnabled());
+	assert(patternLauncherGetCurrent() == -1);
+	assert(patternLauncherGetQueueCount() == 0);
+	assert(song.songPos == 2);
+	assert(playMode == PLAYMODE_SONG);
+	assert(songPlaying);
+	assert(startPlayingCalls == 1);
+}
+
 int main(void)
 {
 	testCueExitPreservesPolySpools();
 	testCueExitUsesOrdinaryStopWithoutPoly();
+	testAnyWaitingCueCanBeCancelled();
 	testStoppedCueUsesRequestedPatternLength();
 	testQToPolyHandoffStopsOnlyQAtBoundary();
 	testQToPolyHandoffAdvancesExistingQueue();
 	testPolyToQHandoffGetsNextQBoundary();
 	testPolyToQHandoffStartsQWhenStopped();
 	testCueRoutesAroundPolyOwnedTunnel();
-	puts("8 Pattern Matrix/Poly ownership boundary tests passed.");
+	testStopDeckResumesInterruptedSong();
+	testStopDeckStopsCueStartedFromIdle();
+	testHardStopCancelsWaitingCueOnly();
+	testHardStopPullsActiveQImmediately();
+	puts("13 Pattern Matrix/Poly ownership boundary tests passed.");
 	return 0;
 }

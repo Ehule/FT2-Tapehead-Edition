@@ -19,6 +19,7 @@
 #include "ft2_structs.h"
 #include "ft2_audioselector.h"
 #include "ft2_jack.h"
+#include "ft2_sample_launcher.h"
 #include "mixer/ft2_mix.h"
 #include "mixer/ft2_silence_mix.h"
 
@@ -106,10 +107,10 @@ void audioSampleLauncherTrigger(uint8_t voiceIndex, const sample_t *sample,
 	else
 		v->base8 = sample->dataPtr;
 
-	/* Sample-deck loops deliberately use the complete source file and the
-	** interpolation-free mixer for this first checkpoint. This avoids
-	** borrowing or rewriting the XM sample's own loop metadata and keeps the
-	** sample deck independent of the module instrument pool. */
+	/* Sample-deck loops deliberately use the complete native sample and the
+	** interpolation-free mixer. The deck does not rewrite XM loop metadata;
+	** its Q/Poly voices remain independent even though file management now
+	** lives in the module's ordinary instrument pool. */
 	v->loopType = LOOP_FORWARD;
 	v->sampleEnd = sample->length;
 	v->loopStart = 0;
@@ -1206,6 +1207,13 @@ void unlockMixerCallback(void)
 
 void pauseAudio(void) // lock audio + clear voices/scopes + render silence (for long operations)
 {
+	/* Native Sample Banks share their sample memory with the editor. Stop the
+	** deck before an editor operation can resize or replace that memory. */
+	if (editor.curInstr > 0 && editor.curInstr <= MAX_INST &&
+		sampleLauncherInstrumentIsMapped(editor.curInstr))
+	{
+		sampleLauncherReset();
+	}
 	if (audioPaused)
 	{
 		stopVoices(); // VERY important! prevents potential crashes by purging pointers

@@ -465,6 +465,8 @@ void mouseWheelHandler(bool directionUp)
 {
 	if (ui.sysReqShown || editor.editTextFlag)
 		return;
+	if (patternLauncherHandleStandaloneWheel(mouse.x, mouse.y, directionUp))
+		return;
 
 	// Ctrl+wheel over a scope adjusts that channel's output trim.
 	if ((SDL_GetModState() & KMOD_CTRL) && testScopesMouseWheel(directionUp))
@@ -757,6 +759,13 @@ static bool handleFastTracksHeaderRightClick(uint8_t mouseButton)
 
 void mouseButtonDownHandler(uint8_t mouseButton)
 {
+	if (patternLauncherStandaloneIsShown())
+	{
+		patternLauncherHandleStandaloneClick(mouse.x, mouse.y, mouseButton,
+			keyb.leftShiftPressed);
+		return;
+	}
+
 	if (handleFastTracksLogoRightClick(mouseButton)) return;
 	if (handleFastTracksHeaderRightClick(mouseButton)) return;
 

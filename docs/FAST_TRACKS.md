@@ -175,7 +175,11 @@ FasTracks state is runtime-only:
 - `Z` commands placed near the beginning of a module can establish a deterministic Tapehead performance setup.
 - Stock FastTracker-compatible software can load, display, edit, play, and resave the XM. It ignores the Tapehead runtime behavior, so the music plays from the ordinary master transport.
 
-Do not place required musical data outside the standard XM structure. Future baking/export work can translate a FasTracks performance into ordinary pattern data when stock playback must reproduce the result.
+Do not place required musical data outside the standard XM structure. The
+**Shift + module Save** baker can translate Fast Tracks playback into ordinary
+pattern data when stock XM playback must reproduce the result. Its **Fast Bake**
+mode resolves one pass silently; **Live** mode records repeated song loops while
+ratios and other Fast Tracks controls are performed in real time.
 
 ## Regression checklist
 

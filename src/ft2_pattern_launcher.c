@@ -268,13 +268,16 @@ void patternLauncherRequest(uint8_t patternNum, bool ctrlPressed, bool shiftPres
 		patternLauncherEnabled = true;
 	}
 
-	/* Re-clicking the newest queued pattern acts as a one-step undo. */
-	if (patternLauncherQueueCount > 0 &&
-		patternLauncherQueue[patternLauncherQueueCount-1] == patternNum)
+	/* Re-clicking any waiting tile removes that specific queue entry. This is
+	** intentionally not limited to the newest item: every visible queue number
+	** can be canceled directly from the Matrix. */
+	for (uint8_t i = 0; i < patternLauncherQueueCount; i++)
 	{
-		patternLauncherQueueCount--;
-		patternLauncherQueue[patternLauncherQueueCount] = -1;
-		return;
+		if (patternLauncherQueue[i] == patternNum)
+		{
+			removePatternFromQueue(patternNum);
+			return;
+		}
 	}
 
 	if (patternLauncherCurrent == patternNum && patternLauncherQueueCount == 0)
@@ -299,6 +302,34 @@ void patternLauncherRequest(uint8_t patternNum, bool ctrlPressed, bool shiftPres
 	{
 		patternLauncherQueue[patternLauncherQueueCount++] = patternNum;
 	}
+}
+
+bool patternLauncherHardStop(uint8_t patternNum)
+{
+	bool found = false;
+	for (uint8_t i = 0; i < patternLauncherQueueCount; i++)
+	{
+		if (patternLauncherQueue[i] == patternNum)
+		{
+			found = true;
+			break;
+		}
+	}
+
+	if (found)
+		removePatternFromQueue(patternNum);
+
+	if (patternLauncherCurrent == patternNum)
+	{
+		/* A hard stop is deliberately stronger than the yellow/orange/red
+		** boundary exits. Pull the complete Q deck immediately, including its
+		** waiting queue, then restore the song that Q interrupted when one
+		** exists. Poly remains independently owned. */
+		patternLauncherStopDeckQ();
+		return true;
+	}
+
+	return found;
 }
 
 bool patternLauncherRequestPolyHandoff(uint8_t patternNum)
@@ -451,6 +482,25 @@ void handlePatternLauncherStop(void)
 		stopPlayingKeepPoly();
 	else
 		stopPlaying();
+}
+
+void patternLauncherStopDeckQ(void)
+{
+	if (!patternLauncherEnabled)
+		return;
+
+	const int16_t resumeSongPos = patternLauncherSavedSongPos;
+	patternLauncherSetEnabled(false);
+	if (resumeSongPos >= 0 && resumeSongPos < song.songLength)
+	{
+		editor.songPos = resumeSongPos;
+		setNewSongPos(resumeSongPos);
+		startPlaying(PLAYMODE_SONG, 0);
+	}
+	else
+	{
+		stopPlayingKeepPoly();
+	}
 }
 
 void handlePolyMatrixQHandoff(void)

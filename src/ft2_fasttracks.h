@@ -46,6 +46,24 @@ typedef struct fastTracksSnapshot_t
 	fastTracksTrackSnapshot_t tracks[FAST_TRACKS_CHANNEL_COUNT];
 } fastTracksSnapshot_t;
 
+/* Exact runtime snapshot used by the offline composition baker. Unlike the
+** UI snapshot, this preserves fractional transport phase as well. */
+typedef struct fastTracksRuntimeTrack_t
+{
+	fastTracksMode_t mode;
+	bool clutchHeld, reversed, transportStarted;
+	int16_t sourceOrder;
+	int32_t sourceRow, tickAccumulator;
+	uint16_t lastTPL;
+	uint8_t ratioIndex;
+} fastTracksRuntimeTrack_t;
+
+typedef struct fastTracksRuntimeState_t
+{
+	bool masterEnabled, transmissionClutchLatched;
+	fastTracksRuntimeTrack_t tracks[FAST_TRACKS_CHANNEL_COUNT];
+} fastTracksRuntimeState_t;
+
 /* UI/control-thread interface. */
 bool fastTracksPOCMasterIsEnabled(void);
 bool fastTracksPOCIsSelected(int32_t channelIndex);
@@ -62,6 +80,8 @@ bool fastTracksPOCIsMasterAligned(int32_t channelIndex);
 uint8_t fastTracksPOCGetRatioNumerator(int32_t channelIndex);
 uint8_t fastTracksPOCGetRatioDenominator(int32_t channelIndex);
 void fastTracksPOCGetSnapshot(fastTracksSnapshot_t *snapshot);
+void fastTracksPOCGetRuntimeState(fastTracksRuntimeState_t *state);
+void fastTracksPOCSetRuntimeState(const fastTracksRuntimeState_t *state);
 void fastTracksPOCClutchPress(int32_t channelIndex);
 void fastTracksPOCClutchRelease(int32_t channelIndex);
 void fastTracksPOCSetTransmissionClutch(bool engaged);

@@ -2983,7 +2983,9 @@ void pbSwapInstrBank(void)
 {
 	if (patternLauncherPanelIsShown())
 	{
-		if (keyb.leftCtrlPressed)
+		if (keyb.leftCtrlPressed && keyb.leftAltPressed)
+			patternLauncherSetStandaloneShown(true);
+		else if (keyb.leftCtrlPressed)
 			patternLauncherToggleDeck();
 		else
 			patternLauncherSetPanelShown(false);
@@ -2994,6 +2996,8 @@ void pbSwapInstrBank(void)
 	{
 		patternLauncherSetPage(0);
 		patternLauncherSetPanelShown(true);
+		if (keyb.leftAltPressed)
+			patternLauncherSetStandaloneShown(true);
 		return;
 	}
 

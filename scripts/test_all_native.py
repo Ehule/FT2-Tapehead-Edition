@@ -10,13 +10,17 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TEST_SCRIPTS = (
+	"test_baker_allocator.py",
 	"test_sample_launcher_native.py",
+	"test_sample_launcher_banks.py",
+	"test_sample_matrix_browser.py",
 	"test_fasttracks_native.py",
     "test_fasttracks_transport.py",
     "test_multichannel_native.py",
     "test_audio_bus_delivery.py",
     "test_jack_native.py",
     "test_poly_matrix_native.py",
+	"test_midi_dub_config.py",
 )
 
 

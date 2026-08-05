@@ -33,6 +33,7 @@
 #include "ft2_pattern_launcher.h"
 #include "ft2_sample_launcher.h"
 #include "ft2_poly_matrix.h"
+#include "ft2_baker.h"
 #include "ft2_structs.h"
 #include "ft2_random.h"
 #include "mixer/ft2_windowed_sinc.h"
@@ -472,7 +473,7 @@ void triggerInstrument(channel_t *ch)
 void keyOff(channel_t *ch)
 {
 #ifdef HAS_MIDI
-	if (ch >= channel && ch < channel + MAX_CHANNELS)
+	if (!bakerIsOfflineRunning() && ch >= channel && ch < channel + MAX_CHANNELS)
 		midiDubNoteOff((uint8_t)(ch - channel));
 #endif
 
@@ -664,7 +665,7 @@ void triggerNote(uint8_t note, uint8_t efx, uint8_t efxData, channel_t *ch)
 
 
 #ifdef HAS_MIDI
-	if (ch >= channel && ch < channel + MAX_CHANNELS)
+	if (!bakerIsOfflineRunning() && ch >= channel && ch < channel + MAX_CHANNELS)
 		midiDubNoteOn((uint8_t)(ch - channel), ch->noteNum,
 		    midiDubVelocityFromNoteVolume(ch, efx, efxData));
 #endif
@@ -1576,6 +1577,8 @@ static void preparePortamento(channel_t *ch, const note_t *p, uint8_t inst)
 
 static void getNewNote(channel_t *ch, const note_t *p)
 {
+	bakerCaptureEvent((int32_t)(ch - channel), p);
+
 	ch->volColumnVol = p->vol;
 
 	if (ch->efx == 0)
@@ -2683,9 +2686,14 @@ static bool processPolyMatrixChannel(channel_t *ch, int32_t channelIndex,
 
 void tickReplayer(void) // periodically called from audio callback
 {
+	bakerBeginTick();
+
 #ifdef HAS_MIDI
-	midiDubTick();
+	if (!bakerIsOfflineRunning())
+		midiDubTick();
 #endif
+	if (!bakerIsOfflineRunning())
+		sampleLauncherTick();
 
 	channel_t *ch;
 
@@ -3099,6 +3107,11 @@ void freeInstr(int32_t insNum)
 {
 	if (instr[insNum] == NULL)
 		return; // not allocated
+	if (insNum > 0 && insNum <= MAX_INST &&
+		sampleLauncherInstrumentIsMapped((uint8_t)insNum))
+	{
+		sampleLauncherReset();
+	}
 
 	pauseAudio(); // channel instrument pointers are now cleared
 
@@ -3114,6 +3127,7 @@ void freeInstr(int32_t insNum)
 
 void freeAllInstr(void)
 {
+	sampleLauncherForgetBanks();
 	pauseAudio(); // channel instrument pointers are now cleared
 	for (int32_t i = 1; i <= MAX_INST; i++)
 	{
@@ -3134,6 +3148,11 @@ void freeSample(int16_t insNum, int16_t smpNum)
 {
 	if (instr[insNum] == NULL)
 		return; // instrument not allocated
+	if (insNum > 0 && insNum <= MAX_INST &&
+		sampleLauncherInstrumentIsMapped((uint8_t)insNum))
+	{
+		sampleLauncherReset();
+	}
 
 	pauseAudio(); // voice sample pointers are now cleared
 
@@ -3425,6 +3444,9 @@ bool setupReplayer(void)
 
 void startPlaying(int8_t mode, int16_t row)
 {
+	if (!bakerAllowPlaybackStart(mode))
+		return;
+
 	lockMixerCallback();
 
 	ASSERT(mode != PLAYMODE_IDLE && mode != PLAYMODE_EDIT);
@@ -3458,6 +3480,8 @@ void startPlaying(int8_t mode, int16_t row)
 	*/
 	if (!polyMatrixHasAudioWork())
 		audio.tickSampleCounterFrac = audio.tickSampleCounter = 0;
+
+	bakerPlaybackStarted(mode);
 
 	unlockMixerCallback();
 
@@ -3522,6 +3546,8 @@ void stopPlayingKeepPoly(void)
 
 void stopPlaying(void)
 {
+	const bool finishOrCancelLiveBake = bakerLiveIsCapturing() || bakerLiveIsArmed();
+
 	patternLauncherSetEnabled(false);
 	polyMatrixReset();
 
@@ -3565,6 +3591,9 @@ void stopPlaying(void)
 	song.tick = editor.tick = 1;
 	song.globalVolume = editor.globalVolume = 64;
 	ui.drawGlobVolFlag = true;
+
+	if (finishOrCancelLiveBake)
+		bakerFinishOrCancelLive();
 }
 
 // from keyboard/smp. ed.

@@ -6,3 +6,4 @@
 
 void saveMusic(UNICHAR *filenameU);
 bool saveXM(UNICHAR *filenameU);
+bool saveStandardXM(UNICHAR *filenameU);

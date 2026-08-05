@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
+#include <stdio.h>
 #include "ft2_header.h"
 #include "ft2_keyboard.h"
 #include "ft2_gui.h"
@@ -30,6 +31,7 @@
 #include "ft2_undo.h"
 #include "ft2_structs.h"
 #include "ft2_pattern_draw.h"
+#include "ft2_pattern_launcher_ui.h"
 
 keyb_t keyb; // globalized
 
@@ -571,6 +573,8 @@ static void handleKeys(SDL_Keycode keycode, SDL_Scancode scanKey)
 
 		case SDLK_SPACE:
 		{
+			if (patternLauncherHandleStandaloneSpace())
+				break;
 			if (playMode == PLAYMODE_IDLE)
 			{
 				lockMixerCallback();

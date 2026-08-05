@@ -10,16 +10,22 @@ asynchronous editing modes remain experimental.
 
 ## What this fork adds
 
-### Experimental combined launcher
+### Deck Matrix
 
-- Separate Pattern and Sample decks sharing XM BPM/TPL and launch boundaries
-- Independent Sample Q voice plus four Sample Poly voices
-- Folder-fed Sample deck with natural sorting and up to 32 files
-- Non-destructive Pattern exposure mask
+- Full-window Pattern and Sample decks sharing XM BPM/TPL and launch boundaries
+- Eight 32-tile Sample banks backed by paired native 16-sample XM instruments
+- Independent Sample Q voice plus four Sample Poly voices across all banks
+- Native Sample Editor selection, replacement, naming, saving, and deletion
+- Direct selected-sample placement on any tile with `Ctrl+right-click`
+- Full Sample Matrix Editor with visible Disk import and zero-copy Module assignment
+- Multi-file and whole-folder filling across open Sample tiles and bank pages
+- Persistent arbitrary `{instrument, sample}` tile references in Tapehead-saved XMs
+- Non-destructive Pattern exposure mask and four-state pattern classification
 - Per-Sample multichannel destination cycling
-- Optional direct launcher startup through `tapehead.ini`
+- Song-order navigation with separate song, deck, and global stop controls
+- Optional direct Deck Matrix startup through `tapehead.ini`
 
-See `docs/LAUNCHER_CHECKPOINT_01.md` for controls and current boundaries.
+See `docs/DECK_MATRIX_CP03.md` for controls and native Sample Bank behavior.
 
 ### Fast Tracks
 
@@ -73,7 +79,9 @@ Tapehead Edition uses the XM **Z** effect for persistent, pattern-programmable F
 - Dedicated virtual output named `FT2 Tapehead MIDI Dub`
 - Selection and persistence of external MIDI output devices
 - Replayer-driven MIDI note output during song playback
-- One MIDI channel corresponding to each tracker channel
+- Per-track outgoing channel assignments through `[MIDIDub]` in `tapehead.ini`
+- Tracks 1-16 default to MIDI channels 1-16; tracks 17-32 repeat that mapping
+- Any tracker tracks may be manually assigned to the same MIDI channel
 - MIDI note-on and note-off handling
 - Velocity derived from tracker playback state
 - MIDI panic / all-notes-off support

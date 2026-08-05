@@ -21,11 +21,17 @@ enum
 {
 	SAMPLE_FOLDER_IMPORT_INSTRUMENTS = 0,
 	SAMPLE_FOLDER_IMPORT_CURRENT_INSTRUMENT = 1,
-	SAMPLE_FOLDER_IMPORT_LAUNCHER = 2
+	SAMPLE_FOLDER_IMPORT_LAUNCHER = 2,
+	SAMPLE_FOLDER_IMPORT_MATRIX_OPEN = 3
 };
 
 bool loadSampleFolder(const UNICHAR *folderPathU, const UNICHAR *const *fileNamesU,
 	uint32_t fileCount, uint8_t mode, bool autoMap);
+bool loadSamplesToMatrix(const UNICHAR *folderPathU,
+	const UNICHAR *const *fileNamesU, uint32_t fileCount, uint16_t startTile,
+	bool replaceExactTile);
+bool sampleMatrixImportTakeResult(uint32_t *added, uint32_t *requested,
+	uint32_t *omitted);
 void removeSampleIsLoadingFlag(void);
 
 // globals for sample loaders

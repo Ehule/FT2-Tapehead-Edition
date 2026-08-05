@@ -591,6 +591,27 @@ static bool parseUInt32Value(const char *s, uint32_t *value)
 	return true;
 }
 
+static int32_t parseMidiDubTrackKey(const char *key)
+{
+	if (_strnicmp(key, "Track", 5) != 0 || key[5] == '\0')
+		return -1;
+
+	for (const char *p = key + 5; *p != '\0'; p++)
+	{
+		if (!isdigit((unsigned char)*p))
+			return -1;
+	}
+
+	uint32_t trackNumber;
+	if (!parseUInt32Value(key + 5, &trackNumber) ||
+		trackNumber < 1 || trackNumber > MAX_CHANNELS)
+	{
+		return -1;
+	}
+
+	return (int32_t)trackNumber - 1;
+}
+
 static void writeDefaultTapeheadConfig(const UNICHAR *filePathU)
 {
 	FILE *f = UNICHAR_FOPEN(filePathU, "w");
@@ -612,6 +633,8 @@ static void writeDefaultTapeheadConfig(const UNICHAR *filePathU)
 	fputs("; Accepted values: crisp, sharp or round.\n", f);
 	fputs("HDStyle=crisp\n\n", f);
 	fputs("[Launcher]\n\n", f);
+	fputs("; Open the launcher as a dedicated full-window two-deck instrument.\n", f);
+	fputs("Standalone=false\n\n", f);
 	fputs("; Open directly into the combined Pattern/Sample launcher deck.\n", f);
 	fputs("Enabled=false\n\n", f);
 	fputs("[Keyboard]\n\n", f);
@@ -628,6 +651,13 @@ static void writeDefaultTapeheadConfig(const UNICHAR *filePathU)
 	fputs("; Route each tracker lane to one physical mono output instead of a stereo bus.\n", f);
 	fputs("; The Config -> Audio checkbox can also change this while FT2 is running.\n", f);
 	fputs("MonoOutputs=false\n\n", f);
+	fputs("[MIDIDub]\n\n", f);
+	fputs("; Outgoing MIDI channel for each tracker track (accepted values: 1-16).\n", f);
+	fputs("; Tracks may share a MIDI channel. Invalid or missing entries keep the\n", f);
+	fputs("; default mapping: tracks 1-16 use channels 1-16, then repeat.\n", f);
+	for (int32_t i = 0; i < MAX_CHANNELS; i++)
+		fprintf(f, "Track%02d=%d\n", i + 1, (i & 15) + 1);
+	fputc('\n', f);
 	fputs("[Undo]\n\n", f);
 	fputs("; Undo history memory ceiling in megabytes (accepted range: 4-1024).\n", f);
 	fputs("UndoMemoryMB=32\n", f);
@@ -641,10 +671,13 @@ void loadTapeheadConfig(void)
 	tapeheadConfig.monoOutputs = false;
 	tapeheadConfig.hdMode = false;
 	tapeheadConfig.launcherMode = false;
+	tapeheadConfig.launcherStandalone = false;
 	tapeheadConfig.outputBuses = 1;
 	tapeheadConfig.hdScale = 3;
 	tapeheadConfig.hdStyle = TAPEHEAD_HD_STYLE_CRISP;
 	tapeheadConfig.undoMemoryMB = 32;
+	for (int32_t i = 0; i < MAX_CHANNELS; i++)
+		tapeheadConfig.midiDubTrackChannels[i] = (uint8_t)(i & 15);
 
 	UNICHAR *filePathU = getFullTapeheadConfigPathU();
 	if (filePathU == NULL)
@@ -666,6 +699,7 @@ void loadTapeheadConfig(void)
 		TAPEHEAD_SECTION_LAUNCHER,
 		TAPEHEAD_SECTION_KEYBOARD,
 		TAPEHEAD_SECTION_AUDIO,
+		TAPEHEAD_SECTION_MIDI_DUB,
 		TAPEHEAD_SECTION_UNDO
 	} section = TAPEHEAD_SECTION_NONE;
 
@@ -687,6 +721,8 @@ void loadTapeheadConfig(void)
 				section = TAPEHEAD_SECTION_KEYBOARD;
 			else if (!_stricmp(text + 1, "Audio"))
 				section = TAPEHEAD_SECTION_AUDIO;
+			else if (!_stricmp(text + 1, "MIDIDub"))
+				section = TAPEHEAD_SECTION_MIDI_DUB;
 			else if (!_stricmp(text + 1, "Undo"))
 				section = TAPEHEAD_SECTION_UNDO;
 			else
@@ -729,6 +765,11 @@ void loadTapeheadConfig(void)
 		{
 			parseBoolValue(value, &tapeheadConfig.launcherMode);
 		}
+		else if (section == TAPEHEAD_SECTION_LAUNCHER &&
+			!_stricmp(key, "Standalone"))
+		{
+			parseBoolValue(value, &tapeheadConfig.launcherStandalone);
+		}
 		else if (section == TAPEHEAD_SECTION_KEYBOARD)
 		{
 			if (!_stricmp(key, "DiskOpBackspaceParent"))
@@ -748,6 +789,17 @@ void loadTapeheadConfig(void)
 		else if (section == TAPEHEAD_SECTION_AUDIO && !_stricmp(key, "MonoOutputs"))
 		{
 			parseBoolValue(value, &tapeheadConfig.monoOutputs);
+		}
+		else if (section == TAPEHEAD_SECTION_MIDI_DUB)
+		{
+			const int32_t trackIndex = parseMidiDubTrackKey(key);
+			uint32_t midiChannel;
+			if (trackIndex >= 0 && parseUInt32Value(value, &midiChannel) &&
+				midiChannel >= 1 && midiChannel <= 16)
+			{
+				tapeheadConfig.midiDubTrackChannels[trackIndex] =
+					(uint8_t)(midiChannel - 1);
+			}
 		}
 		else if (section == TAPEHEAD_SECTION_UNDO && !_stricmp(key, "UndoMemoryMB"))
 		{

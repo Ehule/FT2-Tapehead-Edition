@@ -11,6 +11,7 @@
 #include "ft2_audio.h"
 #include "ft2_structs.h"
 #include "ft2_gui.h"
+#include "ft2_sample_launcher.h"
 #include "ft2_undo.h"
 
 #define UNDO_MAX_STEPS 128
@@ -562,6 +563,20 @@ static void restoreOrder(const orderSnapshot_t *src)
 static bool applyEntry(const undoEntry_t *e, bool after)
 {
 	bool ok = false;
+	/* Direct Deck placement intentionally leaves the source sample selected.
+	** Undo/Redo therefore cannot rely on pauseAudio()'s current-instrument
+	** check to protect a different mapped destination. Pull Deck voices by the
+	** transaction target before restoring its native sample memory. */
+	if (e->type == UNDO_SAMPLE &&
+		sampleLauncherInstrumentIsMapped(e->state.sample.instrNum))
+	{
+		sampleLauncherReset();
+	}
+	else if (e->type == UNDO_INSTRUMENT &&
+		sampleLauncherInstrumentIsMapped(e->state.instrument.instrNum))
+	{
+		sampleLauncherReset();
+	}
 	pauseAudio();
 	if (e->type == UNDO_PATTERN)
 		ok = restorePattern(after ? &e->state.pattern.after : &e->state.pattern.before);

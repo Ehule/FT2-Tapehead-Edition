@@ -5,6 +5,7 @@
 
 #include <stdio.h>
 #include <stdbool.h>
+#include <string.h>
 #include "ft2_header.h"
 #include "ft2_audio.h"
 #include "ft2_gui.h"
@@ -13,10 +14,12 @@
 #include "ft2_module_loader.h"
 #include "ft2_tables.h"
 #include "ft2_structs.h"
+#include "ft2_sample_launcher.h"
 
 static int8_t smpChunkBuf[1024];
 static uint8_t packedPattData[65536], modPattData[64*32*4];
 static SDL_Thread *thread;
+static bool standardXMSave;
 
 static const char modIDs[32][5] =
 {
@@ -272,6 +275,13 @@ bool saveXM(UNICHAR *filenameU)
 		}
 	}
 
+	if (!standardXMSave && !sampleLauncherWriteXMMetadata(f))
+	{
+		fclose(f);
+		okBoxThreadSafe(0, "System message", "Error saving Tapehead Sample Matrix metadata!", NULL);
+		return false;
+	}
+
 	removeSongModifiedFlag();
 
 	fclose(f);
@@ -280,6 +290,14 @@ bool saveXM(UNICHAR *filenameU)
 
 	setMouseBusy(false);
 	return true;
+}
+
+bool saveStandardXM(UNICHAR *filenameU)
+{
+	standardXMSave = true;
+	const bool result = saveXM(filenameU);
+	standardXMSave = false;
+	return result;
 }
 
 static bool saveMOD(UNICHAR *filenameU)

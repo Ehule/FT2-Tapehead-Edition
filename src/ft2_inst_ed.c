@@ -19,6 +19,7 @@
 #include "ft2_keyboard.h"
 #include "ft2_video.h"
 #include "ft2_sample_loader.h"
+#include "ft2_sample_launcher.h"
 #include "ft2_diskop.h"
 #include "ft2_tables.h"
 #include "ft2_bmp.h"
@@ -2896,6 +2897,32 @@ static void clearInstrumentFromSwitcher(int16_t insNum)
 	*/
 	if (instr[insNum] == NULL && song.instrName[insNum][0] == '\0')
 		return;
+
+	const int8_t sampleBank = sampleLauncherFindBankForInstrument((uint8_t)insNum);
+	if (sampleBank >= 0)
+	{
+		char message[96];
+		snprintf(message, sizeof (message),
+			"Clear complete Sample Bank %02X-%02X?", sampleBank * 32,
+			(sampleBank * 32) + 31);
+		if (okBox(1, "System request", message, NULL) != 1)
+			return;
+
+		const bool currentBankSelected =
+			sampleLauncherFindBankForInstrument(editor.curInstr) == sampleBank;
+		if (!sampleLauncherClearBank((uint8_t)sampleBank))
+			return;
+		if (currentBankSelected)
+			updateNewInstrument();
+		else
+		{
+			updateTextBoxPointers();
+			if (ui.instrSwitcherShown)
+				updateInstrumentSwitcher();
+		}
+		setSongModifiedFlag();
+		return;
+	}
 
 	if (okBox(1, "System request", "Clear instrument?", NULL) != 1)
 		return;

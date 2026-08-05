@@ -5,6 +5,14 @@
 
 bool patternLauncherPanelIsShown(void);
 bool patternLauncherPanelIsSampleDeck(void);
+bool patternLauncherStandaloneIsShown(void);
+void patternLauncherSetStandaloneShown(bool shown);
+void patternLauncherDrawStandalone(void);
+bool patternLauncherHandleStandaloneClick(int16_t x, int16_t y,
+	uint8_t mouseButton, bool shiftPressed);
+bool patternLauncherHandleStandaloneWheel(int16_t x, int16_t y,
+	bool directionUp);
+bool patternLauncherHandleStandaloneSpace(void);
 void patternLauncherToggleDeck(void);
 void patternLauncherSetPanelShown(bool shown);
 void patternLauncherDrawPanel(void);

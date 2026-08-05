@@ -309,9 +309,11 @@ typedef struct tapeheadConfig_t
 	bool monoOutputs;
 	bool hdMode;
 	bool launcherMode;
+	bool launcherStandalone;
 	uint8_t outputBuses;
 	uint8_t hdScale;
 	uint8_t hdStyle;
+	uint8_t midiDubTrackChannels[MAX_CHANNELS];
 	uint32_t undoMemoryMB;
 } tapeheadConfig_t;
 

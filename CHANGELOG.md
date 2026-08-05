@@ -1,3 +1,97 @@
+# Changelog
+
+All notable changes to FT2 Tapehead Edition are documented here.
+
+This project is under active development. Experimental features are identified clearly so that working checkpoints can be preserved before further changes are made.
+
+## CP04.6 - Fast Tracks tick-resolution baker
+
+- Fixed Fast Bake working only for synchronized 1:1 Fast Tracks. When any
+  Fast Track is configured, active, or introduced later by Zxx, the destination
+  now advances once per replayer tick
+  instead of once per master row, so fractional, mixed and 5:1 crossings are
+  written to distinct ordinary XM rows rather than rejected as sub-row events.
+- Live Bake always uses the same tick-resolution timeline because ratios can be
+  changed after recording is armed.
+- Tick-resolution output uses TPL 1. Source TPL commands are resolved into the
+  expanded timeline and stripped; BPM changes remain in the standard XM.
+- The established row-resolution path remains unchanged for ordinary Fast Bake
+  with Fast Tracks disabled.
+
+## CP04.5 — Fast Tracks 32-channel bake allocator
+
+- Replaced the baker's first same-cell failure with a 32-channel spill
+  allocator. A Fast Tracks stream stays on its original XM channel when
+  possible, claims a spare channel when the destination cell is occupied, and
+  reuses its owned spill channels on later rows.
+- Added **Merge exact duplicate voices** to the Shift+Save Bake window. It is
+  enabled by default and applies to both Fast Bake and Live Bake.
+- Exact duplicates from the same logical Fast Tracks stream can collapse at
+  the identical XM instant. Events from distinct source tracks are merged only
+  when their completed baked channel trajectories are byte-for-byte identical.
+- Added a final compaction pass that removes empty spill channels, packs the
+  used channels contiguously, and saves the smallest channel count required by
+  the realized performance.
+- Bake completion now reports relocated and merged event counts. A collision
+  is reported only after no safe channel remains in XM's 32-channel pool.
+- Added standalone native allocator regression coverage and included the new
+  source/header in the Visual Studio project and filters.
+
+## CP04.4b — Baker resolved-command correction
+
+- Fixed Fast Bake and Live Bake falsely rejecting a performance when a private
+  Fast Track encountered a Tapehead Z command or already-resolved flow command
+  between master rows.
+- After the command has changed the Fast Tracks transport and is stripped from
+  the conventional XM cell, the baker now discards the resulting empty cell
+  instead of counting it as an unsupported sub-row event.
+- Genuine sub-row notes/effects and same-cell event collisions remain subject
+  to the existing lossless-first checks.
+
+## CP04.4 — Live Fast Tracks baking
+
+- Expanded the **Shift + module Save** Bake window with **Fast Bake**, **Live**,
+  and **Cancel** choices.
+- Added an armed live composition recorder: choose **Live**, press **Play Song**,
+  adjust Fast Tracks ratios, clutch, reverse, sync, and other controls while the
+  source song loops, then press the ordinary **Stop** button to write the
+  realized performance as a standard XM.
+- Live baking uses audible real-time playback and captures the resolved tracker
+  event stream before mixing. Repeated source patterns therefore become new
+  linear destination patterns whose contents reflect each loop's performed
+  Fast Tracks state.
+- Kept MIDI Dub and Sample Deck ticking audible during a live bake; only the
+  existing silent Fast Bake suppresses external/live output.
+- Preallocates live capture pattern memory before playback so the audio callback
+  never needs to allocate while performing.
+- Shortens the final destination pattern when Stop occurs between 64-row
+  boundaries, so the baked song ends at the performed stopping row instead of
+  adding a padded silent tail.
+- Pressing **Stop** before **Play Song** cancels an armed live bake without
+  writing a file. Pattern-play and record transports are rejected while the
+  live song baker is armed.
+- Preserved CP04.3's lossless-first collision/sub-row checks and XM 256-pattern
+  ceiling.
+
+## CP04.3 — Composition Baker milestone 1
+
+- Added **Shift + Save** for modules as the entry point to a dedicated
+  **Bake Module** confirmation window.
+- Added a silent, faster-than-real-time composition pass through the actual
+  replayer, including Fast Tracks private heads, ratios, reverse, clutch state,
+  and pattern Z commands.
+- Added resolved event capture before mixing and conventional 64-row XM pattern
+  generation. Tapehead Z commands and already-resolved source flow commands are
+  removed from the flattened copy.
+- Added exact Fast Tracks runtime snapshot/restore, including fractional phase,
+  so baking does not alter the loaded composition or its performance state.
+- Baked files omit Tapehead Sample Matrix metadata and default to a
+  `-BAKED.xm` filename.
+- Added conservative collision reporting: no XM is written when this milestone
+  cannot represent simultaneous or sub-row events without musical loss.
+- Composition baking currently requires Song, Q, Poly, and Sample Deck playback
+  to be stopped. Live performance capture remains a later layer over this core.
+
 ## Pattern interpolation v1
 
 - Add `Ctrl+Shift+V` previewable absolute volume interpolation.
@@ -9,11 +103,122 @@
 - Add Enter-to-commit, Escape/unrelated-key cancellation, and a distinct preview selection tint.
 - Reject incompatible endpoints or occupied interior target cells without overwriting pattern data.
 
-# Changelog
+## Deck Matrix CP04.2 — Sample Matrix Editor interaction consistency
 
-All notable changes to FT2 Tapehead Edition are documented here.
+- Added the Deck Matrix momentary alternate-color/inset feedback to every
+  bottom Sample Matrix Editor action, including the brief **DONE** acknowledgement
+  before returning to performance mode.
+- Added three-row mouse-wheel scrolling when the pointer is over the DISK file
+  list and prevented full-window Matrix wheel events from reaching the hidden
+  tracker underneath.
+- Made the Sample Matrix Editor initialize from FT2's Sample Disk Op path only
+  on its first opening. Later trips between the editor and Deck Matrix retain
+  and rescan the last browser directory used during that program run.
 
-This project is under active development. Experimental features are identified clearly so that working checkpoints can be preserved before further changes are made.
+## Deck Matrix CP04.1 — Sample bank reuse and stopped-transport queue
+
+- Renamed the Sample Matrix Editor's clipped **REFRESH** button to **UPDATE**.
+- Made **CLEAR BNK** detach the backing `SBxxA/B` instruments without deleting
+  their native samples. The samples remain in FT2 while the cleared Matrix
+  tiles become immediately reusable by later disk fills.
+- Added an independent Sample Deck boundary clock for stopped native
+  transport. The first sample starts immediately, later Q clicks retain the
+  four-item queue, and Q/Poly starts and stops commit at the current
+  pattern-length boundary using the current BPM/TPL.
+- Kept Sample Q synchronized to real tracker boundaries whenever Song or
+  Pattern playback is running.
+
+## Deck Matrix CP04 — Sample Matrix Editor
+
+- Added the full-window **EDIT SMP** mode while keeping the 32-tile Sample
+  Matrix and all eight Sample banks visible.
+- Added a native sample-file browser with folder navigation, natural sorting,
+  single selection, `Ctrl` individual selection, and `Shift` range selection.
+- Added explicit **DISK** and **MODULE** source modes. Disk files are imported
+  once into ordinary native FT2 Sample Bank instruments; Module samples are
+  assigned by `{instrument, sample}` reference without duplicating audio.
+- Added visible **IMPORT ONE**, **FILL SEL**, **FILL DIR**, **ASSIGN**, **ASSIGN
+  ALL**, **UNASSIGN**, **DELETE**, **CLEAR BNK**, and **DONE** actions.
+- Made bulk disk fills start at the selected tile, skip occupied tiles, cross
+  later banks, preflight instrument capacity, and report imported/omitted
+  counts.
+- Made `UNASSIGN` and `CLEAR BNK` non-destructive. **DELETE** is the separate
+  confirmed operation that removes the native sample and affects all tiles
+  referencing it.
+- Added a compact Tapehead metadata block after the standard XM payload so
+  arbitrary Module references and explicit empty tiles survive XM save/reload
+  while the XM remains playable in ordinary compatible trackers.
+- Kept the CP03.3 modifier gestures as optional power-user shortcuts and fixed
+  the `%02X` status-buffer compiler warnings.
+
+## Deck Matrix CP03.3 — direct sample placement and command cheatsheet
+
+- Added `Ctrl+right-click` on a Sample Deck tile to copy the currently selected
+  native FT2 sample into that exact tile.
+- Preserved complete sample audio and metadata, including name, tuning, loop,
+  volume, and panning; replacement keeps the tile's existing output route.
+- Automatically creates and tags only the required `SBxxA/B` backing
+  instrument when a destination bank half does not exist.
+- Added occupied-tile confirmation, non-modal success/error feedback, safe Deck
+  voice shutdown before memory replacement, and Undo/Redo sample capture.
+- Reworked `docs/DECK_MATRIX_CP03.md` into the complete Deck Matrix command
+  cheatsheet, including Q/Poly boundary, handoff, cancellation, hard-stop,
+  Sample Bank, and song-transport behavior.
+
+## Deck Matrix CP03.2 — universal tile hard stop
+
+- Added `Ctrl+Alt+left-click` as an immediate tile-local hard stop across Q and
+  Poly without replacing the established yellow/orange/red boundary gestures.
+- Made the gesture cancel numbered waiting Q entries and pending Poly starts;
+  an inactive tile is unchanged and cannot be masked accidentally.
+- Kept Pattern and Sample decks independent. Killing active Pattern Q clears
+  its Q queue and immediately resumes an interrupted native song.
+
+## Deck Matrix CP03.1 — transport feedback and extended bank import
+
+- Shortened `PLAY PATT` to `PLAY PAT` and added momentary alternate-color,
+  inset-bevel feedback to the order arrows and five transport buttons.
+- Made the `Oxx Pxx` display follow the audible order and pattern during native
+  Song playback.
+- Made every numbered waiting Pattern Q tile directly cancelable instead of
+  limiting queue undo to the newest entry. The active tile keeps its existing
+  yellow quantized boundary-exit behavior.
+- Extended Sample Matrix folder imports across successive banks, allocating one
+  standard FT2 instrument per 16 naturally sorted samples instead of omitting
+  files after sample 32.
+- Added atomic destination preflight, complete-range replacement confirmation,
+  and a capacity warning when the selected bank leaves too few of the 256
+  Matrix tiles for the entire folder.
+
+## Deck Matrix CP03 — native Sample Banks and tracker transport
+
+- Renamed the full-window surface to **Deck Matrix** and removed the permanent
+  click-instruction legends.
+- Added eight Sample bank selectors mirroring the Pattern bank row. Sample Q
+  and Poly state now keeps unique identities across all 256 tile positions.
+- Replaced the private decoded Sample cache with native FT2 instrument/sample
+  references. Each 32-tile bank is stored as two tagged 16-sample instruments.
+- Connected Matrix tiles to Sample Editor selection and native sample or
+  paired-bank deletion.
+- Added upper-right Pattern/Sample Q and Poly counters plus non-modal lane and
+  queue warnings.
+- Removed repeated song-membership `S` labels and added distinct empty,
+  Matrix-only, song-used, and masked Pattern tile treatments.
+- Added song-order navigation and `PLAY SNG`, `PLAY PATT`, `STOP SNG`, `STOP
+  DECK`, `STOP ALL`, and `TRACKER` controls.
+- Made Space inside Deck Matrix stop only the native tracker transport while
+  leaving independently latched deck voices alone.
+- Preserved MIDI Dub mapping, multichannel routing, and Q/Poly isolation.
+
+## Launcher CP02.2 — restored configurable MIDI Dub track routing
+
+- Restored the `[MIDIDub]` section from the validated HDV3 MIDIMap checkpoint,
+  with explicit `Track01` through `Track32` outgoing MIDI channel assignments.
+- Preserved the default mapping: tracks 1-16 use MIDI channels 1-16, and tracks
+  17-32 repeat channels 1-16.
+- Applied the configured mapping consistently to note-on, note-off, timed gate
+  release, and MIDI panic behavior without changing launcher or audio routing.
+- Added the MIDI configuration regression test to the complete native suite.
 
 ## Experimental mono hardware routing — Pass 8
 

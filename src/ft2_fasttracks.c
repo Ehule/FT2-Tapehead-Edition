@@ -118,6 +118,52 @@ static volatile fastTracksChannelState_t fastTracksPOCChannels[FAST_TRACKS_MAX_C
 ** the master transport, but selected private transports keep advancing unseen. */
 static volatile bool fastTracksPOCTransmissionClutchLatched;
 
+void fastTracksPOCGetRuntimeState(fastTracksRuntimeState_t *state)
+{
+	if (state == NULL)
+		return;
+
+	state->masterEnabled = fastTracksPOCMasterEnabled;
+	state->transmissionClutchLatched = fastTracksPOCTransmissionClutchLatched;
+	for (int32_t i = 0; i < FAST_TRACKS_MAX_CHANNELS; i++)
+	{
+		const volatile fastTracksChannelState_t *src = &fastTracksPOCChannels[i];
+		fastTracksRuntimeTrack_t *dst = &state->tracks[i];
+		dst->mode = src->mode;
+		dst->clutchHeld = src->clutchHeld;
+		dst->reversed = src->reversed;
+		dst->sourceOrder = src->sourceOrder;
+		dst->sourceRow = src->sourceRow;
+		dst->tickAccumulator = src->tickAccumulator;
+		dst->lastTPL = src->lastTPL;
+		dst->transportStarted = src->transportStarted;
+		dst->ratioIndex = src->ratioIndex;
+	}
+}
+
+void fastTracksPOCSetRuntimeState(const fastTracksRuntimeState_t *state)
+{
+	if (state == NULL)
+		return;
+
+	fastTracksPOCMasterEnabled = state->masterEnabled;
+	fastTracksPOCTransmissionClutchLatched = state->transmissionClutchLatched;
+	for (int32_t i = 0; i < FAST_TRACKS_MAX_CHANNELS; i++)
+	{
+		const fastTracksRuntimeTrack_t *src = &state->tracks[i];
+		volatile fastTracksChannelState_t *dst = &fastTracksPOCChannels[i];
+		dst->mode = src->mode;
+		dst->clutchHeld = src->clutchHeld;
+		dst->reversed = src->reversed;
+		dst->sourceOrder = src->sourceOrder;
+		dst->sourceRow = src->sourceRow;
+		dst->tickAccumulator = src->tickAccumulator;
+		dst->lastTPL = src->lastTPL;
+		dst->transportStarted = src->transportStarted;
+		dst->ratioIndex = src->ratioIndex;
+	}
+}
+
 static bool fastTracksPOCChannelIsValid(int32_t channelIndex)
 {
 	return channelIndex >= 0 && channelIndex < FAST_TRACKS_MAX_CHANNELS;

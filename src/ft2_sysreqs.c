@@ -1,5 +1,6 @@
 #include <stdio.h> // vsnprintf()
 #include <stdlib.h>
+#include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdarg.h>
@@ -24,7 +25,7 @@ void (*loaderMsgBox)(const char *, ...);
 int16_t (*loaderSysReq)(int16_t, const char *, const char *, void (*)(void));
 // ----------------
 
-#define NUM_SYSREQ_TYPES 10
+#define NUM_SYSREQ_TYPES 11
 
 #define MAX_PUSHBUTTONS 5
 static char *buttonText[NUM_SYSREQ_TYPES][MAX_PUSHBUTTONS] =
@@ -41,7 +42,8 @@ static char *buttonText[NUM_SYSREQ_TYPES][MAX_PUSHBUTTONS] =
 	{ "OK", "Preview", "Cancel", "","" },             // sample editor effects filters
 	{ "Set cursor", "Reset P00", "Cancel", "", "" },       // Pattern Timeline origin
 	{ "Remap all", "Remap range", "Cancel", "", "" },     // Instrument Transform
-	{ "Instr./samples", "Current instr.", "Cancel", "", "" } // Folder sample import
+	{ "Instr./samples", "Current instr.", "Cancel", "", "" }, // Folder sample import
+	{ "Fast Bake", "Live", "Cancel", "", "" } // Tapehead composition baker
 };
 
 static SDL_Keycode shortCut[NUM_SYSREQ_TYPES][5] =
@@ -58,7 +60,8 @@ static SDL_Keycode shortCut[NUM_SYSREQ_TYPES][5] =
 	{ SDLK_o, SDLK_p, SDLK_c, 0,      0 }, // sample editor effects filters
 	{ SDLK_s, SDLK_r, SDLK_c, 0,      0 }, // Pattern Timeline origin
 	{ SDLK_a, SDLK_r, SDLK_c, 0,      0 }, // Instrument Transform
-	{ SDLK_i, SDLK_u, SDLK_c, 0,      0 }  // Folder sample import
+	{ SDLK_i, SDLK_u, SDLK_c, 0,      0 }, // Folder sample import
+	{ SDLK_f, SDLK_l, SDLK_c, 0,      0 }  // Tapehead composition baker
 };
 
 typedef struct quitType_t

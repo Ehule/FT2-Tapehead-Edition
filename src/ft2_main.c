@@ -220,7 +220,9 @@ int main(int argc, char *argv[])
 	pauseAudio();
 	resumeAudio();
 	rescanAudioDevices();
-	if (tapeheadConfig.launcherMode)
+	if (tapeheadConfig.launcherStandalone)
+		patternLauncherSetStandaloneShown(true);
+	else if (tapeheadConfig.launcherMode)
 		patternLauncherSetPanelShown(true);
 
 #ifdef _WIN32 // on Windows we show the window at this point
@@ -261,6 +263,13 @@ int main(int argc, char *argv[])
 		handlePatternLauncherStop();
 		handlePatternLauncherPanelRefresh();
 		handleRedrawing();
+		/*
+		** Playback updates can repaint the tracker's position, pattern-length and
+		** tempo fields. The standalone launcher owns the complete framebuffer, so
+		** draw it last to prevent those live fields from bleeding through it.
+		*/
+		if (patternLauncherStandaloneIsShown())
+			patternLauncherDrawStandalone();
 		flipFrame();
 		endFPSCounter();
 	}
