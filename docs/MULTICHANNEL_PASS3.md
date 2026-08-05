@@ -1,5 +1,8 @@
 # Multichannel Output — Pass 3
 
+> **Historical checkpoint.** Pass 5 contains the hardware-confirmed repair;
+> [`MULTICHANNEL_OUTPUT.md`](MULTICHANNEL_OUTPUT.md) is the current reference.
+
 Pass 3 repairs the live Bus B silence found during the Echo Indigo DJx JACK
 hardware test. Tapehead could publish and connect `bus_B_L/R`, and its scope
 marker could show `B`, while the realtime mixer still folded the sounding

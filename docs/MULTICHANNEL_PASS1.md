@@ -1,7 +1,8 @@
 # Multichannel Output — Pass 1
 
-> Historical checkpoint: Pass 2 supersedes the SDL/JACK experiment below with
-> a selectable native backend. See `MULTICHANNEL_PASS2.md` for current setup.
+> **Historical checkpoint.** Later passes add and repair the native JACK path
+> and Mono Outputs. See [`MULTICHANNEL_OUTPUT.md`](MULTICHANNEL_OUTPUT.md) for
+> the current CP04.6 setup.
 
 Tapehead now has sixteen fixed-capacity logical stereo buses (`A` through `P`).
 The number exposed to the selected SDL audio device is set in `tapehead.ini`:

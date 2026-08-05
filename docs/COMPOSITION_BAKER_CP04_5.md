@@ -1,5 +1,9 @@
 # Composition Baker CP04.5
 
+> **Historical checkpoint.** CP04.5 introduced the allocator retained by
+> CP04.6, but predates the tick-resolution timeline. Use
+> [`COMPOSITION_BAKER.md`](COMPOSITION_BAKER.md) for current behavior.
+
 CP04.5 gives Fast Tracks baking a 32-channel allocation and cleanup pass. Fast
 Bake and Live Bake still capture the resolved event stream before mixing; the
 difference is that an occupied destination cell no longer ends the bake while

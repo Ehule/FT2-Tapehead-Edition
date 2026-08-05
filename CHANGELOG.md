@@ -4,7 +4,14 @@ All notable changes to FT2 Tapehead Edition are documented here.
 
 This project is under active development. Experimental features are identified clearly so that working checkpoints can be preserved before further changes are made.
 
-## CP04.6 - Fast Tracks tick-resolution baker
+The newest entry describes the current source. Older sections are historical
+milestones and may contain limitations or planned work that later entries
+supersede. See [`docs/README.md`](docs/README.md) for the current documentation
+map.
+
+## CP04.6 — 2026-08-04 — Fast Tracks tick-resolution baker
+
+Frozen as tag `cp04.6` on the `baker-experimental` branch.
 
 - Fixed Fast Bake working only for synchronized 1:1 Fast Tracks. When any
   Fast Track is configured, active, or introduced later by Zxx, the destination
@@ -17,6 +24,12 @@ This project is under active development. Experimental features are identified c
   expanded timeline and stripped; BPM changes remain in the standard XM.
 - The established row-resolution path remains unchanged for ordinary Fast Bake
   with Fast Tracks disabled.
+- Validated with synchronized `1:1`, synchronized `5:1`, mixed-ratio live
+  performance, and a collision-heavy stress module. The stress bake expanded
+  beyond its source channel count and compacted successfully.
+- Added native timeline coverage to the baker allocator suite. See
+  [`docs/COMPOSITION_BAKER.md`](docs/COMPOSITION_BAKER.md) for current use and
+  output rules.
 
 ## CP04.5 — Fast Tracks 32-channel bake allocator
 

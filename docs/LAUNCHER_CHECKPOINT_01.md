@@ -1,5 +1,8 @@
 # Tapehead Pattern + Sample Launcher — Checkpoint 01
 
+> **Historical checkpoint.** The current descendant is Deck Matrix CP04.2 at
+> the CP04.6 source checkpoint. See [`DECK_MATRIX.md`](DECK_MATRIX.md).
+
 This branch is the first working vertical slice of the combined launcher. It
 starts from the consolidated post-HD experimental source tree and does not
 touch the frozen RC1 lineage.

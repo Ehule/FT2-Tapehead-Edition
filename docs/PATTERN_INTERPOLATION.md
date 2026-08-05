@@ -1,5 +1,8 @@
 # Pattern Interpolation / Melodic Walk
 
+> **Current CP04.6 workflow.** These operations participate in module Undo/Redo
+> when their previews are committed.
+
 Tapehead Edition provides three pattern operations:
 
 - `Ctrl+Shift+V` — interpolate volume-column values.

@@ -1,5 +1,9 @@
 # Multichannel Pass 5 — live routing fix
 
+> **Historical repair record.** This fix is included in CP04.6. Current setup,
+> including later Mono Outputs behavior, is in
+> [`MULTICHANNEL_OUTPUT.md`](MULTICHANNEL_OUTPUT.md).
+
 Pass 5 fixes the ordinary tracker-audio failure isolated by the X220, native
 JACK, and Echo Indigo DJx hardware test.
 

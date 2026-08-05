@@ -2,203 +2,146 @@
 
 > **Compose like a tracker. Think like a tape machine.**
 
-**FT2 Tapehead Edition** is a performance-oriented fork of **FT2 Clone** by **8bitbubsy**, inspired by the original **FastTracker II** by Triton Productions.
+FT2 Tapehead Edition is a performance- and composition-oriented fork of
+[ft2-clone](https://github.com/8bitbubsy/ft2-clone), which recreates the
+FastTracker II workflow. Tapehead keeps the familiar tracker at its center and
+adds alternate per-track transports, live pattern and sample decks, MIDI and
+multichannel routing, non-destructive performance controls, and tools for
+turning performed timing back into an ordinary XM.
 
-Rather than reinventing FastTracker II, Tapehead Edition expands it with optional tools for live performance, experimental composition, faster editing, and modern workflow improvements—while preserving the speed, look, and philosophy that made the original tracker timeless.
+## Project status
 
----
+- Current documented checkpoint: **CP04.6**
+- Git branch: **`baker-experimental`**
+- Frozen tag: **`cp04.6`**
 
-# Project Status
+CP04.6 is the first proven tick-resolution Composition Baker checkpoint. Its
+Fast Bake and Live Bake paths have produced conventional XM files from
+synchronized, mixed-ratio, high-ratio, and deliberately pathological Fast
+Tracks performances. The checkpoint also contains the full Deck Matrix and
+Sample Matrix Editor developed after RC1.
 
-**Status:** Release Candidate 1 / Public Testing
+RC1 remains the older frozen baseline. Documents bearing RC1, structural
+checkpoint, launcher checkpoint, Deck Matrix CP, or multichannel pass numbers
+describe the history of a subsystem at that milestone; they are not the best
+place to learn the complete current build.
 
-Tapehead Edition is under active development. RC1 freezes the first
-release-candidate baseline for everyday composition and public testing.
+Start here:
 
-The project has grown well beyond a collection of patches and now includes transport experimentation, composition assistants, performance controls, MIDI integration, and numerous workflow enhancements.
+- [Documentation index](docs/README.md)
+- [Complete feature overview](FEATURES.md)
+- [Composition Baker](docs/COMPOSITION_BAKER.md)
+- [Deck Matrix](docs/DECK_MATRIX.md)
+- [FasTracks and the frozen `Zxx` map](docs/FAST_TRACKS.md)
+- [Configuration reference](docs/CONFIGURATION.md)
+- [Changelog](CHANGELOG.md)
 
-If you're new to the project, start with:
+## What makes Tapehead different
 
-- FEATURES.md — complete feature overview
-- CHANGELOG.md — development history
-- docs/RC1_RELEASE_NOTES.md — RC1 behavior, test focus, and known idiosyncrasies
-- docs/FAST_TRACKS.md
-- docs/SAMPLE_MAP.md
-- docs/PATTERN_INTERPOLATION.md
-- docs/MULTICHANNEL_PASS2.md
+### FasTracks
 
----
+Every XM channel can have a private Pattern or Song transport while all tracks
+continue to share the module's BPM and tick clock. Tracks can run at rational
+ratios from `1:2` through `5:1`, reverse, freewheel, synchronize, and use
+momentary or latched clutch behavior. The XM `Zxx` effect carries a frozen set
+of pattern-programmable FasTracks commands.
 
-# Highlights
+### Deck Matrix
 
-Major additions over stock ft2-clone include:
+The Deck Matrix places Pattern and Sample decks side by side over the same live
+module. Pattern Q and four Pattern Poly spools can coexist with Sample Q and
+four Sample Poly voices. The Sample side provides eight banks of 32 tiles and
+a visual editor that can import disk files or assign existing module samples
+without duplicating their audio.
 
-- Fast Tracks alternate transport engine
-- 32-track Fast Tracks control
-- Multiple transport ratios
-- Dirty Sync / Clean Sync workflow
-- Clutch performance controls
-- Ratio randomizer
-- MIDI Dub / MIDI Output
-- Silent Record
-- REC+ automatic song expansion
-- Fast Tracks-to-XM baker with silent one-pass and live looping performance modes (Shift + module Save)
-- Inherit Pattern Length (IPL)
-- Insert New Pattern (INP)
-- Sample Map navigation system
-- Pattern Interpolation
-- Melodic Walk generator
-- Pattern Matrix performance launcher
-- Per-track Pattern/Song transport and reverse
-- Shift+INP independent pattern duplication
-- VIEW Transpose “spinning canvas” mode
-- Pattern Navigation popup
-- Configurable vertical cursor navigation
-- Middle-click audition tools
-- Per-track output trim
-- Native JACK/PipeWire-JACK virtual stereo buses for REAPER and multichannel hardware
-- Performance mute with live MIDI Dub pass-through
-- Runtime logo loading
-- Portable configuration support
+### Composition Baker
 
-See **FEATURES.md** for a complete list.
+Hold **Shift** while clicking module **Save** to flatten a Tapehead performance
+into a conventional XM:
 
----
+- **Fast Bake** silently resolves one complete song pass.
+- **Live** records repeated song loops while FasTracks controls are performed
+  in real time, then finishes when ordinary **Stop** is pressed.
 
-# Philosophy
+When FasTracks timing is present, CP04.6 expands each replayer tick into an XM
+row and saves at TPL 1. A 32-channel allocator preserves simultaneous events,
+uses spill channels only when needed, optionally merges exact duplicate voices,
+and compacts the final channel layout. Tapehead control commands are removed
+after their musical result has been realized.
 
-The goal is not to redesign FastTracker II.
+### Tracker workflow
 
-The goal is to preserve its speed, familiarity, and philosophy while removing repetitive actions that interrupt creative flow.
+Tapehead also adds Silent Record, `REC+`, Inherit Pattern Length, Insert New
+Pattern, independent pattern duplication, module-wide Undo/Redo, Sample Map,
+sample extraction shortcuts, previewable interpolation and Melodic Walk,
+Pattern Matrix navigation, VIEW Transpose, per-track trim and performance mute,
+configurable MIDI Dub routing, and native JACK/PipeWire-JACK output buses.
 
-Every major addition is designed to remain optional. A long-time FT2 user should still feel at home, while adventurous users can explore entirely new ways of composing and performing.
+## First run
 
----
+The example configuration is [`release/other/tapehead.ini`](release/other/tapehead.ini).
+It is read at startup from beside the executable.
 
-# Feature Overview
+Important defaults in this checkpoint:
 
-## Recording & Composition
+- Deck Matrix enabled and opened as the full-window standalone surface
+- HD presentation disabled
+- one stereo output bus
+- mono output disabled
+- MIDI tracks 1–16 mapped to channels 1–16, repeated for tracks 17–32
+- 32 MB Undo history ceiling
 
-- Silent Record
-- REC+
-- IPL
-- INP
-- Pattern Data Zap
-- Pattern Interpolation
-- Melodic Walk
+Select **TRACKER** in Deck Matrix to return to the ordinary editor. See the
+[Deck Matrix guide](docs/DECK_MATRIX.md) for its mouse gestures and transport
+boundaries.
 
-## Performance
+## Building and testing
 
-### Fast Tracks
+Platform-specific compilation instructions remain in
+[`HOW-TO-COMPILE.txt`](HOW-TO-COMPILE.txt). Linux convenience scripts are
+provided at the repository root.
 
-Fast Tracks introduces an alternate transport system where individual tracker channels can run at different rhythmic ratios while remaining synchronized to the song.
+Run every standalone native regression suite with:
 
-Current capabilities include:
-
-- Up to 32 independently controlled Fast Tracks
-- Multiple musical ratio selections
-- Dirty Sync and Clean Sync workflows
-- Momentary and latched clutch controls
-- Ratio randomization
-- One-click global synchronization
-- Visual transport feedback
-
-Designed for evolving polyrhythms, phase relationships, and live performance without changing the familiar FT2 editing workflow.
-
-
-## Pattern-Programmable FastTracks
-
-Tapehead Edition extends the previously unused XM **Z** effect into a programmable
-transport system.
-
-FastTracks commands control
-the transport driving each pattern track. This allows transport behavior itself to
-become part of the composition.
-
-Current capabilities include:
-
-- Per-track transport ratio selection
-- Per-track clutch engage/release
-- Global FastTracks on/off
-- Global ratio randomization
-- Global synchronization
-- Global transmission clutch
-- Reset all ratios to 1:1 (with or without phase preservation)
-
-Because the XM Z effect is ignored by standard FastTracker-compatible players,
-Tapehead Edition modules remain fully compatible with the XM format. Other players
-simply preserve the Z commands while ignoring their playback behavior.
-
-## MIDI
-
-MIDI Dub allows tracker playback to be transmitted as live MIDI data for driving external synthesizers, DAWs, or modular software while composing inside FT2.
-
-Outgoing MIDI channels are assigned per tracker track in the `[MIDIDub]`
-section of `tapehead.ini`. The default is tracks 1-16 to channels 1-16, repeated
-for tracks 17-32. Change any `Track01` through `Track32` value to a MIDI channel
-from 1 through 16; multiple tracks may intentionally share the same channel.
-
-## Deck Matrix
-
-Deck Matrix is a second full-window control surface for the same live FT2
-module. Its Pattern and Sample decks retain independent Q/Poly ownership while
-sharing the tracker's BPM/TPL clock. The Sample side provides eight pages of 32
-tiles. Each page is stored as two tagged, ordinary 16-sample instruments, so
-the files remain available to FT2's Sample Editor and survive an XM save.
-
-The bottom transport strip navigates the real song order and separates `STOP
-SNG`, `STOP DECK`, and `STOP ALL`. The **Tracker** button returns to the normal
-editor without creating a second playback engine.
-
-See `docs/DECK_MATRIX_CP03.md` for the complete controls.
-
-## Editing
-
-Additional workflow improvements include:
-
-- Sample Map
-- Middle-click audition
-- Pattern Navigation popup
-- Configurable cursor navigation
-- Numerous keyboard shortcuts and quality-of-life improvements
-
----
-
-# Building
-
-Tapehead Edition builds using the same general process as ft2-clone.
-
-See the original project documentation for platform-specific build instructions.
-
----
-
-# Credits
-
-Tapehead Edition is built upon the outstanding work of **8bitbubsy's FT2 Clone**, itself a faithful recreation of Triton Productions' FastTracker II.
-
-This fork exists out of respect for the original tracker and a desire to explore new creative workflows without losing the character that made FT2 special.
-
-Happy tracking.
-
-## Undo / Redo
-
-Tapehead Edition provides a bounded module-edit history:
-
-- **Alt+Backspace** — Undo
-- **Shift+Alt+Backspace** — Redo
-- Up to **128 transactions**
-- **32 MB** default history ceiling
-- Memory is allocated only when edits are recorded; 32 MB is not reserved at startup
-- When the ceiling is reached, the oldest transactions are discarded first
-- A new edit after undo clears the redo branch
-
-The memory ceiling can be changed in `tapehead.ini`, located beside the program:
-
-```ini
-[Undo]
-UndoMemoryMB=32
+```bash
+python3 scripts/test_all_native.py
 ```
 
-Accepted values are 4–1024 MB. The default is intentionally conservative for older systems such as ThinkPad X40-class hardware. Pattern operations are very small; large destructive sample or instrument edits consume the history more quickly.
+At CP04.6 the complete suite covers the baker allocator and timeline, Sample
+Launcher state and banks, Sample Matrix browser, FasTracks core and transport,
+multichannel delivery, JACK backend, Pattern/Poly ownership, and MIDI Dub
+configuration.
 
-Current undo transactions include destructive pattern insert/delete operations, track/pattern/block cut and paste, committed interpolation and Melodic Walk previews, sample-editor right-button drawing (one mouse stroke per transaction), internal sample/instrument replacement, and sample or instrument overwrites loaded from disk. Instrument undo also restores the slot name.
+## XM compatibility
+
+Tapehead continues to edit and save standard XM module data. Most Tapehead
+performance state is runtime-only, and ordinary XM players ignore the custom
+meaning of `Zxx`. The Sample Matrix can append a small Tapehead metadata block
+for tile references; compatible XM software still reads the standard module
+payload.
+
+Use the Composition Baker when a conventional player must reproduce resolved
+FasTracks timing. Baking does not currently capture Deck Matrix or Sample
+Matrix performance.
+
+## Philosophy
+
+The goal is not to redesign FastTracker II. The goal is to keep its speed,
+look, and directness while making room for nonlinear timing, performance, and
+composition methods that still feel mechanically connected to a tracker.
+
+Every major Tapehead system is intended to remain optional. With the new
+layers idle, the program should still feel like FT2. With them active, it can
+behave like a collection of tape heads, switchers, clocks, and live routing
+paths sharing one old machine.
+
+## Credits
+
+- Original FastTracker II by Triton Productions
+- ft2-clone by 8bitbubsy
+- Tapehead Edition concept, project direction, and testing by Ehule
+- Development, debugging, regression work, and documentation assistance with
+  OpenAI ChatGPT
+
+FT2 Tapehead Edition inherits the upstream licensing terms included in
+[`LICENSE`](LICENSE) and [`LICENSES.txt`](LICENSES.txt).

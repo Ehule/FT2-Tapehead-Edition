@@ -1,5 +1,9 @@
 # Tapehead Standalone Launcher — Checkpoint 02
 
+> **Historical checkpoint.** The full-window surface later became Deck Matrix
+> with native Sample Banks and the Sample Matrix Editor. See
+> [`DECK_MATRIX.md`](DECK_MATRIX.md).
+
 Checkpoint 02 keeps the validated Checkpoint 01 audio and transport engine and
 adds the first dedicated launcher surface. It is deliberately still compiled
 from the Tapehead source tree so XM effects, instruments, MIDI, FasTracks,

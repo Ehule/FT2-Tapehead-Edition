@@ -1,5 +1,10 @@
 # Multichannel Pass 4B diagnostic
 
+> **Historical diagnostic only.** The injected test tone and environment
+> variables below were used to isolate the fault fixed in Pass 5. They are not
+> required for normal CP04.6 routing. See
+> [`MULTICHANNEL_OUTPUT.md`](MULTICHANNEL_OUTPUT.md).
+
 This build does not claim to fix the remaining silent Bus B problem. It adds
 live measurements of the actual JACK port buffers and an optional test tone
 injected directly into a selected JACK bus. Pass 4B corrects the original Pass

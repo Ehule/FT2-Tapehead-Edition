@@ -1,5 +1,8 @@
 # Sample Map
 
+> **Current CP04.6 workflow.** Sample Map affects tracker composition and sample
+> placement; it is separate from Deck Matrix tile assignment.
+
 **Sample Map places recorded audio in tracker space, giving each instrument an origin and every point in its waveform a pattern-and-row address.**
 
 Traditional trackers treat a sample mainly as an isolated recording measured in sample offsets, percentages, and loop points. Sample Map adds another view: the waveform can also be read in the same musical coordinates as the song.

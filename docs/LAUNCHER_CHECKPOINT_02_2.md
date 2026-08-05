@@ -1,5 +1,8 @@
 # Launcher Checkpoint 02.2
 
+> **Historical checkpoint.** The MIDI map remains current at CP04.6, but the
+> complete setting reference now lives in [`CONFIGURATION.md`](CONFIGURATION.md).
+
 Checkpoint 02.2 preserves the full-window launcher interface and redraw fix
 from CP02.1 while restoring the configurable MIDI Dub channel map that was
 present in the validated `FT2-HDV3-MIDIMap` checkpoint.

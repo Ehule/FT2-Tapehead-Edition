@@ -1,11 +1,17 @@
-# Poly Matrix
+# Poly Matrix — CP04.6 transport reference
 
-Poly Matrix is an experimental post-RC1 performance layer inside the Pattern
-Matrix. It treats a pattern as a spool of musical threads and automatically
-routes those threads through available physical channels, or "tunnels."
+Poly Matrix began as a post-RC1 proof of concept and is now the Pattern Poly
+transport used by the CP04.6 Deck Matrix. It treats a pattern as a spool of
+musical threads and automatically routes those threads through available
+physical channels, or "tunnels."
 
 Poly Matrix is runtime-only and non-destructive. It does not rewrite pattern
 data or add Tapehead-specific metadata to an XM file.
+
+The Composition Baker does not yet record Pattern Q or Poly activity. See
+[`docs/COMPOSITION_BAKER.md`](docs/COMPOSITION_BAKER.md) for the current
+capture boundary and [`docs/DECK_MATRIX.md`](docs/DECK_MATRIX.md) for the
+combined performance surface.
 
 ## Loom vocabulary
 

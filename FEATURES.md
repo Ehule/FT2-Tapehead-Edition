@@ -1,12 +1,13 @@
-# FT2 Tapehead Edition — Release Candidate 1
+# FT2 Tapehead Edition — CP04.6 Feature Reference
 
 > **Compose like a tracker. Think like a tape machine.**
 
 FT2 Tapehead Edition is an experimental, performance-oriented fork of [ft2-clone](https://github.com/8bitbubsy/ft2-clone). It preserves the familiar FastTracker II workflow while adding new tools for live manipulation, nonlinear composition, MIDI integration, sample navigation, and faster pattern editing.
 
-RC1 is the first frozen release-candidate baseline. It is usable for everyday
-composition and performance testing, while FasTracks and its intentionally
-asynchronous editing modes remain experimental.
+This reference describes the `baker-experimental` branch at the frozen
+`cp04.6` tag. RC1 is the older release-candidate baseline; CP04.6 adds the Deck
+Matrix, Sample Matrix Editor, expanded routing experiments, and the first
+proven tick-resolution Composition Baker.
 
 ## What this fork adds
 
@@ -25,7 +26,32 @@ asynchronous editing modes remain experimental.
 - Song-order navigation with separate song, deck, and global stop controls
 - Optional direct Deck Matrix startup through `tapehead.ini`
 
-See `docs/DECK_MATRIX_CP03.md` for controls and native Sample Bank behavior.
+See [`docs/DECK_MATRIX.md`](docs/DECK_MATRIX.md) for current controls and native
+Sample Bank behavior.
+
+### Composition Baker
+
+- Opened by holding **Shift** while clicking module **Save**
+- **Fast Bake** performs one silent CPU-speed pass from order 0
+- **Live** records audible repeated song loops until ordinary **Stop**
+- Captures resolved Fast Tracks Pattern/Song heads, ratios, direction, clutch,
+  synchronization, master state, and pattern-programmed `Zxx` changes
+- Uses one conventional XM row per replayer tick whenever Fast Tracks timing
+  is active or may be introduced by `Zxx`
+- Live Bake always uses the tick-resolution path so controls can change after
+  capture is armed
+- Tick-resolution output is saved at TPL 1; source timing commands are
+  realized and removed while BPM changes remain
+- Uses XM's 32-channel pool for collisions and reuses spill channels by source
+  stream
+- Optional exact-duplicate merging, enabled by default
+- Removes unused spill channels and packs the final channel layout
+- Preserves standard instruments and sample data without duplication
+- Refuses to write when the performance cannot be represented losslessly or
+  exceeds XM's 256-pattern ceiling
+
+See [`docs/COMPOSITION_BAKER.md`](docs/COMPOSITION_BAKER.md) for the complete
+workflow, output rules, and current capture boundary.
 
 ### Fast Tracks
 
@@ -69,7 +95,7 @@ Channels 30–32: Z X C
 - `Shift+Right-click` an assigned channel header — Toggle Pattern/Song transport
 
 
-## Pattern Effect Commands (Zxx)
+### Pattern-programmable transport (`Zxx`)
 
 Tapehead Edition uses the XM **Z** effect for persistent, pattern-programmable FasTracks transport control. The compatibility-frozen command table, exact ratio mapping, and behavior notes are maintained in [docs/FAST_TRACKS.md](docs/FAST_TRACKS.md#pattern-programmable-commands).
 
@@ -102,7 +128,7 @@ Tapehead Edition uses the XM **Z** effect for persistent, pattern-programmable F
 - Short gain ramps reduce clicks when muting
 - Red scope overlay shows performance-mute state
 
-### Experimental multichannel output
+### Multichannel and mono output
 
 - Up to sixteen logical stereo buses (`A` through `P`)
 - Configurable exposed bus count through `[Audio] OutputBuses` in
@@ -115,8 +141,11 @@ Tapehead Edition uses the XM **Z** effect for persistent, pattern-programmable F
   named stereo port pair for REAPER, PipeWire graphs, or direct hardware routing
 - Multichannel-capable SDL devices remain supported without JACK
 - Stereo-only devices fold every logical bus safely to Bus A
-- Setup and test notes are documented in
-  [docs/MULTICHANNEL_PASS2.md](docs/MULTICHANNEL_PASS2.md)
+- Optional Mono Outputs mode routes each tracker lane to one physical output
+  before FT2 stereo panning; the live Config checkbox and `tapehead.ini` setting
+  control the same runtime mode
+- Setup and current behavior are documented in
+  [`docs/MULTICHANNEL_OUTPUT.md`](docs/MULTICHANNEL_OUTPUT.md)
 
 ### Pattern Editor audition
 
@@ -255,19 +284,29 @@ See [`docs/SAMPLE_MAP.md`](docs/SAMPLE_MAP.md) for the workflow in detail.
 | Sample extraction shortcuts | — | Yes |
 | Pattern-addressed Sample Map | — | Yes |
 | Extract + Stamp workflow | — | Yes |
+| Pattern Q plus four Pattern Poly spools | — | Yes |
+| Sample Q plus four Sample Poly voices | — | Yes |
+| Visual Sample Matrix import/assignment editor | — | Yes |
+| Fast Tracks performance-to-XM baking | — | Yes |
+| Native JACK/PipeWire-JACK output buses | — | Yes |
+| Per-track mono hardware routing | — | Yes |
 | Runtime custom logo loading | — | Yes |
 | Executable-adjacent portable configuration | — | Yes |
 
 ## Testing status
 
-Tapehead Edition is currently suited to curious musicians, tracker users, and developers who are comfortable testing an active fork.
+CP04.6 is a proven development checkpoint, not a final release. It is suited to
+musicians, tracker users, and developers who are comfortable testing an active
+fork while keeping important modules backed up.
 
 Please expect:
 
 - experimental behavior at extreme Fast Tracks ratios or timing settings;
-- incomplete or changing keyboard documentation;
+- experimental interaction boundaries between the ordinary tracker, Deck
+  Matrix, and live baker;
 - features that may be refined after real-world use;
-- standard XM files to remain editable, while some live Tapehead behaviors cannot be reproduced by stock XM players unless rendered or translated.
+- standard XM files to remain editable, while runtime-only Tapehead behavior
+  must be baked when stock XM playback needs to reproduce it.
 
 Useful testing areas include:
 
@@ -278,15 +317,22 @@ Useful testing areas include:
 - long Sample Map and REC+ sessions
 - live use of trim, mute, clutch, and ratio changes
 - old or unusual XM modules
+- Fast Bake and Live Bake with mixed ratios, pattern `Zxx`, repeated loops, and
+  high event density
 
 When reporting a problem, include your operating system, build method, audio/MIDI setup, module or reproduction steps, and the settings needed to trigger it.
 
 ## Documentation
 
+- [`docs/README.md`](docs/README.md)
+- [`docs/COMPOSITION_BAKER.md`](docs/COMPOSITION_BAKER.md)
+- [`docs/DECK_MATRIX.md`](docs/DECK_MATRIX.md)
 - [`docs/FAST_TRACKS.md`](docs/FAST_TRACKS.md)
+- [`docs/MULTICHANNEL_OUTPUT.md`](docs/MULTICHANNEL_OUTPUT.md)
+- [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md)
 - [`docs/PATTERN_INTERPOLATION.md`](docs/PATTERN_INTERPOLATION.md)
 - [`docs/SAMPLE_MAP.md`](docs/SAMPLE_MAP.md)
-- [`docs/RC1_RELEASE_NOTES.md`](docs/RC1_RELEASE_NOTES.md)
+- [`docs/RC1_RELEASE_NOTES.md`](docs/RC1_RELEASE_NOTES.md) — historical RC1 baseline
 - [`CHANGELOG.md`](CHANGELOG.md)
 - [`HOW-TO-COMPILE.txt`](HOW-TO-COMPILE.txt)
 

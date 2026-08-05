@@ -1,5 +1,9 @@
 # Structural checkpoint 01
 
+> **Historical RC1 engineering record.** Later Deck Matrix and Composition
+> Baker work builds on this refactor. Use [`README.md`](README.md) for the
+> current CP04.6 documentation map.
+
 This checkpoint changes source ownership, not the musical model.
 
 ## Checkpoint 01A performance addition

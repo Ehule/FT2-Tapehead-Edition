@@ -1,5 +1,9 @@
 # FT2 Tapehead Edition RC1
 
+> **Frozen historical baseline.** RC1 remains a valid recovery point, but the
+> current documented experimental checkpoint is CP04.6. See
+> [`README.md`](README.md) for the current documentation map.
+
 RC1 freezes Structural Checkpoint 01L as the first release-candidate baseline
 on `workmode-structural-refactor`.
 

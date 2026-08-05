@@ -1,5 +1,9 @@
 # Multichannel Output — Pass 2
 
+> **Historical checkpoint.** The native JACK design remains in CP04.6, but
+> later passes repair delivery and connection lifetime. Use
+> [`MULTICHANNEL_OUTPUT.md`](MULTICHANNEL_OUTPUT.md) for current setup.
+
 Pass 2 gives Linux Tapehead a native JACK/PipeWire-JACK destination. It removes
 the dependency on SDL or a sound card advertising one large multichannel
 device: Tapehead creates its own named virtual ports instead.

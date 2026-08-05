@@ -1,5 +1,9 @@
 # Deck Matrix CP03.1
 
+> **Historical delta.** These changes are included in CP04.6. Use
+> [`DECK_MATRIX.md`](DECK_MATRIX.md) and
+> [`DECK_MATRIX_CP03.md`](DECK_MATRIX_CP03.md) for current behavior.
+
 CP03.1 is a focused transport-feedback and sample-import refinement over CP03.
 
 ## Transport presentation

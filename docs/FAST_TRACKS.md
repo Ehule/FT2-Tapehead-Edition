@@ -1,5 +1,9 @@
 # FasTracks
 
+> **Current CP04.6 reference.** This document contains the compatibility-frozen
+> `Zxx` command map. For translation into stock XM playback, see
+> [`COMPOSITION_BAKER.md`](COMPOSITION_BAKER.md).
+
 FasTracks gives every XM channel a private row-reading transport while retaining FastTracker II's shared audio clock. The master still owns BPM, ticks per line, playback timing, and the ordinary order list. Each assigned track adds its own ratio, phase, source position, direction, mode, and clutch state.
 
 The result behaves less like 32 unrelated sequencers than 32 tape heads sharing one motor.
@@ -168,7 +172,7 @@ A synchronized non-`1:1` transport begins drifting again immediately because its
 
 ## Session state and XM compatibility
 
-FasTracks state is runtime-only:
+FasTracks setup is runtime-only:
 
 - Loading another module retains the current master state, assigned tracks, modes, ratios, and directions.
 - Source rows, source orders, fractional phases, and clutch state are reset for the newly loaded module.
@@ -176,10 +180,13 @@ FasTracks state is runtime-only:
 - Stock FastTracker-compatible software can load, display, edit, play, and resave the XM. It ignores the Tapehead runtime behavior, so the music plays from the ordinary master transport.
 
 Do not place required musical data outside the standard XM structure. The
-**Shift + module Save** baker can translate Fast Tracks playback into ordinary
+**Shift + module Save** baker can translate FasTracks playback into ordinary
 pattern data when stock XM playback must reproduce the result. Its **Fast Bake**
 mode resolves one pass silently; **Live** mode records repeated song loops while
-ratios and other Fast Tracks controls are performed in real time.
+ratios and other FasTracks controls are performed in real time. CP04.6 uses one
+destination row per replayer tick and TPL 1 whenever FasTracks timing is
+present. Full behavior and limits are documented in
+[`COMPOSITION_BAKER.md`](COMPOSITION_BAKER.md).
 
 ## Regression checklist
 
@@ -198,3 +205,4 @@ Before accepting transport changes, test:
 - Pattern Matrix performance while Song transports freewheel;
 - module loading with retained session setup and reset positional state;
 - stock FT2 Clone load, display, playback, save, and Tapehead reopen compatibility.
+- Fast Bake and Live Bake at synchronized `1:1`, mixed ratios, and `5:1`.

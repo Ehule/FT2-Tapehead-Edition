@@ -1,5 +1,9 @@
 # Composition Baker CP04.4
 
+> **Historical checkpoint.** CP04.6 supersedes the timing and collision limits
+> described here. Use [`COMPOSITION_BAKER.md`](COMPOSITION_BAKER.md) for the
+> current workflow and lossless-output rules.
+
 This checkpoint extends the Tapehead-to-XM composition baker with a live
 looping-performance mode. Its primary purpose remains flattening a composition
 that uses Fast Tracks and Z commands into an ordinary XM that no longer
@@ -49,7 +53,7 @@ different realized variations of those patterns.
 Live Bake is audible and runs at normal playback speed. MIDI Dub remains active
 during the performance. Pressing Stop before Play Song cancels the armed bake.
 
-## Lossless-first policy
+## Lossless-first policy at CP04.4
 
 CP04.3 refuses to write a file if multiple resolved events need the same XM
 channel/cell or if a sub-row event cannot be represented by XM's `EDx` note
@@ -63,7 +67,7 @@ a musical sub-row event. Later milestones can translate more genuine musical
 cases using spare-channel allocation, finer destination timing, or explicit
 effect expansion.
 
-## Not in this milestone
+## Not in CP04.4
 
 - Deck Matrix or Sample Matrix performance capture
 - Spare-channel collision allocation

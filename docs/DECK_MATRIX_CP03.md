@@ -1,4 +1,8 @@
-# Deck Matrix command cheatsheet (CP04.2)
+# Deck Matrix command reference (maintained through CP04.2)
+
+> **Detailed current reference for CP04.6.** The filename is retained because
+> this guide began at CP03. For orientation and a shorter first-use workflow,
+> see [`DECK_MATRIX.md`](DECK_MATRIX.md).
 
 Deck Matrix is a full-window performance surface over the same XM, instruments,
 samples, transports, MIDI output, and multichannel mixer used by the tracker.
