@@ -5,5 +5,7 @@
 #include "ft2_unicode.h"
 
 void saveMusic(UNICHAR *filenameU);
+bool saveCurrentModule(void);
+void setCurrentModuleFilename(UNICHAR *filenameU);
 bool saveXM(UNICHAR *filenameU);
 bool saveStandardXM(UNICHAR *filenameU);

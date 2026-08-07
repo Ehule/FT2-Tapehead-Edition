@@ -35,6 +35,7 @@
 #include "ft2_poly_matrix.h"
 #include "ft2_baker.h"
 #include "ft2_structs.h"
+#include "ft2_undo.h"
 #include "ft2_random.h"
 #include "mixer/ft2_windowed_sinc.h"
 
@@ -192,6 +193,7 @@ void resetChannels(void)
 
 void setSongModifiedFlag(void)
 {
+	undoNotifyProjectMutation();
 	song.isModified = true;
 	editor.updateWindowTitle = true;
 }

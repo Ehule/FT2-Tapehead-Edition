@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <string.h>
 #include <math.h>
 #include "ft2_header.h"
 #include "ft2_audio.h"
@@ -15,6 +16,7 @@
 #include "ft2_sample_ed.h"
 #include "ft2_structs.h"
 #include "ft2_replayer.h"
+#include "ft2_undo.h"
 
 #define RESONANCE_RANGE 99
 #define RESONANCE_MIN 0.01 /* prevent massive blow-up */
@@ -24,15 +26,6 @@ enum
 	REMOVE_SAMPLE_MARK = 0,
 	KEEP_SAMPLE_MARK   = 1
 };
-
-static struct
-{
-	bool filled, keepSampleMark;
-	uint8_t flags, undoInstr, undoSmp;
-	uint32_t length, loopStart, loopLength;
-	int8_t *smpData8;
-	int16_t *smpData16;
-} sampleUndo;
 
 typedef struct
 {
@@ -50,66 +43,36 @@ static bool normalization;
 static uint8_t lastFilterType;
 static int32_t lastLpCutoff = 2000, lastHpCutoff = 200, filterResonance, smpCycles = 1, lastWaveLength = 64, lastAmp = 75;
 
-void clearSampleUndo(void)
+static bool beginSampleFxUndo(const char *description, bool keepSampleMark)
 {
-	if (sampleUndo.smpData8 != NULL)
-	{
-		free(sampleUndo.smpData8);
-		sampleUndo.smpData8 = NULL;
-	}
-
-	if (sampleUndo.smpData16 != NULL)
-	{
-		free(sampleUndo.smpData16);
-		sampleUndo.smpData16 = NULL;
-	}
-
-	sampleUndo.filled = false;
-	sampleUndo.keepSampleMark = false;
+	(void)keepSampleMark;
+	if (!undoTransactionBegin(description))
+		return false;
+	const bool ok = instr[editor.curInstr] == NULL
+		? undoTransactionAddInstrument(editor.curInstr)
+		: undoTransactionAddSample(editor.curInstr, editor.curSmp);
+	if (!ok)
+		undoCancelTransaction();
+	return ok;
 }
 
-static void fillSampleUndo(bool keepSampleMark)
+static void cancelSampleFxUndo(void)
 {
-	sampleUndo.filled = false;
+	undoCancelTransaction();
+}
 
-	sample_t *s = getCurSample();
-	if (s != NULL && s->length > 0)
-	{
-		pauseAudio();
-		unfixSample(s);
+static void commitSampleFxUndo(void)
+{
+	if (!undoTransactionIsActive())
+		return;
+	setSongModifiedFlag();
+	undoTransactionCommit();
+}
 
-		clearSampleUndo();
-
-		sampleUndo.undoInstr = editor.curInstr;
-		sampleUndo.undoSmp = editor.curSmp;
-		sampleUndo.flags = s->flags;
-		sampleUndo.length = s->length;
-		sampleUndo.loopStart = s->loopStart;
-		sampleUndo.loopLength = s->loopLength;
-		sampleUndo.keepSampleMark = keepSampleMark;
-
-		if (s->flags & SAMPLE_16BIT)
-		{
-			sampleUndo.smpData16 = (int16_t *)malloc(s->length * sizeof (int16_t));
-			if (sampleUndo.smpData16 != NULL)
-			{
-				memcpy(sampleUndo.smpData16, s->dataPtr, s->length * sizeof (int16_t));
-				sampleUndo.filled = true;
-			}
-		}
-		else
-		{
-			sampleUndo.smpData8 = (int8_t *)malloc(s->length * sizeof (int8_t));
-			if (sampleUndo.smpData8 != NULL)
-			{
-				memcpy(sampleUndo.smpData8, s->dataPtr, s->length * sizeof (int8_t));
-				sampleUndo.filled = true;
-			}
-		}
-
-		fixSample(s);
-		resumeAudio();
-	}
+void clearSampleUndo(void)
+{
+	/* Legacy one-slot Sample FX undo was folded into the application-wide
+	** transaction history. Keep this compatibility hook for load/shutdown code. */
 }
 
 static sample_t *setupNewSample(uint32_t length)
@@ -193,7 +156,7 @@ void pbSfxTriangle(void)
 		return;
 	}
 
-	fillSampleUndo(REMOVE_SAMPLE_MARK);
+	if (!beginSampleFxUndo("Generate triangle", REMOVE_SAMPLE_MARK)) return;
 	
 	int32_t newLength = lastWaveLength * smpCycles;
 
@@ -203,6 +166,7 @@ void pbSfxTriangle(void)
 	if (s == NULL)
 	{
 		resumeAudio();
+		cancelSampleFxUndo();
 		okBox(0, "System message", "Not enough memory!", NULL);
 		return;
 	}
@@ -229,6 +193,7 @@ void pbSfxTriangle(void)
 	resumeAudio();
 
 	updateSampleEditorSample();
+	commitSampleFxUndo();
 }
 
 void pbSfxSaw(void)
@@ -250,7 +215,7 @@ void pbSfxSaw(void)
 		return;
 	}
 
-	fillSampleUndo(REMOVE_SAMPLE_MARK);
+	if (!beginSampleFxUndo("Generate saw", REMOVE_SAMPLE_MARK)) return;
 
 	int32_t newLength = lastWaveLength * smpCycles;
 
@@ -260,6 +225,7 @@ void pbSfxSaw(void)
 	if (s == NULL)
 	{
 		resumeAudio();
+		cancelSampleFxUndo();
 		okBox(0, "System message", "Not enough memory!", NULL);
 		return;
 	}
@@ -280,6 +246,7 @@ void pbSfxSaw(void)
 	resumeAudio();
 
 	updateSampleEditorSample();
+	commitSampleFxUndo();
 }
 
 void pbSfxSine(void)
@@ -301,7 +268,7 @@ void pbSfxSine(void)
 		return;
 	}
 
-	fillSampleUndo(REMOVE_SAMPLE_MARK);
+	if (!beginSampleFxUndo("Generate sine", REMOVE_SAMPLE_MARK)) return;
 
 	int32_t newLength = lastWaveLength * smpCycles;
 
@@ -311,6 +278,7 @@ void pbSfxSine(void)
 	if (s == NULL)
 	{
 		resumeAudio();
+		cancelSampleFxUndo();
 		okBox(0, "System message", "Not enough memory!", NULL);
 		return;
 	}
@@ -327,6 +295,7 @@ void pbSfxSine(void)
 	resumeAudio();
 
 	updateSampleEditorSample();
+	commitSampleFxUndo();
 }
 
 void pbSfxSquare(void)
@@ -348,7 +317,7 @@ void pbSfxSquare(void)
 		return;
 	}
 
-	fillSampleUndo(REMOVE_SAMPLE_MARK);
+	if (!beginSampleFxUndo("Generate square", REMOVE_SAMPLE_MARK)) return;
 
 	uint32_t newLength = lastWaveLength * smpCycles;
 
@@ -358,6 +327,7 @@ void pbSfxSquare(void)
 	if (s == NULL)
 	{
 		resumeAudio();
+		cancelSampleFxUndo();
 		okBox(0, "System message", "Not enough memory!", NULL);
 		return;
 	}
@@ -384,6 +354,7 @@ void pbSfxSquare(void)
 	resumeAudio();
 
 	updateSampleEditorSample();
+	commitSampleFxUndo();
 }
 
 void drawFilterResonance(void)
@@ -651,9 +622,14 @@ void pbSfxLowPass(void)
 	}
 
 	setupResoLpFilter(s, &f, lastLpCutoff, filterResonance, false);
-	fillSampleUndo(KEEP_SAMPLE_MARK);
-	applyResoFilter(s, &f);
+	if (!beginSampleFxUndo("Low-pass sample", KEEP_SAMPLE_MARK)) return;
+	if (!applyResoFilter(s, &f))
+	{
+		cancelSampleFxUndo();
+		return;
+	}
 	writeSample(FORCE_SAMPLE_REDRAW);
+	commitSampleFxUndo();
 }
 
 void pbSfxHighPass(void)
@@ -683,9 +659,14 @@ void pbSfxHighPass(void)
 	}
 
 	setupResoHpFilter(s, &f, lastHpCutoff, filterResonance, false);
-	fillSampleUndo(KEEP_SAMPLE_MARK);
-	applyResoFilter(s, &f);
+	if (!beginSampleFxUndo("High-pass sample", KEEP_SAMPLE_MARK)) return;
+	if (!applyResoFilter(s, &f))
+	{
+		cancelSampleFxUndo();
+		return;
+	}
 	writeSample(FORCE_SAMPLE_REDRAW);
+	commitSampleFxUndo();
 }
 
 void sfxPreviewFilter(uint32_t cutoff)
@@ -800,9 +781,14 @@ void pbSfxSubBass(void)
 		return;
 
 	setupResoHpFilter(s, &f, 0.001, 0, true);
-	fillSampleUndo(KEEP_SAMPLE_MARK);
-	applyResoFilter(s, &f);
+	if (!beginSampleFxUndo("Subtract bass", KEEP_SAMPLE_MARK)) return;
+	if (!applyResoFilter(s, &f))
+	{
+		cancelSampleFxUndo();
+		return;
+	}
 	writeSample(FORCE_SAMPLE_REDRAW);
+	commitSampleFxUndo();
 }
 
 void pbSfxAddBass(void)
@@ -846,7 +832,7 @@ void pbSfxAddBass(void)
 		return;
 	}
 
-	fillSampleUndo(KEEP_SAMPLE_MARK);
+	if (!beginSampleFxUndo("Add bass", KEEP_SAMPLE_MARK)) return;
 
 	pauseAudio();
 	unfixSample(s);
@@ -966,6 +952,7 @@ void pbSfxAddBass(void)
 	resumeAudio();
 
 	writeSample(FORCE_SAMPLE_REDRAW);
+	commitSampleFxUndo();
 }
 
 void pbSfxSubTreble(void)
@@ -977,9 +964,14 @@ void pbSfxSubTreble(void)
 		return;
 
 	setupResoLpFilter(s, &f, 0.33, 0, true);
-	fillSampleUndo(KEEP_SAMPLE_MARK);
-	applyResoFilter(s, &f);
+	if (!beginSampleFxUndo("Subtract treble", KEEP_SAMPLE_MARK)) return;
+	if (!applyResoFilter(s, &f))
+	{
+		cancelSampleFxUndo();
+		return;
+	}
 	writeSample(FORCE_SAMPLE_REDRAW);
+	commitSampleFxUndo();
 }
 
 void pbSfxAddTreble(void)
@@ -1023,7 +1015,7 @@ void pbSfxAddTreble(void)
 		return;
 	}
 
-	fillSampleUndo(KEEP_SAMPLE_MARK);
+	if (!beginSampleFxUndo("Add treble", KEEP_SAMPLE_MARK)) return;
 
 	pauseAudio();
 	unfixSample(s);
@@ -1143,6 +1135,7 @@ void pbSfxAddTreble(void)
 	resumeAudio();
 
 	writeSample(FORCE_SAMPLE_REDRAW);
+	commitSampleFxUndo();
 }
 
 void pbSfxSetAmp(void)
@@ -1187,7 +1180,7 @@ void pbSfxSetAmp(void)
 
 	lastAmp = (int32_t)atoi(ampStr);
 
-	fillSampleUndo(KEEP_SAMPLE_MARK);
+	if (!beginSampleFxUndo("Change sample amplitude", KEEP_SAMPLE_MARK)) return;
 
 	pauseAudio();
 	unfixSample(s);
@@ -1219,56 +1212,16 @@ void pbSfxSetAmp(void)
 	resumeAudio();
 
 	writeSample(FORCE_SAMPLE_REDRAW);
+	commitSampleFxUndo();
 }
 
 void pbSfxUndo(void)
 {
-	if (!sampleUndo.filled || sampleUndo.undoInstr != editor.curInstr || sampleUndo.undoSmp != editor.curSmp)
-		return;
-
-	sample_t *s = getCurSample();
-	if (s == NULL || s->dataPtr == NULL)
-		return;
-
-	pauseAudio();
-
-	freeSmpData(s);
-	s->flags = sampleUndo.flags;
-	s->length = sampleUndo.length;
-	s->loopStart = sampleUndo.loopStart;
-	s->loopLength = sampleUndo.loopLength;
-
-	if (allocateSmpData(s, s->length, !!(s->flags & SAMPLE_16BIT)))
-	{
-		if (s->flags & SAMPLE_16BIT)
-			memcpy(s->dataPtr, sampleUndo.smpData16, s->length * sizeof (int16_t));
-		else
-			memcpy(s->dataPtr, sampleUndo.smpData8, s->length * sizeof (int8_t));
-
-		fixSample(s);
-		resumeAudio();
-	}
-	else
-	{
-		resumeAudio();
-		okBox(0, "System message", "Not enough memory!", NULL);
-	}
-
-	int32_t oldRx1 = smpEd_Rx1;
-	int32_t oldRx2 = smpEd_Rx2;
-
-	updateSampleEditorSample();
-
-	if (sampleUndo.keepSampleMark && oldRx1 < oldRx2)
-	{
-		smpEd_Rx1 = oldRx1;
-		smpEd_Rx2 = oldRx2;
-		writeSample(DONT_FORCE_SAMPLE_REDRAW); // redraw sample mark only
-	}
-
-	sampleUndo.keepSampleMark = false;
-	sampleUndo.filled = false;
+	/* The Sample FX button now uses the same chronological project history as
+	** the Pattern Editor, Matrix and the global keyboard shortcut. */
+	undoPerform();
 }
+
 
 void hideSampleEffectsScreen(void)
 {

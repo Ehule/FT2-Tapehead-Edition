@@ -1,0 +1,13 @@
+; Tapehead Edition six-color palette
+; Copy this file between installations or edit the hex values manually.
+; Press I in Config > Layout to import it into User defined.
+
+[TapeheadPalette]
+PatternText=#FF1C00
+BlockMark=#3D4169
+TextOnBlock=#009EE3
+Mouse=#FFD265
+Desktop=#1C1C1C
+Buttons=#5D555D
+DesktopContrast=52
+ButtonsContrast=67

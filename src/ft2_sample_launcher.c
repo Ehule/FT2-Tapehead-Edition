@@ -77,6 +77,28 @@ static void scanBankInstrumentTags(void)
 	bankMapScanned = true;
 }
 
+
+static bool beginLauncherEditUndo(const char *description, bool *ownsTransaction)
+{
+	*ownsTransaction = !undoTransactionIsActive();
+	if (*ownsTransaction && !undoTransactionBegin(description))
+		return false;
+	if (!undoTransactionAddSampleLauncher())
+	{
+		if (*ownsTransaction)
+			undoCancelTransaction();
+		return false;
+	}
+	return true;
+}
+
+static void finishLauncherEditUndo(bool ownsTransaction)
+{
+	setSongModifiedFlag();
+	if (ownsTransaction)
+		undoTransactionCommit();
+}
+
 static bool instrumentSlotIsEmpty(uint8_t instrument)
 {
 	return instrument > 0 && instrument <= MAX_INST && instr[instrument] == NULL &&
@@ -238,6 +260,16 @@ void sampleLauncherSetBank(uint8_t bank)
 {
 	currentBank = bank & (SAMPLE_LAUNCHER_BANK_COUNT - 1);
 	scanBankInstrumentTags();
+}
+
+void sampleLauncherGetBankInstruments(uint8_t bank, uint8_t *instrumentA, uint8_t *instrumentB)
+{
+	if (instrumentA != NULL) *instrumentA = 0;
+	if (instrumentB != NULL) *instrumentB = 0;
+	if (bank >= SAMPLE_LAUNCHER_BANK_COUNT) return;
+	scanBankInstrumentTags();
+	if (instrumentA != NULL) *instrumentA = banks[bank].instrument[0];
+	if (instrumentB != NULL) *instrumentB = banks[bank].instrument[1];
 }
 
 bool sampleLauncherBankHasSamples(uint8_t bank)
@@ -454,6 +486,10 @@ bool sampleLauncherAssignTile(uint16_t tile, uint8_t instrument,
 	if (source->dataPtr == NULL || source->length <= 0)
 		return false;
 
+	bool ownsUndo;
+	if (!beginLauncherEditUndo("Assign Sample Matrix tile", &ownsUndo))
+		return false;
+
 	uint8_t naturalInstrument, naturalSample;
 	const bool natural = getNaturalTileReference(tile, &naturalInstrument,
 		&naturalSample) && naturalInstrument == instrument && naturalSample == sample;
@@ -462,7 +498,7 @@ bool sampleLauncherAssignTile(uint16_t tile, uint8_t instrument,
 		SAMPLE_LAUNCHER_MAP_REFERENCE;
 	tileMap[tile].instrument = instrument;
 	tileMap[tile].sample = sample;
-	setSongModifiedFlag();
+	finishLauncherEditUndo(ownsUndo);
 	return true;
 }
 
@@ -470,11 +506,16 @@ bool sampleLauncherUnassignTile(uint16_t tile)
 {
 	if (tile >= SAMPLE_LAUNCHER_MAX_TILES)
 		return false;
+
+	bool ownsUndo;
+	if (!beginLauncherEditUndo("Clear Sample Matrix tile", &ownsUndo))
+		return false;
+
 	sampleLauncherHardStop(tile);
 	tileMap[tile].state = SAMPLE_LAUNCHER_MAP_EMPTY;
 	tileMap[tile].instrument = 0;
 	tileMap[tile].sample = 0;
-	setSongModifiedFlag();
+	finishLauncherEditUndo(ownsUndo);
 	return true;
 }
 
@@ -483,17 +524,27 @@ bool sampleLauncherUnassignBank(uint8_t bank)
 	if (bank >= SAMPLE_LAUNCHER_BANK_COUNT)
 		return false;
 
-	/* CLEAR BNK is intentionally non-destructive, but the old implementation
-	** left the backing instruments tagged SBxxA/B. The tiles looked empty
-	** because their metadata entries were EMPTY, while disk fill still saw
-	** the tagged native slots as occupied. Detach the tagged halves from the
-	** Matrix and keep their samples as ordinary FT2 instruments. */
 	scanBankInstrumentTags();
 	const uint8_t bankInstruments[2] =
 	{
 		banks[bank].instrument[0], banks[bank].instrument[1]
 	};
 
+	bool ownsUndo;
+	if (!beginLauncherEditUndo("Clear Sample Matrix bank", &ownsUndo))
+		return false;
+	for (uint8_t half = 0; half < 2; half++)
+	{
+		const uint8_t instrument = bankInstruments[half];
+		if (instrument > 0 && !undoTransactionAddInstrument(instrument))
+		{
+			if (ownsUndo) undoCancelTransaction();
+			return false;
+		}
+	}
+
+	/* CLEAR BNK is intentionally non-destructive. Detach the tagged halves
+	** from the Matrix and keep their samples as ordinary FT2 instruments. */
 	const uint16_t first = bank * SAMPLE_LAUNCHER_TILES_PER_BANK;
 	for (uint16_t i = 0; i < SAMPLE_LAUNCHER_TILES_PER_BANK; i++)
 	{
@@ -523,7 +574,7 @@ bool sampleLauncherUnassignBank(uint8_t bank)
 	banks[bank].instrument[1] = 0;
 	memset(banks[bank].outputBus, 0, sizeof (banks[bank].outputBus));
 	bankMapScanned = true;
-	setSongModifiedFlag();
+	finishLauncherEditUndo(ownsUndo);
 	return true;
 }
 
@@ -536,16 +587,23 @@ bool sampleLauncherDeleteTileSample(uint16_t tile)
 		return false;
 	}
 
+	const bool ownsUndo = !undoTransactionIsActive();
+	if (ownsUndo && !undoTransactionBegin("Delete Sample Matrix sample"))
+		return false;
+	if (!undoTransactionAddSample(instrument, sample))
+	{
+		if (ownsUndo) undoCancelTransaction();
+		return false;
+	}
+
 	const bool audioWasntLocked = !audio.locked;
 	if (audioWasntLocked)
 		lockAudio();
 	sampleLauncherReset();
-	const bool undoStarted = undoSampleBegin(instrument, sample,
-		"Delete Sample Matrix sample");
 	freeSample(instrument, sample);
-	if (undoStarted)
-		undoSampleCommit();
 	setSongModifiedFlag();
+	if (ownsUndo)
+		undoTransactionCommit();
 	if (audioWasntLocked)
 		unlockAudio();
 	return true;
@@ -632,35 +690,29 @@ sampleLauncherPlaceResult_t sampleLauncherCopySampleToTile(uint16_t tile,
 			return SAMPLE_LAUNCHER_PLACE_NO_INSTRUMENT;
 	}
 
-	/* Stage the complete native sample before touching the destination. This
-	** preserves tuning, loop, volume, panning and name metadata and makes an
-	** allocation failure leave the existing Deck tile unchanged. */
 	sample_t stagedSample = { 0 };
 	if (!cloneSample(source, &stagedSample))
 		return SAMPLE_LAUNCHER_PLACE_NO_MEMORY;
 
-	const bool audioWasntLocked = !audio.locked;
-	if (audioWasntLocked)
-		lockAudio();
-
-	/* Deck voices hold direct pointers into native sample memory. Pull every
-	** Sample Deck voice while the callback is locked before replacing one. */
-	sampleLauncherReset();
-	if (!undoSampleBegin(destinationInstrument, destinationSample,
-		"Copy sample to Deck"))
+	const bool createInstrument = instr[destinationInstrument] == NULL;
+	bool ownsUndo;
+	if (!beginLauncherEditUndo("Copy sample to Deck", &ownsUndo) ||
+		!(createInstrument ? undoTransactionAddInstrument(destinationInstrument) :
+		  undoTransactionAddSample(destinationInstrument, destinationSample)))
 	{
-		if (audioWasntLocked)
-			unlockAudio();
+		if (ownsUndo && undoTransactionIsActive()) undoCancelTransaction();
 		freeSmpData(&stagedSample);
 		return SAMPLE_LAUNCHER_PLACE_NO_MEMORY;
 	}
 
-	const bool createInstrument = instr[destinationInstrument] == NULL;
+	const bool audioWasntLocked = !audio.locked;
+	if (audioWasntLocked)
+		lockAudio();
+	sampleLauncherReset();
 	if (createInstrument && !allocateInstr(destinationInstrument))
 	{
-		undoCancelTransaction();
-		if (audioWasntLocked)
-			unlockAudio();
+		if (ownsUndo) undoCancelTransaction();
+		if (audioWasntLocked) unlockAudio();
 		freeSmpData(&stagedSample);
 		return SAMPLE_LAUNCHER_PLACE_NO_MEMORY;
 	}
@@ -668,15 +720,13 @@ sampleLauncherPlaceResult_t sampleLauncherCopySampleToTile(uint16_t tile,
 	if (createInstrument)
 	{
 		char instrumentName[23];
-		sampleLauncherMakeInstrumentName(bank, half, source->name,
-			instrumentName);
+		sampleLauncherMakeInstrumentName(bank, half, source->name, instrumentName);
 		memset(song.instrName[destinationInstrument], 0,
 			sizeof (song.instrName[destinationInstrument]));
 		memcpy(song.instrName[destinationInstrument], instrumentName, 22);
 	}
 
-	sample_t *destination =
-		&instr[destinationInstrument]->smp[destinationSample];
+	sample_t *destination = &instr[destinationInstrument]->smp[destinationSample];
 	freeSmpData(destination);
 	*destination = stagedSample;
 	banks[bank].instrument[half] = destinationInstrument;
@@ -685,8 +735,7 @@ sampleLauncherPlaceResult_t sampleLauncherCopySampleToTile(uint16_t tile,
 	tileMap[tile].sample = 0;
 	bankMapScanned = true;
 	fixInstrAndSampleNames(destinationInstrument);
-	undoSampleCommit();
-	setSongModifiedFlag();
+	finishLauncherEditUndo(ownsUndo);
 
 	if (audioWasntLocked)
 		unlockAudio();
@@ -722,15 +771,24 @@ sampleLauncherPlaceResult_t sampleLauncherMoveDecodedSampleToTile(uint16_t tile,
 			return SAMPLE_LAUNCHER_PLACE_NO_INSTRUMENT;
 	}
 
+	const bool createInstrument = instr[destinationInstrument] == NULL;
+	bool ownsUndo;
+	if (!beginLauncherEditUndo("Import sample to Matrix", &ownsUndo) ||
+		!(createInstrument ? undoTransactionAddInstrument(destinationInstrument) :
+		  undoTransactionAddSample(destinationInstrument, destinationSample)))
+	{
+		if (ownsUndo && undoTransactionIsActive()) undoCancelTransaction();
+		return SAMPLE_LAUNCHER_PLACE_NO_MEMORY;
+	}
+
 	const bool audioWasntLocked = !audio.locked;
 	if (audioWasntLocked)
 		lockAudio();
 	sampleLauncherReset();
-	const bool createInstrument = instr[destinationInstrument] == NULL;
 	if (createInstrument && !allocateInstr(destinationInstrument))
 	{
-		if (audioWasntLocked)
-			unlockAudio();
+		if (ownsUndo) undoCancelTransaction();
+		if (audioWasntLocked) unlockAudio();
 		return SAMPLE_LAUNCHER_PLACE_NO_MEMORY;
 	}
 	if (createInstrument)
@@ -742,8 +800,6 @@ sampleLauncherPlaceResult_t sampleLauncherMoveDecodedSampleToTile(uint16_t tile,
 		memcpy(song.instrName[destinationInstrument], instrumentName, 22);
 	}
 
-	const bool undoStarted = undoSampleBegin(destinationInstrument,
-		destinationSample, "Import sample to Matrix");
 	sample_t *destination = &instr[destinationInstrument]->smp[destinationSample];
 	freeSmpData(destination);
 	*destination = *source;
@@ -756,12 +812,56 @@ sampleLauncherPlaceResult_t sampleLauncherMoveDecodedSampleToTile(uint16_t tile,
 	tileMap[tile].sample = 0;
 	bankMapScanned = true;
 	fixInstrAndSampleNames(destinationInstrument);
-	if (undoStarted)
-		undoSampleCommit();
-	setSongModifiedFlag();
+	finishLauncherEditUndo(ownsUndo);
 	if (audioWasntLocked)
 		unlockAudio();
 	return SAMPLE_LAUNCHER_PLACE_OK;
+}
+
+void sampleLauncherCaptureUndoState(sampleLauncherUndoState_t *state)
+{
+	if (state == NULL)
+		return;
+
+	scanBankInstrumentTags();
+	memset(state, 0, sizeof (*state));
+	for (uint8_t bank = 0; bank < SAMPLE_LAUNCHER_BANK_COUNT; bank++)
+	{
+		state->instruments[bank][0] = banks[bank].instrument[0];
+		state->instruments[bank][1] = banks[bank].instrument[1];
+		memcpy(state->outputBus[bank], banks[bank].outputBus,
+			sizeof (banks[bank].outputBus));
+	}
+
+	for (uint16_t tile = 0; tile < SAMPLE_LAUNCHER_MAX_TILES; tile++)
+	{
+		state->tileState[tile] = tileMap[tile].state;
+		state->tileInstrument[tile] = tileMap[tile].instrument;
+		state->tileSample[tile] = tileMap[tile].sample;
+	}
+}
+
+void sampleLauncherRestoreUndoState(const sampleLauncherUndoState_t *state)
+{
+	if (state == NULL)
+		return;
+
+	sampleLauncherReset();
+	for (uint8_t bank = 0; bank < SAMPLE_LAUNCHER_BANK_COUNT; bank++)
+	{
+		banks[bank].instrument[0] = state->instruments[bank][0];
+		banks[bank].instrument[1] = state->instruments[bank][1];
+		memcpy(banks[bank].outputBus, state->outputBus[bank],
+			sizeof (banks[bank].outputBus));
+	}
+
+	for (uint16_t tile = 0; tile < SAMPLE_LAUNCHER_MAX_TILES; tile++)
+	{
+		tileMap[tile].state = state->tileState[tile];
+		tileMap[tile].instrument = state->tileInstrument[tile];
+		tileMap[tile].sample = state->tileSample[tile];
+	}
+	bankMapScanned = true;
 }
 
 void sampleLauncherForgetBanks(void)

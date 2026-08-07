@@ -233,6 +233,7 @@ static int32_t loadSampleThread(void *ptr)
 
 	unlockMixerCallback();
 
+	setSongModifiedFlag();
 	if (undoStarted)
 	{
 		if (loadAsInstrFlag || adoptInstrumentName)
@@ -240,8 +241,6 @@ static int32_t loadSampleThread(void *ptr)
 		else
 			undoSampleCommit();
 	}
-
-	setSongModifiedFlag();
 
 	// when caught in main/video thread, it disables busy mouse and sets sampleIsLoading to true
 	editor.updateCurSmp = true;
@@ -697,6 +696,41 @@ static int32_t loadSampleFolderThread(void *ptr)
 			}
 		}
 
+		if (!undoTransactionBegin("Import Sample Banks") ||
+			!undoTransactionAddSampleLauncher())
+		{
+			undoCancelTransaction();
+			for (uint8_t freeBank = 0; freeBank < job->launcherBankCount; freeBank++)
+				for (uint8_t freeHalf = 0; freeHalf < 2; freeHalf++)
+					freeFolderInstrument(newInstrument[freeBank][freeHalf]);
+			loaderMsgBox("Not enough memory to create undo data. Nothing was changed.");
+			goto folderLoadError;
+		}
+
+		bool undoReady = true;
+		for (uint8_t bankOffset = 0; bankOffset < job->launcherBankCount && undoReady; bankOffset++)
+		{
+			const uint8_t bank = job->launcherBank + bankOffset;
+			uint8_t oldA = 0, oldB = 0;
+			sampleLauncherGetBankInstruments(bank, &oldA, &oldB);
+			if (oldA > 0) undoReady &= undoTransactionAddInstrument(oldA);
+			if (oldB > 0) undoReady &= undoTransactionAddInstrument(oldB);
+			for (uint8_t half = 0; half < 2; half++)
+			{
+				const uint8_t destination = job->launcherInstrument[bankOffset][half];
+				if (destination > 0) undoReady &= undoTransactionAddInstrument(destination);
+			}
+		}
+		if (!undoReady)
+		{
+			undoCancelTransaction();
+			for (uint8_t freeBank = 0; freeBank < job->launcherBankCount; freeBank++)
+				for (uint8_t freeHalf = 0; freeHalf < 2; freeHalf++)
+					freeFolderInstrument(newInstrument[freeBank][freeHalf]);
+			loaderMsgBox("Not enough memory to create undo data. Nothing was changed.");
+			goto folderLoadError;
+		}
+
 		lockMixerCallback();
 		sampleLauncherReset();
 		for (uint8_t bankOffset = 0; bankOffset < job->launcherBankCount;
@@ -731,6 +765,7 @@ static int32_t loadSampleFolderThread(void *ptr)
 		editor.curInstr = job->launcherInstrument[0][0];
 		editor.curSmp = 0;
 		setSongModifiedFlag();
+		undoTransactionCommit();
 		editor.updateCurSmp = true;
 		freeDecodedFolderSamples(decodedSamples, decodedCount);
 		freeSampleFolderJob(job);
@@ -739,6 +774,14 @@ static int32_t loadSampleFolderThread(void *ptr)
 
 	if (job->mode == SAMPLE_FOLDER_IMPORT_MATRIX_OPEN)
 	{
+		if (!undoTransactionBegin("Import Samples to Matrix") ||
+			!undoTransactionAddSampleLauncher())
+		{
+			undoCancelTransaction();
+			loaderMsgBox("Not enough memory to create undo data. Nothing was changed.");
+			goto folderLoadError;
+		}
+
 		uint32_t added = 0;
 		for (uint32_t i = 0; i < decodedCount; i++)
 		{
@@ -753,6 +796,11 @@ static int32_t loadSampleFolderThread(void *ptr)
 		{
 			sampleLauncherSelectTileInEditor(job->matrixTiles[0]);
 			editor.updateCurSmp = true;
+			undoTransactionCommit();
+		}
+		else
+		{
+			undoCancelTransaction();
 		}
 		matrixImportAdded = added;
 		matrixImportRequested = job->matrixRequested;
@@ -795,6 +843,7 @@ static int32_t loadSampleFolderThread(void *ptr)
 		fixInstrAndSampleNames(job->instrument);
 		unlockMixerCallback();
 
+		setSongModifiedFlag();
 		undoInstrumentCommit();
 		editor.curSmp = 0;
 	}
@@ -823,11 +872,22 @@ static int32_t loadSampleFolderThread(void *ptr)
 			}
 		}
 
+		bool undoReady = undoTransactionBegin("Import Samples");
+		for (uint32_t i = 0; i < job->fileCount && undoReady; i++)
+			undoReady = undoTransactionAddInstrument(job->files[i].destinationInstrument);
+		if (!undoReady)
+		{
+			undoCancelTransaction();
+			for (uint32_t i = 0; i < job->fileCount; i++)
+				freeFolderInstrument(newInstruments[i]);
+			free(newInstruments);
+			loaderMsgBox("Not enough memory to create undo data. Nothing was changed.");
+			goto folderLoadError;
+		}
+
 		for (uint32_t i = 0; i < job->fileCount; i++)
 		{
 			const uint8_t destination = job->files[i].destinationInstrument;
-			const bool undoStarted = undoInstrumentBegin(destination, "Import sample as instrument");
-
 			lockMixerCallback();
 			freeInstr(destination);
 			instr[destination] = newInstruments[i];
@@ -836,17 +896,15 @@ static int32_t loadSampleFolderThread(void *ptr)
 			memcpy(song.instrName[destination], instr[destination]->smp[0].name, 22);
 			fixInstrAndSampleNames(destination);
 			unlockMixerCallback();
-
-			if (undoStarted)
-				undoInstrumentCommit();
 		}
 
+		setSongModifiedFlag();
+		undoTransactionCommit();
 		free(newInstruments);
 		editor.curInstr = job->files[0].destinationInstrument;
 		editor.curSmp = 0;
 	}
 
-	setSongModifiedFlag();
 	editor.updateCurSmp = true;
 	freeDecodedFolderSamples(decodedSamples, decodedCount);
 	freeSampleFolderJob(job);

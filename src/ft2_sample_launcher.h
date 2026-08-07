@@ -22,6 +22,15 @@ typedef enum sampleLauncherTileMapState_t
 	SAMPLE_LAUNCHER_MAP_EMPTY = 2
 } sampleLauncherTileMapState_t;
 
+typedef struct sampleLauncherUndoState_t
+{
+	uint8_t instruments[SAMPLE_LAUNCHER_BANK_COUNT][2];
+	uint8_t outputBus[SAMPLE_LAUNCHER_BANK_COUNT][SAMPLE_LAUNCHER_TILES_PER_BANK];
+	uint8_t tileState[SAMPLE_LAUNCHER_MAX_TILES];
+	uint8_t tileInstrument[SAMPLE_LAUNCHER_MAX_TILES];
+	uint8_t tileSample[SAMPLE_LAUNCHER_MAX_TILES];
+} sampleLauncherUndoState_t;
+
 bool sampleLauncherTileIsLoaded(uint16_t tile);
 const char *sampleLauncherGetTileName(uint16_t tile);
 uint8_t sampleLauncherGetTileBus(uint16_t tile);
@@ -29,6 +38,7 @@ void sampleLauncherCycleTileBus(uint16_t tile, uint8_t busCount);
 uint8_t sampleLauncherGetBank(void);
 void sampleLauncherSetBank(uint8_t bank);
 bool sampleLauncherBankHasSamples(uint8_t bank);
+void sampleLauncherGetBankInstruments(uint8_t bank, uint8_t *instrumentA, uint8_t *instrumentB);
 bool sampleLauncherPrepareBankImport(uint8_t bank, uint8_t *instrumentA,
 	uint8_t *instrumentB);
 bool sampleLauncherPrepareRangeImport(uint8_t firstBank, uint32_t sampleCount,
@@ -58,6 +68,8 @@ void sampleLauncherBeginModuleLoad(void);
 void sampleLauncherReadXMMetadata(FILE *f, uint32_t fileSize);
 void sampleLauncherCommitXMMetadata(void);
 void sampleLauncherForgetBanks(void);
+void sampleLauncherCaptureUndoState(sampleLauncherUndoState_t *state);
+void sampleLauncherRestoreUndoState(const sampleLauncherUndoState_t *state);
 bool sampleLauncherInstrumentIsMapped(uint8_t instrument);
 int16_t sampleLauncherGetQCurrent(void);
 bool sampleLauncherQStopPending(void);

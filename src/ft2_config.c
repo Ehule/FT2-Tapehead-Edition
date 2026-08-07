@@ -633,10 +633,12 @@ static void writeDefaultTapeheadConfig(const UNICHAR *filePathU)
 	fputs("; Accepted values: crisp, sharp or round.\n", f);
 	fputs("HDStyle=crisp\n\n", f);
 	fputs("[Launcher]\n\n", f);
-	fputs("; Open the launcher as a dedicated full-window two-deck instrument.\n", f);
-	fputs("Standalone=false\n\n", f);
-	fputs("; Open directly into the combined Pattern/Sample launcher deck.\n", f);
-	fputs("Enabled=false\n\n", f);
+	fputs("; Startup window. Accepted values: tracker or deck_matrix.\n", f);
+	fputs("; Older Enabled/Standalone keys are still accepted when this is absent.\n", f);
+	fputs("StartWindow=tracker\n\n", f);
+	fputs("[DiskOp]\n\n", f);
+	fputs("; Format shown in the middle Sample save slot. Accepted values: EXS or IFF.\n", f);
+	fputs("SampleExportSlot=EXS\n\n", f);
 	fputs("[Keyboard]\n\n", f);
 	fputs("; Backspace navigates to the parent directory while Disk Op is open.\n", f);
 	fputs("DiskOpBackspaceParent=false\n\n", f);
@@ -672,6 +674,8 @@ void loadTapeheadConfig(void)
 	tapeheadConfig.hdMode = false;
 	tapeheadConfig.launcherMode = false;
 	tapeheadConfig.launcherStandalone = false;
+	tapeheadConfig.sampleExportEXS = true;
+	tapeheadConfig.startWindow = TAPEHEAD_START_USE_LEGACY;
 	tapeheadConfig.outputBuses = 1;
 	tapeheadConfig.hdScale = 3;
 	tapeheadConfig.hdStyle = TAPEHEAD_HD_STYLE_CRISP;
@@ -697,6 +701,7 @@ void loadTapeheadConfig(void)
 		TAPEHEAD_SECTION_NONE,
 		TAPEHEAD_SECTION_VIDEO,
 		TAPEHEAD_SECTION_LAUNCHER,
+		TAPEHEAD_SECTION_DISKOP,
 		TAPEHEAD_SECTION_KEYBOARD,
 		TAPEHEAD_SECTION_AUDIO,
 		TAPEHEAD_SECTION_MIDI_DUB,
@@ -717,6 +722,8 @@ void loadTapeheadConfig(void)
 				section = TAPEHEAD_SECTION_VIDEO;
 			else if (!_stricmp(text + 1, "Launcher"))
 				section = TAPEHEAD_SECTION_LAUNCHER;
+			else if (!_stricmp(text + 1, "DiskOp"))
+				section = TAPEHEAD_SECTION_DISKOP;
 			else if (!_stricmp(text + 1, "Keyboard"))
 				section = TAPEHEAD_SECTION_KEYBOARD;
 			else if (!_stricmp(text + 1, "Audio"))
@@ -761,6 +768,18 @@ void loadTapeheadConfig(void)
 			}
 		}
 		else if (section == TAPEHEAD_SECTION_LAUNCHER &&
+			!_stricmp(key, "StartWindow"))
+		{
+			if (!_stricmp(value, "tracker"))
+				tapeheadConfig.startWindow = TAPEHEAD_START_TRACKER;
+			else if (!_stricmp(value, "deck_matrix") ||
+				!_stricmp(value, "deck-matrix") || !_stricmp(value, "deckmatrix") ||
+				!_stricmp(value, "deck"))
+			{
+				tapeheadConfig.startWindow = TAPEHEAD_START_DECK_MATRIX;
+			}
+		}
+		else if (section == TAPEHEAD_SECTION_LAUNCHER &&
 			!_stricmp(key, "Enabled"))
 		{
 			parseBoolValue(value, &tapeheadConfig.launcherMode);
@@ -769,6 +788,14 @@ void loadTapeheadConfig(void)
 			!_stricmp(key, "Standalone"))
 		{
 			parseBoolValue(value, &tapeheadConfig.launcherStandalone);
+		}
+		else if (section == TAPEHEAD_SECTION_DISKOP &&
+			!_stricmp(key, "SampleExportSlot"))
+		{
+			if (!_stricmp(value, "EXS"))
+				tapeheadConfig.sampleExportEXS = true;
+			else if (!_stricmp(value, "IFF"))
+				tapeheadConfig.sampleExportEXS = false;
 		}
 		else if (section == TAPEHEAD_SECTION_KEYBOARD)
 		{
@@ -1896,6 +1923,8 @@ void hideConfigScreen(void)
 	hidePushButton(PB_CONFIG_PAL_B_UP);
 	hidePushButton(PB_CONFIG_PAL_CONT_DOWN);
 	hidePushButton(PB_CONFIG_PAL_CONT_UP);
+	hidePushButton(PB_CONFIG_PAL_IMPORT);
+	hidePushButton(PB_CONFIG_PAL_EXPORT);
 	hideScrollBar(SB_PAL_R);
 	hideScrollBar(SB_PAL_G);
 	hideScrollBar(SB_PAL_B);

@@ -440,14 +440,22 @@ bool interpolationHandlePreviewKey(SDL_Scancode scancode, SDL_Keycode keycode, b
 		note_t acceptedPattern[MAX_PATT_LEN * MAX_CHANNELS];
 		memcpy(acceptedPattern, pattern[previewPattern], sizeof (acceptedPattern));
 		memcpy(pattern[previewPattern], patternSnapshot, sizeof (patternSnapshot));
-		undoPatternBegin(previewPattern, previewType == INTERPOLATE_NOTES ? "Melodic walk" :
-			(previewType == INTERPOLATE_VOLUME ? "Volume interpolation" : "Effect interpolation"));
+		if (!undoPatternBegin(previewPattern, previewType == INTERPOLATE_NOTES ? "Melodic walk" :
+			(previewType == INTERPOLATE_VOLUME ? "Volume interpolation" : "Effect interpolation")))
+		{
+			memcpy(pattern[previewPattern], acceptedPattern, sizeof (acceptedPattern));
+			previewActive = false;
+			drawIDAdd();
+			setSongModifiedFlag();
+			ui.updatePatternEditor = true;
+			return true;
+		}
 		memcpy(pattern[previewPattern], acceptedPattern, sizeof (acceptedPattern));
+		setSongModifiedFlag();
 		undoPatternCommit();
 
 		previewActive = false;
 		drawIDAdd();
-		setSongModifiedFlag();
 		ui.updatePatternEditor = true;
 		return true;
 	}

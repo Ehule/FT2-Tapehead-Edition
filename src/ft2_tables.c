@@ -473,7 +473,7 @@ const int8_t maxVisibleChans2[4] = { 4, 6, 8, 12 };
 const uint16_t chanWidths[6] = { 141, 141, 93, 69, 45, 45 };
 
 // for pattern marking
-const pattCoordsMouse_t pattCoordMouseTable[2][2][2] =
+const pattCoordsMouse_t pattCoordMouseTable[2][2][3] =
 {
 	/*
 	struct organization:
@@ -486,12 +486,14 @@ const pattCoordsMouse_t pattCoordMouseTable[2][2][2] =
 		{
 			{ 177, 281, 293, 13 }, //   normal pattern editor
 			{  73, 225, 237, 19 }, // extended pattern editor
+			{   5, 225, 237, 27 }, // Pattern-Only view
 		},
 
 		// pattern channel scroll
 		{
 			{ 177, 274, 286, 12 }, //   normal pattern editor
 			{  73, 225, 237, 19 }, // extended pattern editor
+			{   5, 225, 237, 27 }, // Pattern-Only view
 		}
 	},
 
@@ -501,12 +503,14 @@ const pattCoordsMouse_t pattCoordMouseTable[2][2][2] =
 		{
 			{ 176, 275, 286,  9 }, //   normal pattern editor
 			{  75, 229, 240, 14 }, // extended pattern editor
+			{   7, 229, 240, 20 }, // Pattern-Only view
 		},
 
 		// pattern channel scroll
 		{
 			{ 175, 274, 283,  9 }, //   normal pattern editor
 			{  73, 277, 238, 14 }, // extended pattern editor
+			{   5, 227, 238, 20 }, // Pattern-Only view
 		},
 	}
 };
@@ -568,7 +572,7 @@ const uint8_t hex2Dec[256] =
 };
 
 // for actual pattern data drawing
-const pattCoord_t pattCoordTable[2][2][2] =
+const pattCoord_t pattCoordTable[2][2][3] =
 {
 	/*
 	struct organization:
@@ -581,12 +585,14 @@ const pattCoord_t pattCoordTable[2][2][2] =
 		{
 			{ 176, 292, 177, 283, 293, 13, 13 }, // normal pattern editor
 			{  71, 236,  73, 227, 237, 19, 20 }, // extended pattern editor
+			{   3, 236,   5, 227, 237, 27, 20 }, // Pattern-Only view
 		},
 
 		// pattern channel scroll
 		{
 			{ 176, 285, 177, 276, 286, 12, 12 }, // normal pattern editor
 			{  71, 236,  73, 227, 237, 19, 18 }, // extended pattern editor
+			{   3, 236,   5, 227, 237, 27, 18 }, // Pattern-Only view
 		}
 	},
 
@@ -596,18 +602,20 @@ const pattCoord_t pattCoordTable[2][2][2] =
 		{
 			{ 177, 286, 178, 277, 288,  9, 10 }, // normal pattern editor
 			{  71, 240,  77, 231, 242, 14, 14 }, // extended pattern editor
+			{   3, 240,   9, 231, 242, 20, 14 }, // Pattern-Only view
 		},
 
 		// pattern channel scroll
 		{
 			{  176, 285, 177, 276, 286,  9,  9 }, // normal pattern editor
 			{   71, 238,  75, 229, 240, 14, 13 }, // extended pattern editor
+			{    3, 238,   7, 229, 240, 20, 13 }, // Pattern-Only view
 		},
 	}
 };
 
 // for framework drawing
-const pattCoord2_t pattCoord2Table[2][2][2] =
+const pattCoord2_t pattCoord2Table[2][2][3] =
 {
 	/*
 	struct organization:
@@ -620,12 +628,14 @@ const pattCoord2_t pattCoord2Table[2][2][2] =
 		{
 			{ 175, 291, 107, 107 }, //   normal pattern editor
 			{  70, 235, 156, 163 }, // extended pattern editor
+			{   2, 235, 224, 163 }, // Pattern-Only view
 		},
 
 		// pattern channel scroll
 		{
 			{ 175, 284, 100, 100 }, //   normal pattern editor
 			{  70, 235, 156, 149 }, // extended pattern editor
+			{   2, 235, 224, 149 }, // Pattern-Only view
 		}
 	},
 
@@ -635,17 +645,19 @@ const pattCoord2_t pattCoord2Table[2][2][2] =
 		{
 			{ 175, 285, 101, 113 }, //   normal pattern editor
 			{  70, 239, 160, 159 }, // extended pattern editor
+			{   2, 239, 228, 159 }, // Pattern-Only view
 		},
 
 		// pattern channel scroll
 		{
 			{ 175, 284, 100, 100 }, //   normal pattern editor
 			{  70, 237, 158, 148 }, // extended pattern editor
+			{   2, 237, 226, 148 }, // Pattern-Only view
 		},
 	}
 };
 
-const markCoord_t markCoordTable[2][2][2] =
+const markCoord_t markCoordTable[2][2][3] =
 {
 	/*
 	struct organization:
@@ -658,12 +670,14 @@ const markCoord_t markCoordTable[2][2][2] =
 		{
 			{ 177, 281, 293 }, //   normal pattern editor
 			{  73, 225, 237 }, // extended pattern editor
+			{   5, 225, 237 }, // Pattern-Only view
 		},
 
 		// pattern channel scroll
 		{
 			{ 177, 274, 286 }, //   normal pattern editor
 			{  73, 225, 237 }, // extended pattern editor
+			{   5, 225, 237 }, // Pattern-Only view
 		}
 	},
 
@@ -673,12 +687,14 @@ const markCoord_t markCoordTable[2][2][2] =
 		{
 			{ 176, 275, 286 }, //   normal pattern editor
 			{  75, 229, 240 }, // extended pattern editor
+			{   7, 229, 240 }, // Pattern-Only view
 		},
 
 		// pattern channel scroll
 		{
 			{ 175, 274, 284 }, //   normal pattern editor
 			{  73, 227, 238 }, // extended pattern editor
+			{   5, 227, 238 }, // Pattern-Only view
 		},
 	}
 };

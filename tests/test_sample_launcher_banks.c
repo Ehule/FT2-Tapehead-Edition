@@ -40,6 +40,17 @@ bool undoSampleBegin(uint8_t instrument, uint8_t sample,
 	return true;
 }
 void undoSampleCommit(void) { }
+bool undoTransactionIsActive(void) { return false; }
+bool undoTransactionBegin(const char *description) { (void)description; return true; }
+bool undoTransactionAddSample(uint8_t instrument, uint8_t sample)
+{
+	(void)instrument;
+	(void)sample;
+	return true;
+}
+bool undoTransactionAddInstrument(uint8_t instrument) { (void)instrument; return true; }
+bool undoTransactionAddSampleLauncher(void) { return true; }
+void undoTransactionCommit(void) { }
 void undoCancelTransaction(void) { }
 
 void freeSmpData(sample_t *sample)

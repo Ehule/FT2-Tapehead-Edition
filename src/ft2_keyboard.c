@@ -20,6 +20,7 @@
 #include "ft2_inst_ed.h"
 #include "ft2_pattern_ed.h"
 #include "ft2_diskop.h"
+#include "ft2_module_saver.h"
 #include "ft2_wav_renderer.h"
 #include "ft2_sample_ed.h"
 #include "ft2_audio.h"
@@ -479,10 +480,13 @@ static void handleKeys(SDL_Keycode keycode, SDL_Scancode scanKey)
 
 					if (okBox(1, "System request", "Clear instrument?", NULL) == 1)
 					{
+						if (!undoInstrumentBegin(editor.curInstr, "Clear instrument"))
+							return;
 						freeInstr(editor.curInstr);
 						memset(song.instrName[editor.curInstr], 0, sizeof(song.instrName[editor.curInstr]));
 						updateNewInstrument();
 						setSongModifiedFlag();
+						undoInstrumentCommit();
 					}
 				}
 			}
@@ -757,10 +761,17 @@ static void handleKeys(SDL_Keycode keycode, SDL_Scancode scanKey)
 
 		case SDLK_BACKSPACE:
 		{
-			if (keyb.leftAltPressed)
+			/* Tapehead viewport family:
+			**   Alt+Backspace      = Expanded Pattern Editor
+			**   Shift+Alt+Backspace = Pattern-Only performance/projection view
+			** Undo/redo use the standard Ctrl+Z / Ctrl+Y shortcuts. */
+			if (keyb.leftShiftPressed && keyb.leftAltPressed && !keyb.leftCtrlPressed)
 			{
-				if (keyb.leftShiftPressed) redoPerform();
-				else if (!keyb.leftCtrlPressed) undoPerform();
+				togglePatternEditorOnly();
+			}
+			else if (keyb.leftAltPressed && !keyb.leftCtrlPressed && !keyb.leftShiftPressed)
+			{
+				togglePatternEditorExtended();
 			}
 			else if (ui.diskOpShown && tapeheadConfig.diskOpBackspaceParent) diskOpGoParent();
 			else if (keyb.leftShiftPressed) deletePatternLine();
@@ -1256,6 +1267,20 @@ static bool checkModifiedKeys(SDL_Keycode keycode)
 				return true;
 			}
 
+			/* Ctrl+S is application-wide module Save. If this module has never
+			** been loaded/saved from a concrete path, fall back to Disk Op as
+			** Save As. Ctrl+Shift+S is intentionally left to Fast Tracks. */
+			if (keyb.leftCtrlPressed && !keyb.leftShiftPressed && !keyb.leftAltPressed)
+			{
+				if (!saveCurrentModule())
+				{
+					if (!ui.diskOpShown)
+						showDiskOpScreen();
+					rbDiskOpModule();
+				}
+				return true;
+			}
+
 			if (keyb.leftAltPressed)
 			{
 				if (ui.sampleEditorShown)
@@ -1263,11 +1288,6 @@ static bool checkModifiedKeys(SDL_Keycode keycode)
 				else
 					jumpToChannel(9);
 
-				return true;
-			}
-			else if (keyb.leftCtrlPressed)
-			{
-				showSampleEditor();
 				return true;
 			}
 		}
@@ -1418,6 +1438,11 @@ static bool checkModifiedKeys(SDL_Keycode keycode)
 				jumpToChannel(5);
 				return true;
 			}
+			else if (keyb.leftCtrlPressed && !keyb.leftShiftPressed)
+			{
+				redoPerform();
+				return true;
+			}
 		}
 		break;
 
@@ -1430,9 +1455,9 @@ static bool checkModifiedKeys(SDL_Keycode keycode)
 
 				return true;
 			}
-			else if (keyb.leftCtrlPressed)
+			else if (keyb.leftCtrlPressed && !keyb.leftShiftPressed)
 			{
-				togglePatternEditorExtended();
+				undoPerform();
 				return true;
 			}
 		}

@@ -601,7 +601,7 @@ static bool testPatternDataMouseDown(void)
 {
 	if (ui.patternEditorShown)
 	{
-		const int32_t y1 = ui.extendedPatternEditor ? 71 : 176;
+		const int32_t y1 = ui.patternEditorOnly ? 3 : (ui.extendedPatternEditor ? 71 : 176);
 		const int32_t y2 = ui.pattChanScrollShown ? 382 : 396;
 
 		if (mouse.y >= y1 && mouse.y <= y2 && mouse.x >= 29 && mouse.x <= 602)
@@ -728,7 +728,7 @@ static bool handleFastTracksHeaderRightClick(uint8_t mouseButton)
 	if (mouseButton != SDL_BUTTON_RIGHT || !ui.patternEditorShown)
 		return false;
 
-	const pattCoord2_t *pattCoord = &pattCoord2Table[config.ptnStretch][ui.pattChanScrollShown][ui.extendedPatternEditor];
+	const pattCoord2_t *pattCoord = &pattCoord2Table[config.ptnStretch][ui.pattChanScrollShown][getPatternEditorView()];
 	const int32_t headerY = pattCoord->upperRowsY + 2;
 	if (mouse.y < headerY || mouse.y >= headerY + 8 || mouse.x < 30)
 		return false;
@@ -770,7 +770,8 @@ void mouseButtonDownHandler(uint8_t mouseButton)
 	if (handleFastTracksHeaderRightClick(mouseButton)) return;
 
 	/* Tapehead Edition: Shift-click the Disk Op. Sample selector to import
-	** every supported sample in the current folder as a batch.
+	** supported samples from the current folder or its complete subtree.
+	** Ctrl+Shift sends the chosen scope directly to the Sample Matrix.
 	*/
 	if (mouseButton == SDL_BUTTON_LEFT && ui.diskOpShown && keyb.leftShiftPressed &&
 		mouse.x >= 4 && mouse.x < 60 && mouse.y >= 44 && mouse.y < 58)
@@ -803,7 +804,7 @@ void mouseButtonDownHandler(uint8_t mouseButton)
 
 		if (ui.patternEditorShown)
 		{
-			const int32_t y1 = ui.extendedPatternEditor ? 71 : 176;
+			const int32_t y1 = ui.patternEditorOnly ? 3 : (ui.extendedPatternEditor ? 71 : 176);
 			const int32_t y2 = ui.pattChanScrollShown ? 382 : 396;
 			if (mouse.y >= y1 && mouse.y <= y2 && mouse.x >= 29 && mouse.x <= 602)
 				startPatternMiddleAudition(keyb.leftShiftPressed);

@@ -223,9 +223,9 @@ static int32_t copyInstrThread(void *ptr)
 
 	if (!error)
 	{
-		undoInstrumentCommit();
 		editor.updateCurInstr = true;
 		setSongModifiedFlag();
+		undoInstrumentCommit();
 	}
 	else
 	{
@@ -2865,6 +2865,8 @@ static void clearSampleFromSwitcher(int16_t smpNum)
 	if (okBox(1, "System request", "Clear sample?", NULL) != 1)
 		return;
 
+	if (!undoSampleBegin(editor.curInstr, (uint8_t)smpNum, "Clear sample"))
+		return;
 	freeSample(editor.curInstr, smpNum);
 
 	if (smpNum == editor.curSmp)
@@ -2878,6 +2880,7 @@ static void clearSampleFromSwitcher(int16_t smpNum)
 	}
 
 	setSongModifiedFlag();
+	undoSampleCommit();
 }
 
 /*
@@ -2910,8 +2913,21 @@ static void clearInstrumentFromSwitcher(int16_t insNum)
 
 		const bool currentBankSelected =
 			sampleLauncherFindBankForInstrument(editor.curInstr) == sampleBank;
-		if (!sampleLauncherClearBank((uint8_t)sampleBank))
+		uint8_t bankInstrA = 0, bankInstrB = 0;
+		sampleLauncherGetBankInstruments((uint8_t)sampleBank, &bankInstrA, &bankInstrB);
+		if (!undoTransactionBegin("Clear Sample Bank") ||
+			!undoTransactionAddSampleLauncher() ||
+			(bankInstrA > 0 && !undoTransactionAddInstrument(bankInstrA)) ||
+			(bankInstrB > 0 && bankInstrB != bankInstrA && !undoTransactionAddInstrument(bankInstrB)))
+		{
+			undoCancelTransaction();
 			return;
+		}
+		if (!sampleLauncherClearBank((uint8_t)sampleBank))
+		{
+			undoCancelTransaction();
+			return;
+		}
 		if (currentBankSelected)
 			updateNewInstrument();
 		else
@@ -2921,12 +2937,15 @@ static void clearInstrumentFromSwitcher(int16_t insNum)
 				updateInstrumentSwitcher();
 		}
 		setSongModifiedFlag();
+		undoTransactionCommit();
 		return;
 	}
 
 	if (okBox(1, "System request", "Clear instrument?", NULL) != 1)
 		return;
 
+	if (!undoInstrumentBegin((uint8_t)insNum, "Clear instrument"))
+		return;
 	freeInstr(insNum);
 	memset(song.instrName[insNum], 0, sizeof (song.instrName[insNum]));
 
@@ -2950,6 +2969,7 @@ static void clearInstrumentFromSwitcher(int16_t insNum)
 	}
 
 	setSongModifiedFlag();
+	undoInstrumentCommit();
 }
 
 static bool testInstrSwitcherExtended(void) // Welcome to the Jungle 2 - The Happening
@@ -3623,9 +3643,14 @@ loadDone:
 	if (undoStarted)
 	{
 		if (instrumentLoaded)
+		{
+			setSongModifiedFlag();
 			undoInstrumentCommit();
+		}
 		else
+		{
 			undoCancelTransaction();
+		}
 	}
 
 	if (f != NULL)

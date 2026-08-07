@@ -220,10 +220,17 @@ int main(int argc, char *argv[])
 	pauseAudio();
 	resumeAudio();
 	rescanAudioDevices();
-	if (tapeheadConfig.launcherStandalone)
+	if (tapeheadConfig.startWindow == TAPEHEAD_START_DECK_MATRIX)
+	{
 		patternLauncherSetStandaloneShown(true);
-	else if (tapeheadConfig.launcherMode)
-		patternLauncherSetPanelShown(true);
+	}
+	else if (tapeheadConfig.startWindow == TAPEHEAD_START_USE_LEGACY)
+	{
+		if (tapeheadConfig.launcherStandalone)
+			patternLauncherSetStandaloneShown(true);
+		else if (tapeheadConfig.launcherMode)
+			patternLauncherSetPanelShown(true);
+	}
 
 #ifdef _WIN32 // on Windows we show the window at this point
 	SDL_ShowWindow(video.window);

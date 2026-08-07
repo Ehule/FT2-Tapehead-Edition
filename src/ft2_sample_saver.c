@@ -7,6 +7,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <errno.h>
+#include <stdlib.h>
+#include <string.h>
 #ifdef _WIN32
 #include <direct.h>
 #else
@@ -495,7 +497,14 @@ static bool saveWAVSampleFromPointers(UNICHAR *filenameU, instr_t *ins,
 	fseek(f, 4, SEEK_SET);
 	fwrite(&riffChunkSize, sizeof (int32_t), 1, f);
 
-	fclose(f);
+	const bool writeFailed = ferror(f) || fclose(f) != 0;
+	if (writeFailed)
+	{
+		UNICHAR_REMOVE(filenameU);
+		setMouseBusy(false);
+		okBoxThreadSafe(0, "System message", "General I/O error during saving!", NULL);
+		return false;
+	}
 
 	// restore modified interpolation tap samples after loopEnd
 	bool loopEnabled = GET_LOOPTYPE(smp->flags) != LOOP_DISABLED;
@@ -527,122 +536,392 @@ static bool saveWAVSample(UNICHAR *filenameU, bool saveRangedData)
 	return saveWAVSampleFromPointers(filenameU, ins, smp, saveRangedData);
 }
 
-/*
-** Export every populated sample in the current module as a WAV.
-**
-** This first proof-of-concept intentionally writes to a fixed SampleSet
-** directory in the process working directory. It does not alter the
-** currently selected instrument or sample.
-*/
-bool exportSampleSet(const UNICHAR *directoryU)
-{
-	/*
-	** Count populated samples before creating a directory or changing
-	** any save state. This also keeps an empty export from entering a
-	** broken busy/dialog state.
-	*/
-	int32_t populatedSamples = 0;
+static bool exsUsedOnly = true;
 
-	for (int32_t instrNum = 1; instrNum < MAX_INST; instrNum++)
+void setEXSExportUsedOnly(bool usedOnly)
+{
+	exsUsedOnly = usedOnly;
+}
+
+static void exsSafeName(const char *src, char *dst, size_t dstSize, const char *fallback)
+{
+	size_t j = 0;
+	while (*src == ' ')
+		src++;
+
+	for (size_t i = 0; src[i] != '\0' && j+1 < dstSize && j < 48; i++)
 	{
-		instr_t *ins = instr[instrNum];
-		if (ins == NULL)
+		const uint8_t c = (uint8_t)src[i];
+		if (c < 32 || strchr("\\/:*?\"<>|", c) != NULL)
+			dst[j++] = '_';
+		else
+			dst[j++] = (char)c;
+	}
+
+	while (j > 0 && (dst[j-1] == ' ' || dst[j-1] == '.'))
+		j--;
+	dst[j] = '\0';
+
+	if (j == 0)
+	{
+		strncpy(dst, fallback, dstSize-1);
+		dst[dstSize-1] = '\0';
+	}
+}
+
+static void exsManifestValue(const char *src, char *dst, size_t dstSize)
+{
+	size_t j = 0;
+	for (size_t i = 0; src[i] != '\0' && j+1 < dstSize; i++)
+	{
+		const uint8_t c = (uint8_t)src[i];
+		dst[j++] = c < 32 || c == 127 ? ' ' : (char)c;
+	}
+	dst[j] = '\0';
+}
+
+static bool exsJoinPath(UNICHAR *dst, size_t dstCount, const UNICHAR *root,
+	const char *child)
+{
+#ifdef _WIN32
+	UNICHAR *childU = cp850ToUnichar((char *)child);
+	if (childU == NULL)
+	{
+		dst[0] = '\0';
+		return false;
+	}
+	const size_t rootLen = wcslen(root);
+	const size_t childLen = wcslen(childU);
+	if (rootLen + 1 + childLen >= dstCount)
+	{
+		free(childU);
+		dst[0] = '\0';
+		return false;
+	}
+	wmemcpy(dst, root, rootLen);
+	dst[rootLen] = L'\\';
+	wmemcpy(&dst[rootLen+1], childU, childLen+1);
+	free(childU);
+#else
+	const size_t rootLen = strlen(root);
+	const size_t childLen = strlen(child);
+	if (rootLen + 1 + childLen >= dstCount)
+	{
+		dst[0] = '\0';
+		return false;
+	}
+	memcpy(dst, root, rootLen);
+	dst[rootLen] = '/';
+	memcpy(&dst[rootLen+1], child, childLen+1);
+#endif
+	return true;
+}
+
+static bool exsMakeDirectory(const UNICHAR *path)
+{
+#ifdef _WIN32
+	return _wmkdir(path) == 0;
+#else
+	return mkdir(path, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == 0;
+#endif
+}
+
+static void exsRemoveDirectory(const UNICHAR *path)
+{
+#ifdef _WIN32
+	_wrmdir(path);
+#else
+	rmdir(path);
+#endif
+}
+
+static void exsFindUsedInstruments(bool used[MAX_INST+1])
+{
+	memset(used, 0, (MAX_INST+1) * sizeof (bool));
+	const int32_t orderCount = CLAMP(song.songLength, 0, MAX_ORDERS);
+	const int32_t channelCount = CLAMP(song.numChannels, 0, MAX_CHANNELS);
+
+	for (int32_t order = 0; order < orderCount; order++)
+	{
+		const uint8_t pattNum = song.orders[order];
+		if (pattern[pattNum] == NULL)
 			continue;
 
-		for (int32_t sampleNum = 0;
-		     sampleNum < MAX_SMP_PER_INST;
-		     sampleNum++)
+		const int32_t rows = CLAMP(patternNumRows[pattNum], 0, MAX_PATT_LEN);
+		for (int32_t row = 0; row < rows; row++)
 		{
-			sample_t *smp = &ins->smp[sampleNum];
+			const note_t *p = &pattern[pattNum][row * MAX_CHANNELS];
+			for (int32_t ch = 0; ch < channelCount; ch++)
+			{
+				if (p[ch].instr >= 1 && p[ch].instr <= MAX_INST)
+					used[p[ch].instr] = true;
+			}
+		}
+	}
+}
 
-			if (smp->dataPtr != NULL && smp->length > 0)
-				populatedSamples++;
+static const char *exsLoopName(const sample_t *smp)
+{
+	switch (GET_LOOPTYPE(smp->flags))
+	{
+		case LOOP_FORWARD: return "Forward";
+		case LOOP_PINGPONG: return "PingPong";
+		default: return "None";
+	}
+}
+
+static void exsInstrumentDirectoryName(int32_t instrNum, char *dst, size_t dstSize)
+{
+	char name[64];
+	exsSafeName(song.instrName[instrNum], name, sizeof (name), "Unnamed");
+	snprintf(dst, dstSize, "instrument_%02d_%s", instrNum, name);
+}
+
+static void exsSampleFilename(int32_t instrNum, int32_t sampleNum,
+	const sample_t *smp, char *dst, size_t dstSize)
+{
+	char name[64];
+	exsSafeName(smp->name, name, sizeof (name), "Unnamed");
+	snprintf(dst, dstSize, "I%02d_S%02d_%s.wav", instrNum, sampleNum, name);
+}
+
+static int32_t exsInstrumentSampleCount(int32_t instrNum)
+{
+	if (instrNum < 1 || instrNum > MAX_INST || instr[instrNum] == NULL)
+		return 0;
+
+	int32_t count = 0;
+	for (int32_t sampleNum = 0; sampleNum < MAX_SMP_PER_INST; sampleNum++)
+	{
+		const sample_t *smp = &instr[instrNum]->smp[sampleNum];
+		if (smp->dataPtr != NULL && smp->length > 0)
+			count++;
+	}
+
+	return count;
+}
+
+static void exsSampleRelativePath(int32_t instrNum, int32_t sampleNum,
+	const sample_t *smp, int32_t instrumentSampleCount, char *dst, size_t dstSize)
+{
+	char sampleFile[128];
+	exsSampleFilename(instrNum, sampleNum, smp, sampleFile, sizeof (sampleFile));
+	if (instrumentSampleCount == 1)
+	{
+		strncpy(dst, sampleFile, dstSize-1);
+		dst[dstSize-1] = '\0';
+	}
+	else
+	{
+		char instrDir[128];
+		exsInstrumentDirectoryName(instrNum, instrDir, sizeof (instrDir));
+		snprintf(dst, dstSize, "%s/%s", instrDir, sampleFile);
+	}
+}
+
+static void exsCleanup(const UNICHAR *root, const bool selected[MAX_INST+1])
+{
+	char instrDir[128], relative[300];
+	UNICHAR path[PATH_MAX+1];
+
+	for (int32_t instrNum = 1; instrNum <= MAX_INST; instrNum++)
+	{
+		if (!selected[instrNum] || instr[instrNum] == NULL)
+			continue;
+
+		const int32_t instrumentSampleCount = exsInstrumentSampleCount(instrNum);
+		for (int32_t sampleNum = 0; sampleNum < MAX_SMP_PER_INST; sampleNum++)
+		{
+			sample_t *smp = &instr[instrNum]->smp[sampleNum];
+			if (smp->dataPtr == NULL || smp->length <= 0)
+				continue;
+			exsSampleRelativePath(instrNum, sampleNum, smp, instrumentSampleCount,
+				relative, sizeof (relative));
+			if (exsJoinPath(path, PATH_MAX+1, root, relative))
+				UNICHAR_REMOVE(path);
+		}
+
+		if (instrumentSampleCount > 1)
+		{
+			exsInstrumentDirectoryName(instrNum, instrDir, sizeof (instrDir));
+			if (exsJoinPath(path, PATH_MAX+1, root, instrDir))
+				exsRemoveDirectory(path);
 		}
 	}
 
-	if (populatedSamples == 0)
+	if (exsJoinPath(path, PATH_MAX+1, root, "EXS_manifest.ini"))
+		UNICHAR_REMOVE(path);
+	exsRemoveDirectory(root);
+}
+
+bool exportSampleSet(const UNICHAR *directoryU, bool usedOnly)
+{
+	bool selected[MAX_INST+1];
+	if (usedOnly)
+		exsFindUsedInstruments(selected);
+	else
 	{
-		/*
-		** EXS is currently invoked directly by a GUI pushbutton, so use
-		** the normal dialog function instead of okBoxThreadSafe().
-		*/
-		okBoxThreadSafe(0, "System message",
-		    "The module contains no populated samples.", NULL);
-		return false;
+		memset(selected, 0, sizeof (selected));
+		for (int32_t i = 1; i <= MAX_INST; i++)
+			selected[i] = true;
 	}
 
-#ifdef _WIN32
-	if (_wmkdir(directoryU) != 0 && errno != EEXIST)
-#else
-	if (mkdir(directoryU, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) != 0 &&
-	    errno != EEXIST)
-#endif
+	int32_t instrumentCount = 0, sampleCount = 0;
+	for (int32_t i = 1; i <= MAX_INST; i++)
 	{
-		okBoxThreadSafe(0, "System message",
-		    "Couldn't create the sample-set directory!", NULL);
-		return false;
-	}
-
-	int32_t exportedSamples = 0;
-
-	/*
-	** The low-level WAV writer still uses saveRangeFlag while restoring
-	** interpolation taps. Preserve the old value and force full-sample
-	** behavior for this batch operation.
-	*/
-	const bool oldSaveRangeFlag = saveRangeFlag;
-	saveRangeFlag = false;
-
-	setMouseBusy(true);
-
-	for (int32_t instrNum = 1; instrNum < MAX_INST; instrNum++)
-	{
-		instr_t *ins = instr[instrNum];
-		if (ins == NULL)
+		if (!selected[i] || instr[i] == NULL)
 			continue;
 
-		for (int32_t sampleNum = 0;
-		     sampleNum < MAX_SMP_PER_INST;
-		     sampleNum++)
-		{
-			sample_t *smp = &ins->smp[sampleNum];
+		const int32_t instrumentSamples = exsInstrumentSampleCount(i);
 
+		if (instrumentSamples > 0)
+		{
+			instrumentCount++;
+			sampleCount += instrumentSamples;
+		}
+	}
+
+	if (sampleCount == 0)
+	{
+		okBoxThreadSafe(0, "EXS - Export XM Samples",
+			usedOnly ? "No used instruments contain populated samples." :
+			"The module contains no populated samples.", NULL);
+		return false;
+	}
+
+	UNICHAR root[PATH_MAX+1];
+	UNICHAR_STRNCPY(root, directoryU, PATH_MAX);
+	root[PATH_MAX] = '\0';
+	bool rootCreated = exsMakeDirectory(root);
+	for (int32_t suffix = 2; !rootCreated && errno == EEXIST && suffix <= 999; suffix++)
+	{
+#ifdef _WIN32
+		swprintf(root, PATH_MAX+1, L"%ls_%02d", directoryU, suffix);
+#else
+		snprintf(root, PATH_MAX+1, "%s_%02d", directoryU, suffix);
+#endif
+		rootCreated = exsMakeDirectory(root);
+	}
+
+	if (!rootCreated)
+	{
+		okBoxThreadSafe(0, "EXS - Export XM Samples", "Couldn't create the export directory.", NULL);
+		return false;
+	}
+
+	const bool oldSaveRangeFlag = saveRangeFlag;
+	saveRangeFlag = false;
+	setMouseBusy(true);
+
+	bool success = true;
+	char instrDir[128], relative[300];
+	UNICHAR path[PATH_MAX+1];
+	for (int32_t i = 1; i <= MAX_INST && success; i++)
+	{
+		if (!selected[i] || instr[i] == NULL)
+			continue;
+
+		const int32_t instrumentSampleCount = exsInstrumentSampleCount(i);
+		if (instrumentSampleCount == 0)
+			continue;
+
+		if (instrumentSampleCount > 1)
+		{
+			exsInstrumentDirectoryName(i, instrDir, sizeof (instrDir));
+			if (!exsJoinPath(path, PATH_MAX+1, root, instrDir) || !exsMakeDirectory(path))
+			{
+				success = false;
+				break;
+			}
+		}
+
+		for (int32_t s = 0; s < MAX_SMP_PER_INST; s++)
+		{
+			sample_t *smp = &instr[i]->smp[s];
 			if (smp->dataPtr == NULL || smp->length <= 0)
 				continue;
 
-			UNICHAR filenameU[1024];
-
-#ifdef _WIN32
-			swprintf(filenameU,
-			    sizeof (filenameU) / sizeof (filenameU[0]),
-			    L"%ls\\%03d-%02d.wav",
-			    directoryU, instrNum, sampleNum + 1);
-#else
-			snprintf(filenameU, sizeof (filenameU),
-			    "%s/%03d-%02d.wav",
-			    directoryU, instrNum, sampleNum + 1);
-#endif
-
-			if (!saveWAVSampleFromPointers(filenameU, ins, smp, false))
+			exsSampleRelativePath(i, s, smp, instrumentSampleCount,
+				relative, sizeof (relative));
+			if (!exsJoinPath(path, PATH_MAX+1, root, relative) ||
+				!saveWAVSampleFromPointers(path, instr[i], smp, false))
 			{
-				saveRangeFlag = oldSaveRangeFlag;
-				setMouseBusy(false);
-				return false;
+				success = false;
+				break;
 			}
-
-			exportedSamples++;
 		}
 	}
 
+	FILE *manifest = NULL;
+	if (success)
+	{
+		if (exsJoinPath(path, PATH_MAX+1, root, "EXS_manifest.ini"))
+			manifest = UNICHAR_FOPEN(path, "wb");
+		if (manifest == NULL)
+			success = false;
+	}
+
+	if (success)
+	{
+		char sourceName[64];
+		exsManifestValue(song.name[0] != '\0' ? song.name : "Untitled", sourceName, sizeof (sourceName));
+		fprintf(manifest, "[EXS]\nFormatVersion=1\nSourceModule=%s.xm\nExportMode=%s\nInstrumentCount=%d\nSampleCount=%d\n\n",
+			sourceName, usedOnly ? "UsedInstruments" : "AllInstruments", instrumentCount, sampleCount);
+
+		for (int32_t i = 1; i <= MAX_INST; i++)
+		{
+			if (!selected[i] || instr[i] == NULL)
+				continue;
+			const int32_t instrumentSampleCount = exsInstrumentSampleCount(i);
+			for (int32_t s = 0; s < MAX_SMP_PER_INST; s++)
+			{
+				sample_t *smp = &instr[i]->smp[s];
+				if (smp->dataPtr == NULL || smp->length <= 0)
+					continue;
+
+				char insName[64], smpName[64];
+				exsManifestValue(song.instrName[i], insName, sizeof (insName));
+				exsManifestValue(smp->name, smpName, sizeof (smpName));
+				exsSampleRelativePath(i, s, smp, instrumentSampleCount,
+					relative, sizeof (relative));
+
+				fprintf(manifest,
+					"[Instrument%02d.Sample%02d]\nInstrumentIndex=%d\nSampleIndex=%d\n"
+					"InstrumentName=%s\nSampleName=%s\nFile=%s\nLengthFrames=%d\n"
+					"SourceBitDepth=%d\nRelativeNote=%d\nFinetune=%d\nDefaultVolume=%u\n"
+					"DefaultPanning=%u\nLoopType=%s\nLoopStart=%d\nLoopLength=%d\n"
+					"C4Frequency=%d\nFlags=%u\n\n",
+					i, s, i, s, insName, smpName, relative, smp->length,
+					(smp->flags & SAMPLE_16BIT) ? 16 : 8, smp->relativeNote, smp->finetune,
+					smp->volume, smp->panning, exsLoopName(smp), smp->loopStart,
+					smp->loopLength, getSampleC4Hz(smp), smp->flags);
+			}
+		}
+
+		if (ferror(manifest) || fclose(manifest) != 0)
+			success = false;
+		manifest = NULL;
+	}
+
+	if (manifest != NULL)
+		fclose(manifest);
 	saveRangeFlag = oldSaveRangeFlag;
 	setMouseBusy(false);
 
-	char message[128];
-	snprintf(message, sizeof (message),
-	    "Exported %d sample%s to the selected sample-set directory.",
-	    exportedSamples, exportedSamples == 1 ? "" : "s");
+	if (!success)
+	{
+		exsCleanup(root, selected);
+		okBoxThreadSafe(0, "EXS - Export XM Samples",
+			"Export failed. The incomplete new export directory was removed.", NULL);
+		return false;
+	}
 
-	okBoxThreadSafe(0, "System message", message, NULL);
+	editor.diskOpReadDir = true;
+	char message[128];
+	snprintf(message, sizeof (message), "Exported %d sample%s from %d instrument%s.",
+		sampleCount, sampleCount == 1 ? "" : "s", instrumentCount,
+		instrumentCount == 1 ? "" : "s");
+	okBoxThreadSafe(0, "EXS - Export XM Samples", message, NULL);
 	return true;
 }
 
@@ -664,7 +943,7 @@ static int32_t saveSampleThread(void *ptr)
 	{
 		         case SMP_SAVE_MODE_RAW: saveRawSample(editor.tmpFilenameU, saveRangeFlag); break;
 		         case SMP_SAVE_MODE_IFF: saveIFFSample(editor.tmpFilenameU, saveRangeFlag); break;
-		         case SMP_SAVE_MODE_EXS: exportSampleSet(editor.tmpFilenameU); break;
+		         case SMP_SAVE_MODE_EXS: exportSampleSet(editor.tmpFilenameU, exsUsedOnly); break;
 		default: case SMP_SAVE_MODE_WAV: saveWAVSample(editor.tmpFilenameU, saveRangeFlag); break;
 	}
 

@@ -18,16 +18,7 @@
 #define UNDO_DEFAULT_MB 32
 #define UNDO_MIN_MB 4
 #define UNDO_MAX_MB 1024
-
-typedef enum undoType_t
-{
-	UNDO_NONE = 0,
-	UNDO_PATTERN,
-	UNDO_PATTERN_INSERT,
-	UNDO_SONG,
-	UNDO_SAMPLE,
-	UNDO_INSTRUMENT
-} undoType_t;
+#define UNDO_DESCRIPTION_LEN 64
 
 typedef struct sampleSnapshot_t
 {
@@ -60,36 +51,52 @@ typedef struct orderSnapshot_t
 	uint16_t songLength, songLoopStart;
 } orderSnapshot_t;
 
-typedef struct songSnapshot_t
+typedef struct patternChange_t
 {
-	patternSnapshot_t patterns[MAX_PATTERNS];
-} songSnapshot_t;
+	patternSnapshot_t before, after;
+} patternChange_t;
+
+typedef struct sampleChange_t
+{
+	uint8_t instrNum, sampleNum;
+	sampleSnapshot_t before, after;
+} sampleChange_t;
+
+typedef struct instrumentChange_t
+{
+	uint8_t instrNum;
+	instrumentSnapshot_t before, after;
+} instrumentChange_t;
 
 typedef struct undoEntry_t
 {
-	undoType_t type;
-	char description[32];
+	char description[UNDO_DESCRIPTION_LEN];
 	uint32_t bytes;
-	union
-	{
-		struct { patternSnapshot_t before, after; } pattern;
-		struct
-		{
-			orderSnapshot_t beforeOrder, afterOrder;
-			patternSnapshot_t beforePattern, afterPattern;
-		} patternInsert;
-		struct { songSnapshot_t before, after; } song;
-		struct { uint8_t instrNum, sampleNum; sampleSnapshot_t before, after; } sample;
-		struct { uint8_t instrNum; instrumentSnapshot_t before, after; } instrument;
-	} state;
+	uint64_t beforeStateId, afterStateId;
+
+	patternChange_t *patterns;
+	uint16_t patternCount;
+
+	sampleChange_t *samples;
+	uint16_t sampleCount;
+
+	instrumentChange_t *instruments;
+	uint16_t instrumentCount;
+
+	bool hasOrder;
+	orderSnapshot_t beforeOrder, afterOrder;
+
+	bool hasSampleLauncher;
+	sampleLauncherUndoState_t beforeSampleLauncher, afterSampleLauncher;
 } undoEntry_t;
 
 static undoEntry_t history[UNDO_MAX_STEPS];
 static int32_t historyCount, historyPos;
+static uint64_t currentStateId = 1, savedStateId = 1, nextStateId = 2;
 static uint32_t historyBytes;
 static uint32_t memoryLimitBytes = UNDO_DEFAULT_MB * 1024U * 1024U;
 static undoEntry_t pending;
-static bool initialized;
+static bool initialized, applyingHistory;
 
 static void freeSampleSnapshot(sampleSnapshot_t *s)
 {
@@ -110,39 +117,26 @@ static void freePatternSnapshot(patternSnapshot_t *p)
 	memset(p, 0, sizeof (*p));
 }
 
-static void freeSongSnapshot(songSnapshot_t *s)
-{
-	for (int32_t i = 0; i < MAX_PATTERNS; i++)
-		freePatternSnapshot(&s->patterns[i]);
-}
-
 static void freeEntry(undoEntry_t *e)
 {
-	if (e->type == UNDO_PATTERN)
+	for (uint16_t i = 0; i < e->patternCount; i++)
 	{
-		freePatternSnapshot(&e->state.pattern.before);
-		freePatternSnapshot(&e->state.pattern.after);
+		freePatternSnapshot(&e->patterns[i].before);
+		freePatternSnapshot(&e->patterns[i].after);
 	}
-	else if (e->type == UNDO_PATTERN_INSERT)
+	for (uint16_t i = 0; i < e->sampleCount; i++)
 	{
-		freePatternSnapshot(&e->state.patternInsert.beforePattern);
-		freePatternSnapshot(&e->state.patternInsert.afterPattern);
+		freeSampleSnapshot(&e->samples[i].before);
+		freeSampleSnapshot(&e->samples[i].after);
 	}
-	else if (e->type == UNDO_SONG)
+	for (uint16_t i = 0; i < e->instrumentCount; i++)
 	{
-		freeSongSnapshot(&e->state.song.before);
-		freeSongSnapshot(&e->state.song.after);
+		freeInstrumentSnapshot(&e->instruments[i].before);
+		freeInstrumentSnapshot(&e->instruments[i].after);
 	}
-	else if (e->type == UNDO_SAMPLE)
-	{
-		freeSampleSnapshot(&e->state.sample.before);
-		freeSampleSnapshot(&e->state.sample.after);
-	}
-	else if (e->type == UNDO_INSTRUMENT)
-	{
-		freeInstrumentSnapshot(&e->state.instrument.before);
-		freeInstrumentSnapshot(&e->state.instrument.after);
-	}
+	free(e->patterns);
+	free(e->samples);
+	free(e->instruments);
 	memset(e, 0, sizeof (*e));
 }
 
@@ -158,8 +152,11 @@ void undoClear(void)
 static bool captureSample(uint8_t instrNum, uint8_t sampleNum, sampleSnapshot_t *dst)
 {
 	memset(dst, 0, sizeof (*dst));
-	if (instrNum == 0 || instr[instrNum] == NULL)
+	if (instrNum == 0 || instrNum > MAX_INST || sampleNum >= MAX_SMP_PER_INST ||
+		instr[instrNum] == NULL)
+	{
 		return true;
+	}
 
 	sample_t *src = &instr[instrNum]->smp[sampleNum];
 	dst->exists = true;
@@ -182,7 +179,7 @@ static bool captureSample(uint8_t instrNum, uint8_t sampleNum, sampleSnapshot_t 
 static bool captureInstrument(uint8_t instrNum, instrumentSnapshot_t *dst)
 {
 	memset(dst, 0, sizeof (*dst));
-	if (instrNum == 0 || instr[instrNum] == NULL)
+	if (instrNum == 0 || instrNum > MAX_INST || instr[instrNum] == NULL)
 		return true;
 
 	dst->exists = true;
@@ -203,6 +200,9 @@ static bool captureInstrument(uint8_t instrNum, instrumentSnapshot_t *dst)
 static bool capturePattern(uint16_t patternNum, patternSnapshot_t *dst)
 {
 	memset(dst, 0, sizeof (*dst));
+	if (patternNum >= MAX_PATTERNS)
+		return false;
+
 	dst->patternNum = patternNum;
 	dst->numRows = patternNumRows[patternNum];
 	if (pattern[patternNum] == NULL)
@@ -226,92 +226,77 @@ static void captureOrder(orderSnapshot_t *dst)
 	dst->songLoopStart = song.songLoopStart;
 }
 
-static bool captureSong(songSnapshot_t *dst)
-{
-	memset(dst, 0, sizeof (*dst));
-	for (int32_t i = 0; i < MAX_PATTERNS; i++)
-	{
-		if (!capturePattern((uint16_t)i, &dst->patterns[i]))
-		{
-			freeSongSnapshot(dst);
-			return false;
-		}
-	}
-	return true;
-}
-
-static uint32_t patternSnapshotBytes(const patternSnapshot_t *p);
-
-static uint32_t songSnapshotBytes(const songSnapshot_t *s)
-{
-	uint32_t bytes = 0;
-	for (int32_t i = 0; i < MAX_PATTERNS; i++) bytes += patternSnapshotBytes(&s->patterns[i]);
-	return bytes;
-}
-
-static uint32_t sampleSnapshotBytes(const sampleSnapshot_t *s) { return s->dataBytes; }
-static uint32_t instrumentSnapshotBytes(const instrumentSnapshot_t *ins)
-{
-	uint32_t bytes = sizeof (instr_t);
-	for (int32_t i = 0; i < MAX_SMP_PER_INST; i++) bytes += sampleSnapshotBytes(&ins->samples[i]);
-	return bytes;
-}
 static uint32_t patternSnapshotBytes(const patternSnapshot_t *p)
 {
-	return p->exists ? (uint32_t)p->numRows * TRACK_WIDTH : 0;
+	return sizeof (*p) + (p->exists ? (uint32_t)p->numRows * TRACK_WIDTH : 0);
 }
 
-static bool patternsEqual(const patternSnapshot_t *a, const patternSnapshot_t *b);
-
-static bool ordersEqual(const orderSnapshot_t *a, const orderSnapshot_t *b)
+static uint32_t sampleSnapshotBytes(const sampleSnapshot_t *s)
 {
-	return a->songPos == b->songPos &&
-		a->row == b->row &&
-		a->songLength == b->songLength &&
-		a->songLoopStart == b->songLoopStart &&
-		memcmp(a->orders, b->orders, sizeof (a->orders)) == 0;
+	return sizeof (*s) + s->dataBytes;
 }
 
-static bool songsEqual(const songSnapshot_t *a, const songSnapshot_t *b)
+static uint32_t instrumentSnapshotBytes(const instrumentSnapshot_t *ins)
 {
-	for (int32_t i = 0; i < MAX_PATTERNS; i++)
-		if (!patternsEqual(&a->patterns[i], &b->patterns[i])) return false;
-	return true;
+	uint32_t bytes = sizeof (*ins);
+	for (int32_t i = 0; i < MAX_SMP_PER_INST; i++)
+		bytes += ins->samples[i].dataBytes;
+	return bytes;
+}
+
+static bool patternsEqual(const patternSnapshot_t *a, const patternSnapshot_t *b)
+{
+	if (a->exists != b->exists || a->numRows != b->numRows)
+		return false;
+	if (!a->exists)
+		return true;
+	return memcmp(a->data, b->data, (uint32_t)a->numRows * TRACK_WIDTH) == 0;
 }
 
 static bool samplesEqual(const sampleSnapshot_t *a, const sampleSnapshot_t *b)
 {
-	if (a->exists != b->exists || a->dataBytes != b->dataBytes) return false;
-	if (!a->exists) return true;
-	if (memcmp(&a->meta, &b->meta, sizeof (sample_t)) != 0) return false;
+	if (a->exists != b->exists || a->dataBytes != b->dataBytes)
+		return false;
+	if (!a->exists)
+		return true;
+	if (memcmp(&a->meta, &b->meta, sizeof (sample_t)) != 0)
+		return false;
 	return a->dataBytes == 0 || memcmp(a->data, b->data, a->dataBytes) == 0;
 }
 
 static bool instrumentsEqual(const instrumentSnapshot_t *a, const instrumentSnapshot_t *b)
 {
-	if (a->exists != b->exists) return false;
-	if (!a->exists) return true;
-	if (memcmp(a->name, b->name, sizeof (a->name)) != 0) return false;
-	if (memcmp(&a->meta, &b->meta, sizeof (instr_t)) != 0) return false;
-	for (int32_t i = 0; i < MAX_SMP_PER_INST; i++) if (!samplesEqual(&a->samples[i], &b->samples[i])) return false;
+	if (a->exists != b->exists)
+		return false;
+	if (!a->exists)
+		return true;
+	if (memcmp(a->name, b->name, sizeof (a->name)) != 0 ||
+		memcmp(&a->meta, &b->meta, sizeof (instr_t)) != 0)
+	{
+		return false;
+	}
+	for (int32_t i = 0; i < MAX_SMP_PER_INST; i++)
+		if (!samplesEqual(&a->samples[i], &b->samples[i])) return false;
 	return true;
 }
 
-static bool patternsEqual(const patternSnapshot_t *a, const patternSnapshot_t *b)
+static bool ordersEqual(const orderSnapshot_t *a, const orderSnapshot_t *b)
 {
-	if (a->exists != b->exists || a->numRows != b->numRows) return false;
-	if (!a->exists) return true;
-	return memcmp(a->data, b->data, (uint32_t)a->numRows * TRACK_WIDTH) == 0;
+	return a->songPos == b->songPos && a->row == b->row &&
+		a->songLength == b->songLength && a->songLoopStart == b->songLoopStart &&
+		memcmp(a->orders, b->orders, sizeof (a->orders)) == 0;
 }
 
 static void removeOldest(void)
 {
-	if (historyCount <= 0) return;
+	if (historyCount <= 0)
+		return;
 	historyBytes -= history[0].bytes;
 	freeEntry(&history[0]);
 	memmove(&history[0], &history[1], (historyCount - 1) * sizeof (undoEntry_t));
 	historyCount--;
-	if (historyPos > 0) historyPos--;
+	if (historyPos > 0)
+		historyPos--;
 	memset(&history[historyCount], 0, sizeof (undoEntry_t));
 }
 
@@ -324,9 +309,14 @@ static void commitPending(void)
 		freeEntry(&history[historyCount]);
 	}
 
+	pending.afterStateId = nextStateId++;
+	currentStateId = pending.afterStateId;
+
 	if (pending.bytes > memoryLimitBytes)
 	{
-		freeEntry(&pending);
+		/* The edit already happened, but this transaction cannot be retained.
+		** Drop older history too so Undo can never skip across this mutation. */
+		undoClear();
 		return;
 	}
 
@@ -339,170 +329,309 @@ static void commitPending(void)
 	memset(&pending, 0, sizeof (pending));
 }
 
-bool undoPatternBegin(uint16_t patternNum, const char *description)
+bool undoTransactionIsActive(void)
+{
+	return pending.description[0] != '\0';
+}
+
+bool undoTransactionBegin(const char *description)
 {
 	undoInit();
 	freeEntry(&pending);
-	pending.type = UNDO_PATTERN;
+	if (description == NULL || description[0] == '\0')
+		description = "Edit";
 	strncpy(pending.description, description, sizeof (pending.description)-1);
-	if (!capturePattern(patternNum, &pending.state.pattern.before))
+	pending.beforeStateId = currentStateId;
+	return true;
+}
+
+bool undoTransactionAddPattern(uint16_t patternNum)
+{
+	if (!undoTransactionIsActive() || patternNum >= MAX_PATTERNS)
+		return false;
+	for (uint16_t i = 0; i < pending.patternCount; i++)
+		if (pending.patterns[i].before.patternNum == patternNum) return true;
+
+	patternChange_t *newList = realloc(pending.patterns,
+		(pending.patternCount + 1) * sizeof (*newList));
+	if (newList == NULL)
+		return false;
+	pending.patterns = newList;
+	patternChange_t *change = &pending.patterns[pending.patternCount];
+	memset(change, 0, sizeof (*change));
+	if (!capturePattern(patternNum, &change->before))
+		return false;
+	pending.patternCount++;
+	return true;
+}
+
+bool undoTransactionAddOrder(void)
+{
+	if (!undoTransactionIsActive())
+		return false;
+	if (!pending.hasOrder)
+	{
+		captureOrder(&pending.beforeOrder);
+		pending.hasOrder = true;
+	}
+	return true;
+}
+
+bool undoTransactionAddSample(uint8_t instrNum, uint8_t sampleNum)
+{
+	if (!undoTransactionIsActive() || instrNum == 0 || instrNum > MAX_INST ||
+		sampleNum >= MAX_SMP_PER_INST)
+	{
+		return false;
+	}
+	for (uint16_t i = 0; i < pending.instrumentCount; i++)
+		if (pending.instruments[i].instrNum == instrNum) return true;
+	for (uint16_t i = 0; i < pending.sampleCount; i++)
+		if (pending.samples[i].instrNum == instrNum && pending.samples[i].sampleNum == sampleNum) return true;
+
+	sampleChange_t *newList = realloc(pending.samples,
+		(pending.sampleCount + 1) * sizeof (*newList));
+	if (newList == NULL)
+		return false;
+	pending.samples = newList;
+	sampleChange_t *change = &pending.samples[pending.sampleCount];
+	memset(change, 0, sizeof (*change));
+	change->instrNum = instrNum;
+	change->sampleNum = sampleNum;
+	if (!captureSample(instrNum, sampleNum, &change->before))
+		return false;
+	pending.sampleCount++;
+	return true;
+}
+
+bool undoTransactionAddInstrument(uint8_t instrNum)
+{
+	if (!undoTransactionIsActive() || instrNum == 0 || instrNum > MAX_INST)
+		return false;
+	for (uint16_t i = 0; i < pending.instrumentCount; i++)
+		if (pending.instruments[i].instrNum == instrNum) return true;
+	for (uint16_t i = 0; i < pending.sampleCount; i++)
+		if (pending.samples[i].instrNum == instrNum) return false;
+
+	instrumentChange_t *newList = realloc(pending.instruments,
+		(pending.instrumentCount + 1) * sizeof (*newList));
+	if (newList == NULL)
+		return false;
+	pending.instruments = newList;
+	instrumentChange_t *change = &pending.instruments[pending.instrumentCount];
+	memset(change, 0, sizeof (*change));
+	change->instrNum = instrNum;
+	if (!captureInstrument(instrNum, &change->before))
+		return false;
+	pending.instrumentCount++;
+	return true;
+}
+
+bool undoTransactionAddSampleLauncher(void)
+{
+	if (!undoTransactionIsActive())
+		return false;
+	if (!pending.hasSampleLauncher)
+	{
+		sampleLauncherCaptureUndoState(&pending.beforeSampleLauncher);
+		pending.hasSampleLauncher = true;
+	}
+	return true;
+}
+
+void undoTransactionCommit(void)
+{
+	if (!undoTransactionIsActive())
+		return;
+
+	bool changed = false;
+	uint32_t bytes = sizeof (undoEntry_t);
+	for (uint16_t i = 0; i < pending.patternCount; i++)
+	{
+		patternChange_t *change = &pending.patterns[i];
+		if (!capturePattern(change->before.patternNum, &change->after))
+		{
+			currentStateId = nextStateId++;
+			undoClear();
+			return;
+		}
+		changed |= !patternsEqual(&change->before, &change->after);
+		bytes += patternSnapshotBytes(&change->before) + patternSnapshotBytes(&change->after);
+	}
+	for (uint16_t i = 0; i < pending.sampleCount; i++)
+	{
+		sampleChange_t *change = &pending.samples[i];
+		if (!captureSample(change->instrNum, change->sampleNum, &change->after))
+		{
+			currentStateId = nextStateId++;
+			undoClear();
+			return;
+		}
+		changed |= !samplesEqual(&change->before, &change->after);
+		bytes += sampleSnapshotBytes(&change->before) + sampleSnapshotBytes(&change->after);
+	}
+	for (uint16_t i = 0; i < pending.instrumentCount; i++)
+	{
+		instrumentChange_t *change = &pending.instruments[i];
+		if (!captureInstrument(change->instrNum, &change->after))
+		{
+			currentStateId = nextStateId++;
+			undoClear();
+			return;
+		}
+		changed |= !instrumentsEqual(&change->before, &change->after);
+		bytes += instrumentSnapshotBytes(&change->before) + instrumentSnapshotBytes(&change->after);
+	}
+	if (pending.hasOrder)
+	{
+		captureOrder(&pending.afterOrder);
+		changed |= !ordersEqual(&pending.beforeOrder, &pending.afterOrder);
+		bytes += sizeof (orderSnapshot_t) * 2;
+	}
+	if (pending.hasSampleLauncher)
+	{
+		sampleLauncherCaptureUndoState(&pending.afterSampleLauncher);
+		changed |= memcmp(&pending.beforeSampleLauncher, &pending.afterSampleLauncher,
+			sizeof (sampleLauncherUndoState_t)) != 0;
+		bytes += sizeof (sampleLauncherUndoState_t) * 2;
+	}
+
+	if (!changed)
 	{
 		freeEntry(&pending);
+		return;
+	}
+
+	pending.bytes = bytes;
+	commitPending();
+}
+
+bool undoPatternBegin(uint16_t patternNum, const char *description)
+{
+	if (!undoTransactionBegin(description) || !undoTransactionAddPattern(patternNum))
+	{
+		undoCancelTransaction();
 		return false;
 	}
 	return true;
 }
 
-void undoPatternCommit(void)
-{
-	if (pending.type != UNDO_PATTERN) return;
-	if (!capturePattern(pending.state.pattern.before.patternNum, &pending.state.pattern.after) ||
-		patternsEqual(&pending.state.pattern.before, &pending.state.pattern.after))
-	{
-		freeEntry(&pending);
-		return;
-	}
-	pending.bytes = patternSnapshotBytes(&pending.state.pattern.before) + patternSnapshotBytes(&pending.state.pattern.after);
-	commitPending();
-}
+void undoPatternCommit(void) { undoTransactionCommit(); }
 
 bool undoPatternInsertBegin(uint16_t patternNum, const char *description)
 {
-	undoInit();
-	freeEntry(&pending);
-	pending.type = UNDO_PATTERN_INSERT;
-	strncpy(pending.description, description, sizeof (pending.description)-1);
-	captureOrder(&pending.state.patternInsert.beforeOrder);
-	if (!capturePattern(patternNum, &pending.state.patternInsert.beforePattern))
+	if (!undoTransactionBegin(description) || !undoTransactionAddOrder() ||
+		!undoTransactionAddPattern(patternNum))
 	{
-		freeEntry(&pending);
+		undoCancelTransaction();
 		return false;
 	}
 	return true;
 }
 
-void undoPatternInsertCommit(void)
-{
-	if (pending.type != UNDO_PATTERN_INSERT)
-		return;
-
-	captureOrder(&pending.state.patternInsert.afterOrder);
-	const uint16_t patternNum = pending.state.patternInsert.beforePattern.patternNum;
-	if (!capturePattern(patternNum, &pending.state.patternInsert.afterPattern) ||
-		(ordersEqual(&pending.state.patternInsert.beforeOrder, &pending.state.patternInsert.afterOrder) &&
-		 patternsEqual(&pending.state.patternInsert.beforePattern, &pending.state.patternInsert.afterPattern)))
-	{
-		freeEntry(&pending);
-		return;
-	}
-
-	pending.bytes =
-		(uint32_t)(sizeof (orderSnapshot_t) * 2) +
-		patternSnapshotBytes(&pending.state.patternInsert.beforePattern) +
-		patternSnapshotBytes(&pending.state.patternInsert.afterPattern);
-	commitPending();
-}
-
+void undoPatternInsertCommit(void) { undoTransactionCommit(); }
 
 bool undoSongBegin(const char *description)
 {
-	undoInit();
-	freeEntry(&pending);
-	pending.type = UNDO_SONG;
-	strncpy(pending.description, description, sizeof (pending.description)-1);
-	if (!captureSong(&pending.state.song.before))
-	{
-		freeEntry(&pending);
+	if (!undoTransactionBegin(description))
 		return false;
+	for (uint16_t i = 0; i < MAX_PATTERNS; i++)
+	{
+		if (!undoTransactionAddPattern(i))
+		{
+			undoCancelTransaction();
+			return false;
+		}
 	}
 	return true;
 }
 
-void undoSongCommit(void)
-{
-	if (pending.type != UNDO_SONG) return;
-	if (!captureSong(&pending.state.song.after) || songsEqual(&pending.state.song.before, &pending.state.song.after))
-	{
-		freeEntry(&pending);
-		return;
-	}
-	pending.bytes = songSnapshotBytes(&pending.state.song.before) + songSnapshotBytes(&pending.state.song.after);
-	commitPending();
-}
+void undoSongCommit(void) { undoTransactionCommit(); }
 
 bool undoSampleBegin(uint8_t instrNum, uint8_t sampleNum, const char *description)
 {
-	undoInit();
-	freeEntry(&pending);
-	pending.type = UNDO_SAMPLE;
-	pending.state.sample.instrNum = instrNum;
-	pending.state.sample.sampleNum = sampleNum;
-	strncpy(pending.description, description, sizeof (pending.description)-1);
-	if (!captureSample(instrNum, sampleNum, &pending.state.sample.before))
+	if (!undoTransactionBegin(description) || !undoTransactionAddSample(instrNum, sampleNum))
 	{
-		freeEntry(&pending);
+		undoCancelTransaction();
 		return false;
 	}
 	return true;
 }
 
-void undoSampleCommit(void)
-{
-	if (pending.type != UNDO_SAMPLE) return;
-	if (!captureSample(pending.state.sample.instrNum, pending.state.sample.sampleNum, &pending.state.sample.after) ||
-		samplesEqual(&pending.state.sample.before, &pending.state.sample.after))
-	{
-		freeEntry(&pending);
-		return;
-	}
-	pending.bytes = sampleSnapshotBytes(&pending.state.sample.before) + sampleSnapshotBytes(&pending.state.sample.after);
-	commitPending();
-}
+void undoSampleCommit(void) { undoTransactionCommit(); }
 
 bool undoInstrumentBegin(uint8_t instrNum, const char *description)
 {
-	undoInit();
-	freeEntry(&pending);
-	pending.type = UNDO_INSTRUMENT;
-	pending.state.instrument.instrNum = instrNum;
-	strncpy(pending.description, description, sizeof (pending.description)-1);
-	if (!captureInstrument(instrNum, &pending.state.instrument.before))
+	if (!undoTransactionBegin(description) || !undoTransactionAddInstrument(instrNum))
 	{
-		freeEntry(&pending);
+		undoCancelTransaction();
 		return false;
 	}
 	return true;
 }
 
-void undoInstrumentCommit(void)
+void undoInstrumentCommit(void) { undoTransactionCommit(); }
+
+void undoCancelTransaction(void)
 {
-	if (pending.type != UNDO_INSTRUMENT) return;
-	if (!captureInstrument(pending.state.instrument.instrNum, &pending.state.instrument.after) ||
-		instrumentsEqual(&pending.state.instrument.before, &pending.state.instrument.after))
-	{
-		freeEntry(&pending);
-		return;
-	}
-	pending.bytes = instrumentSnapshotBytes(&pending.state.instrument.before) + instrumentSnapshotBytes(&pending.state.instrument.after);
-	commitPending();
+	freeEntry(&pending);
 }
 
-void undoCancelTransaction(void) { freeEntry(&pending); }
+void undoNotifyProjectMutation(void)
+{
+	if (!initialized || applyingHistory || undoTransactionIsActive())
+		return;
+
+	/* A persistent edit happened without a transaction. Old history can no
+	** longer be trusted to describe the immediately preceding project state. */
+	currentStateId = nextStateId++;
+	if (historyCount > 0)
+		undoClear();
+}
+
+uint64_t undoGetCurrentStateId(void)
+{
+	return currentStateId;
+}
+
+void undoMarkSavedState(uint64_t stateId)
+{
+	savedStateId = stateId;
+	song.isModified = currentStateId != savedStateId;
+	editor.updateWindowTitle = true;
+}
+
+void undoResetForLoadedProject(void)
+{
+	undoClear();
+	currentStateId = nextStateId++;
+	savedStateId = currentStateId;
+}
+
+static void syncSongModifiedToSavepoint(void)
+{
+	song.isModified = currentStateId != savedStateId;
+	editor.updateWindowTitle = true;
+}
 
 static bool restoreSample(uint8_t instrNum, uint8_t sampleNum, const sampleSnapshot_t *src)
 {
-	if (instrNum == 0) return false;
-	if (instr[instrNum] == NULL && !allocateInstr(instrNum)) return false;
+	if (instrNum == 0 || instrNum > MAX_INST || sampleNum >= MAX_SMP_PER_INST)
+		return false;
+	if (instr[instrNum] == NULL && !allocateInstr(instrNum))
+		return false;
 	sample_t *dst = &instr[instrNum]->smp[sampleNum];
 	freeSmpData(dst);
 	memset(dst, 0, sizeof (*dst));
-	if (!src->exists) return true;
+	if (!src->exists)
+		return true;
 
 	*dst = src->meta;
 	dst->dataPtr = dst->origDataPtr = NULL;
 	if (src->dataBytes > 0)
 	{
-		if (!allocateSmpData(dst, dst->length, !!(dst->flags & SAMPLE_16BIT))) return false;
+		if (!allocateSmpData(dst, dst->length, !!(dst->flags & SAMPLE_16BIT)))
+			return false;
 		memcpy(dst->dataPtr, src->data, src->dataBytes);
 		fixSample(dst);
 	}
@@ -513,14 +642,17 @@ static bool restoreInstrument(uint8_t instrNum, const instrumentSnapshot_t *src)
 {
 	freeInstr(instrNum);
 	memset(song.instrName[instrNum], 0, sizeof (song.instrName[instrNum]));
-	if (!src->exists) return true;
-	if (!allocateInstr(instrNum)) return false;
+	if (!src->exists)
+		return true;
+	if (!allocateInstr(instrNum))
+		return false;
 	memcpy(song.instrName[instrNum], src->name, sizeof (src->name));
 	*instr[instrNum] = src->meta;
 	for (int32_t i = 0; i < MAX_SMP_PER_INST; i++)
 	{
 		memset(&instr[instrNum]->smp[i], 0, sizeof (sample_t));
-		if (!restoreSample(instrNum, (uint8_t)i, &src->samples[i])) return false;
+		if (!restoreSample(instrNum, (uint8_t)i, &src->samples[i]))
+			return false;
 	}
 	return true;
 }
@@ -537,7 +669,8 @@ static bool restorePattern(const patternSnapshot_t *src)
 		}
 		return true;
 	}
-	if (!allocatePattern(src->patternNum)) return false;
+	if (!allocatePattern(src->patternNum))
+		return false;
 	memcpy(pattern[src->patternNum], src->data, (uint32_t)src->numRows * TRACK_WIDTH);
 	return true;
 }
@@ -554,84 +687,69 @@ static void restoreOrderPosition(const orderSnapshot_t *src)
 	setSongPos(src->songPos, src->row, DONT_RESET_SONG_TICK);
 }
 
-static void restoreOrder(const orderSnapshot_t *src)
+static bool entryTouchesMappedInstrument(const undoEntry_t *e)
 {
-	restoreOrderData(src);
-	restoreOrderPosition(src);
+	for (uint16_t i = 0; i < e->sampleCount; i++)
+		if (sampleLauncherInstrumentIsMapped(e->samples[i].instrNum)) return true;
+	for (uint16_t i = 0; i < e->instrumentCount; i++)
+		if (sampleLauncherInstrumentIsMapped(e->instruments[i].instrNum)) return true;
+	return false;
 }
 
 static bool applyEntry(const undoEntry_t *e, bool after)
 {
-	bool ok = false;
-	/* Direct Deck placement intentionally leaves the source sample selected.
-	** Undo/Redo therefore cannot rely on pauseAudio()'s current-instrument
-	** check to protect a different mapped destination. Pull Deck voices by the
-	** transaction target before restoring its native sample memory. */
-	if (e->type == UNDO_SAMPLE &&
-		sampleLauncherInstrumentIsMapped(e->state.sample.instrNum))
-	{
+	bool ok = true;
+	if (e->hasSampleLauncher || entryTouchesMappedInstrument(e))
 		sampleLauncherReset();
-	}
-	else if (e->type == UNDO_INSTRUMENT &&
-		sampleLauncherInstrumentIsMapped(e->state.instrument.instrNum))
-	{
-		sampleLauncherReset();
-	}
-	pauseAudio();
-	if (e->type == UNDO_PATTERN)
-		ok = restorePattern(after ? &e->state.pattern.after : &e->state.pattern.before);
-	else if (e->type == UNDO_PATTERN_INSERT)
-	{
-		const orderSnapshot_t *order = after
-			? &e->state.patternInsert.afterOrder
-			: &e->state.patternInsert.beforeOrder;
-		const patternSnapshot_t *patternState = after
-			? &e->state.patternInsert.afterPattern
-			: &e->state.patternInsert.beforePattern;
 
-		/*
-		** Redo restores the pattern before referencing it from the order list.
-		** Undo removes the order reference first so an originally unused
-		** pattern can be released by restorePattern().
-		*/
-		if (after)
-		{
-			ok = restorePattern(patternState);
-			if (ok)
-				restoreOrder(order);
-		}
-		else
-		{
-			restoreOrderData(order);
-			ok = restorePattern(patternState);
-			restoreOrderPosition(order);
-		}
-	}
-	else if (e->type == UNDO_SONG)
+	pauseAudio();
+	if (e->hasOrder && !after)
+		restoreOrderData(&e->beforeOrder);
+
+	for (uint16_t i = 0; i < e->patternCount; i++)
 	{
-		ok = true;
-		const songSnapshot_t *ss = after ? &e->state.song.after : &e->state.song.before;
-		for (int32_t i = 0; i < MAX_PATTERNS; i++)
-			if (!restorePattern(&ss->patterns[i])) { ok = false; break; }
+		const patternSnapshot_t *state = after ? &e->patterns[i].after : &e->patterns[i].before;
+		if (!restorePattern(state)) { ok = false; break; }
 	}
-	else if (e->type == UNDO_SAMPLE)
-		ok = restoreSample(e->state.sample.instrNum, e->state.sample.sampleNum, after ? &e->state.sample.after : &e->state.sample.before);
-	else if (e->type == UNDO_INSTRUMENT)
-		ok = restoreInstrument(e->state.instrument.instrNum, after ? &e->state.instrument.after : &e->state.instrument.before);
+	if (ok)
+	{
+		for (uint16_t i = 0; i < e->instrumentCount; i++)
+		{
+			const instrumentSnapshot_t *state = after ? &e->instruments[i].after : &e->instruments[i].before;
+			if (!restoreInstrument(e->instruments[i].instrNum, state)) { ok = false; break; }
+		}
+	}
+	if (ok)
+	{
+		for (uint16_t i = 0; i < e->sampleCount; i++)
+		{
+			const sampleSnapshot_t *state = after ? &e->samples[i].after : &e->samples[i].before;
+			if (!restoreSample(e->samples[i].instrNum, e->samples[i].sampleNum, state)) { ok = false; break; }
+		}
+	}
+	if (ok && e->hasSampleLauncher)
+		sampleLauncherRestoreUndoState(after ? &e->afterSampleLauncher : &e->beforeSampleLauncher);
+	if (ok && e->hasOrder)
+	{
+		const orderSnapshot_t *order = after ? &e->afterOrder : &e->beforeOrder;
+		if (after)
+			restoreOrderData(order);
+		restoreOrderPosition(order);
+	}
 	resumeAudio();
 
 	if (ok)
 	{
-		setSongModifiedFlag();
 		ui.updatePatternEditor = true;
-		if (e->type == UNDO_PATTERN_INSERT)
+		if (e->hasOrder)
 		{
 			ui.updatePosSections = true;
 			ui.updatePosEdScrollBar = true;
 		}
 		editor.updateCurInstr = true;
 		editor.updateCurSmp = true;
-		if (ui.sampleEditorShown) updateSampleEditorSample();
+		if (ui.sampleEditorShown)
+			updateSampleEditorSample();
 	}
 	return ok;
 }
@@ -639,29 +757,61 @@ static bool applyEntry(const undoEntry_t *e, bool after)
 void undoPerform(void)
 {
 	undoInit();
-	if (pending.type != UNDO_NONE) undoCancelTransaction();
-	if (historyPos <= 0) return;
-	if (applyEntry(&history[historyPos-1], false)) historyPos--;
+	if (undoTransactionIsActive())
+		undoCancelTransaction();
+	if (historyPos <= 0)
+		return;
+	applyingHistory = true;
+	const bool ok = applyEntry(&history[historyPos-1], false);
+	applyingHistory = false;
+	if (ok)
+	{
+		historyPos--;
+		currentStateId = history[historyPos].beforeStateId;
+		syncSongModifiedToSavepoint();
+	}
+	else
+	{
+		currentStateId = nextStateId++;
+		undoClear();
+	}
 }
 
 void redoPerform(void)
 {
 	undoInit();
-	if (pending.type != UNDO_NONE) undoCancelTransaction();
-	if (historyPos >= historyCount) return;
-	if (applyEntry(&history[historyPos], true)) historyPos++;
+	if (undoTransactionIsActive())
+		undoCancelTransaction();
+	if (historyPos >= historyCount)
+		return;
+	applyingHistory = true;
+	const bool ok = applyEntry(&history[historyPos], true);
+	applyingHistory = false;
+	if (ok)
+	{
+		currentStateId = history[historyPos].afterStateId;
+		historyPos++;
+		syncSongModifiedToSavepoint();
+	}
+	else
+	{
+		currentStateId = nextStateId++;
+		undoClear();
+	}
 }
 
 void undoLoadConfig(void)
 {
 	const uint32_t mb = CLAMP(tapeheadConfig.undoMemoryMB, UNDO_MIN_MB, UNDO_MAX_MB);
 	memoryLimitBytes = mb * 1024U * 1024U;
-	while (historyBytes > memoryLimitBytes) removeOldest();
+	while (historyBytes > memoryLimitBytes)
+		removeOldest();
 }
 
 void undoInit(void)
 {
-	if (initialized) return;
+	if (initialized)
+		return;
 	initialized = true;
 	undoLoadConfig();
 }

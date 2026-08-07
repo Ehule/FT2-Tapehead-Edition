@@ -79,6 +79,8 @@ void configPalBDown(void);
 void configPalBUp(void);
 void configPalContDown(void);
 void configPalContUp(void);
+void configPalImport(void);
+void configPalExport(void);
 void showPaletteEditor(void);
 
 void rbConfigPalPatternText(void);

@@ -1019,6 +1019,17 @@ static void diskOpSave(bool checkOverwrite, bool bakeCompositionRequested)
 
 		case DISKOP_ITEM_SAMPLE:
 		{
+			if (editor.sampleSaveMode == SMP_SAVE_MODE_EXS)
+			{
+				const int16_t mode = okBox(SYSREQ_TYPE_EXS_EXPORT,
+					"Export XM Samples",
+					"All samples belonging to each selected instrument will be exported.", NULL);
+				if (mode != 1 && mode != 2)
+					return;
+
+				setEXSExportUsedOnly(mode == 1);
+			}
+
 			switch (editor.sampleSaveMode)
 			{
 				         case SMP_SAVE_MODE_RAW: diskOpChangeFilenameExt(".raw"); break;
@@ -1127,6 +1138,241 @@ static bool isSupportedFolderSample(const UNICHAR *fileNameU)
 	return supported;
 }
 
+typedef struct samplePathList_t
+{
+	UNICHAR **items;
+	uint32_t count;
+	size_t capacity;
+} samplePathList_t;
+
+static void freeSamplePathList(samplePathList_t *list)
+{
+	if (list == NULL)
+		return;
+
+	for (uint32_t i = 0; i < list->count; i++)
+		free(list->items[i]);
+	free(list->items);
+	memset(list, 0, sizeof (*list));
+}
+
+static bool appendSamplePath(samplePathList_t *list, const UNICHAR *pathU)
+{
+	if (list->count == UINT32_MAX)
+		return false;
+
+	if ((size_t)list->count == list->capacity)
+	{
+		const size_t newCapacity = list->capacity == 0 ? 32 : list->capacity * 2;
+		if (newCapacity < list->capacity ||
+			newCapacity > SIZE_MAX / sizeof (UNICHAR *))
+			return false;
+
+		UNICHAR **newItems = (UNICHAR **)realloc(list->items,
+			newCapacity * sizeof (UNICHAR *));
+		if (newItems == NULL)
+			return false;
+		list->items = newItems;
+		list->capacity = newCapacity;
+	}
+
+	list->items[list->count] = UNICHAR_STRDUP(pathU);
+	if (list->items[list->count] == NULL)
+		return false;
+	list->count++;
+	return true;
+}
+
+static bool joinSamplePath(UNICHAR *dst, size_t dstCount,
+	const UNICHAR *left, const UNICHAR *right)
+{
+	const size_t leftLen = UNICHAR_STRLEN(left);
+	const size_t rightLen = UNICHAR_STRLEN(right);
+	const bool needsDelimiter = leftLen > 0 && left[leftLen-1] != DIR_DELIMITER;
+	if (leftLen + (needsDelimiter ? 1 : 0) + rightLen >= dstCount)
+		return false;
+
+	memcpy(dst, left, leftLen * sizeof (UNICHAR));
+	size_t pos = leftLen;
+	if (needsDelimiter)
+		dst[pos++] = DIR_DELIMITER;
+	memcpy(&dst[pos], right, (rightLen + 1) * sizeof (UNICHAR));
+	return true;
+}
+
+static bool collectCurrentFolderSamplePaths(samplePathList_t *list)
+{
+	for (int32_t i = 0; i < FReq_FileCount; i++)
+	{
+		if (!FReq_Buffer[i].isDir && isSupportedFolderSample(FReq_Buffer[i].nameU) &&
+			!appendSamplePath(list, FReq_Buffer[i].nameU))
+			return false;
+	}
+	return true;
+}
+
+#ifdef _WIN32
+static bool collectRecursiveSamplePathsWindows(const UNICHAR *root,
+	const UNICHAR *relative, samplePathList_t *list)
+{
+	UNICHAR directoryPath[PATH_MAX+1], searchPath[PATH_MAX+1];
+	if (relative[0] == '\0')
+	{
+		UNICHAR_STRNCPY(directoryPath, root, PATH_MAX);
+		directoryPath[PATH_MAX] = '\0';
+	}
+	else if (!joinSamplePath(directoryPath, PATH_MAX+1, root, relative))
+	{
+		return false;
+	}
+
+	const size_t directoryLen = UNICHAR_STRLEN(directoryPath);
+	const bool needsDelimiter = directoryLen > 0 &&
+		directoryPath[directoryLen-1] != DIR_DELIMITER;
+	if (directoryLen + (needsDelimiter ? 1 : 0) + 1 > PATH_MAX)
+		return false;
+	memcpy(searchPath, directoryPath, directoryLen * sizeof (UNICHAR));
+	size_t pos = directoryLen;
+	if (needsDelimiter)
+		searchPath[pos++] = DIR_DELIMITER;
+	searchPath[pos++] = L'*';
+	searchPath[pos] = L'\0';
+
+	WIN32_FIND_DATAW data;
+	HANDLE find = FindFirstFileW(searchPath, &data);
+	if (find == INVALID_HANDLE_VALUE)
+		return false;
+
+	bool success = true;
+	do
+	{
+		if (data.cFileName[0] == L'.')
+			continue;
+
+		UNICHAR childRelative[PATH_MAX+1];
+		if (!joinSamplePath(childRelative, PATH_MAX+1, relative, data.cFileName))
+		{
+			success = false;
+			break;
+		}
+
+		if ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
+		{
+			if ((data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) == 0 &&
+				!collectRecursiveSamplePathsWindows(root, childRelative, list))
+			{
+				success = false;
+				break;
+			}
+		}
+		else if (isSupportedFolderSample(data.cFileName) &&
+			!appendSamplePath(list, childRelative))
+		{
+			success = false;
+			break;
+		}
+	}
+	while (FindNextFileW(find, &data) != 0);
+
+	FindClose(find);
+	return success;
+}
+#else
+static bool collectRecursiveSamplePathsPosix(const UNICHAR *root,
+	samplePathList_t *list)
+{
+	char *rootCopy = strdup(root);
+	if (rootCopy == NULL)
+		return false;
+
+	size_t rootLen = strlen(rootCopy);
+	while (rootLen > 1 && rootCopy[rootLen-1] == '/')
+		rootCopy[--rootLen] = '\0';
+
+	char *paths[] = { rootCopy, NULL };
+	FTS *tree = fts_open(paths, FTS_NOCHDIR | FTS_PHYSICAL | FTS_XDEV, NULL);
+	if (tree == NULL)
+	{
+		free(rootCopy);
+		return false;
+	}
+
+	bool success = true;
+	FTSENT *entry;
+	while ((entry = fts_read(tree)) != NULL)
+	{
+		if (entry->fts_level > 0 && entry->fts_name[0] == '.')
+		{
+			if (entry->fts_info == FTS_D && fts_set(tree, entry, FTS_SKIP) != 0)
+				success = false;
+			continue;
+		}
+
+		if (entry->fts_info == FTS_DNR || entry->fts_info == FTS_ERR ||
+			entry->fts_info == FTS_NS)
+		{
+			success = false;
+			continue;
+		}
+
+		if (entry->fts_info != FTS_F || !isSupportedFolderSample(entry->fts_name))
+			continue;
+
+		const char *relative = entry->fts_path + rootLen;
+		while (*relative == '/')
+			relative++;
+		if (*relative != '\0' && !appendSamplePath(list, relative))
+		{
+			success = false;
+			break;
+		}
+	}
+
+	fts_close(tree);
+	free(rootCopy);
+	return success;
+}
+#endif
+
+static bool chooseAndCollectFolderSamples(samplePathList_t *list)
+{
+	const int16_t scope = okBox(SYSREQ_TYPE_FOLDER_SCOPE, "Samples to include:",
+		"Choose current folder only or include all subfolders.", NULL);
+	if (scope == 0 || scope == 3)
+		return false;
+
+	bool success;
+	if (scope == 1)
+		success = collectCurrentFolderSamplePaths(list);
+	else
+	{
+#ifdef _WIN32
+		static const UNICHAR emptyPath[] = L"";
+		success = collectRecursiveSamplePathsWindows(FReq_CurPathU, emptyPath, list);
+#else
+		success = collectRecursiveSamplePathsPosix(FReq_CurPathU, list);
+#endif
+	}
+
+	if (!success)
+	{
+		freeSamplePathList(list);
+		okBox(0, "System message",
+			"Couldn't scan all sample folders. Nothing was imported.", NULL);
+		return false;
+	}
+
+	if (list->count == 0)
+	{
+		freeSamplePathList(list);
+		okBox(0, "System message",
+			"The selected folder scope contains no supported sample files!", NULL);
+		return false;
+	}
+
+	return true;
+}
+
 static bool currentInstrumentHasSamples(void)
 {
 	if (editor.curInstr == 0 || instr[editor.curInstr] == NULL)
@@ -1147,39 +1393,22 @@ void showSampleFolderImportDialog(void)
 	if (FReq_Item != DISKOP_ITEM_SAMPLE)
 		return;
 
-	if (FReq_CurPathU == NULL || FReq_Buffer == NULL || FReq_FileCount <= 0)
+	if (FReq_CurPathU == NULL || FReq_Buffer == NULL)
 	{
 		okBox(0, "System message", "The current folder is not ready yet!", NULL);
 		return;
 	}
 
-	const UNICHAR **fileNamesU = (const UNICHAR **)malloc((size_t)FReq_FileCount * sizeof (UNICHAR *));
-	if (fileNamesU == NULL)
-	{
-		okBox(0, "System message", "Not enough memory!", NULL);
+	samplePathList_t files = { 0 };
+	if (!chooseAndCollectFolderSamples(&files))
 		return;
-	}
-
-	uint32_t fileCount = 0;
-	for (int32_t i = 0; i < FReq_FileCount; i++)
-	{
-		if (!FReq_Buffer[i].isDir && isSupportedFolderSample(FReq_Buffer[i].nameU))
-			fileNamesU[fileCount++] = FReq_Buffer[i].nameU;
-	}
-
-	if (fileCount == 0)
-	{
-		free(fileNamesU);
-		okBox(0, "System message", "This folder contains no supported sample files!", NULL);
-		return;
-	}
 
 	bool autoMap = true;
 	const int16_t choice = choiceBoxWithCheckBox(SYSREQ_TYPE_FOLDER_IMPORT, "Import folder as:",
 		"One sample each, or all samples in current", "Auto-map from C-4", &autoMap);
 	if (choice == 0 || choice == 3)
 	{
-		free(fileNamesU);
+		freeSamplePathList(&files);
 		return;
 	}
 
@@ -1193,7 +1422,7 @@ void showSampleFolderImportDialog(void)
 		mode = SAMPLE_FOLDER_IMPORT_CURRENT_INSTRUMENT;
 		if (editor.curInstr == 0)
 		{
-			free(fileNamesU);
+			freeSamplePathList(&files);
 			okBox(0, "System message", "The zero-instrument cannot hold instrument data!", NULL);
 			return;
 		}
@@ -1201,13 +1430,14 @@ void showSampleFolderImportDialog(void)
 		if (currentInstrumentHasSamples() &&
 			okBox(2, "System request", "Replace the current instrument's sample slots?", NULL) != 1)
 		{
-			free(fileNamesU);
+			freeSamplePathList(&files);
 			return;
 		}
 	}
 
-	loadSampleFolder(FReq_CurPathU, fileNamesU, fileCount, mode, autoMap);
-	free(fileNamesU);
+	loadSampleFolder(FReq_CurPathU, (const UNICHAR *const *)files.items,
+		files.count, mode, autoMap);
+	freeSamplePathList(&files);
 }
 
 void loadCurrentFolderIntoSampleLauncher(void)
@@ -1215,38 +1445,20 @@ void loadCurrentFolderIntoSampleLauncher(void)
 	if (FReq_Item != DISKOP_ITEM_SAMPLE)
 		return;
 
-	if (FReq_CurPathU == NULL || FReq_Buffer == NULL || FReq_FileCount <= 0)
+	if (FReq_CurPathU == NULL || FReq_Buffer == NULL)
 	{
 		okBox(0, "System message", "The current folder is not ready yet!", NULL);
 		return;
 	}
 
-	const UNICHAR **fileNamesU = (const UNICHAR **)malloc(
-		(size_t)FReq_FileCount * sizeof (UNICHAR *));
-	if (fileNamesU == NULL)
-	{
-		okBox(0, "System message", "Not enough memory!", NULL);
+	samplePathList_t files = { 0 };
+	if (!chooseAndCollectFolderSamples(&files))
 		return;
-	}
-
-	uint32_t fileCount = 0;
-	for (int32_t i = 0; i < FReq_FileCount; i++)
-	{
-		if (!FReq_Buffer[i].isDir && isSupportedFolderSample(FReq_Buffer[i].nameU))
-			fileNamesU[fileCount++] = FReq_Buffer[i].nameU;
-	}
-
-	if (fileCount == 0)
-	{
-		free(fileNamesU);
-		okBox(0, "System message", "This folder contains no supported sample files!", NULL);
-		return;
-	}
 
 	const uint8_t bank = sampleLauncherGetBank();
 	const uint32_t capacity = (SAMPLE_LAUNCHER_BANK_COUNT - bank) *
 		SAMPLE_LAUNCHER_TILES_PER_BANK;
-	const uint32_t importCount = MIN(fileCount, capacity);
+	const uint32_t importCount = MIN(files.count, capacity);
 	const uint8_t bankCount = (uint8_t)((importCount +
 		SAMPLE_LAUNCHER_TILES_PER_BANK - 1) / SAMPLE_LAUNCHER_TILES_PER_BANK);
 	bool replacesSamples = false;
@@ -1263,12 +1475,12 @@ void loadCurrentFolderIntoSampleLauncher(void)
 			first, last);
 		if (okBox(2, "Sample Matrix", message, NULL) != 1)
 		{
-			free(fileNamesU);
+			freeSamplePathList(&files);
 			return;
 		}
 	}
 
-	if (fileCount > capacity)
+	if (files.count > capacity)
 	{
 		char message[112];
 		snprintf(message, sizeof (message),
@@ -1276,14 +1488,14 @@ void loadCurrentFolderIntoSampleLauncher(void)
 			capacity, bank * SAMPLE_LAUNCHER_TILES_PER_BANK);
 		if (okBox(2, "Sample Matrix", message, NULL) != 1)
 		{
-			free(fileNamesU);
+			freeSamplePathList(&files);
 			return;
 		}
 	}
 
-	loadSampleFolder(FReq_CurPathU, fileNamesU, fileCount,
+	loadSampleFolder(FReq_CurPathU, (const UNICHAR *const *)files.items, files.count,
 		SAMPLE_FOLDER_IMPORT_LAUNCHER, false);
-	free(fileNamesU);
+	freeSamplePathList(&files);
 }
 
 static void fileListPressed(int32_t index)
@@ -2262,7 +2474,8 @@ static void drawSaveAsElements(void)
 		case DISKOP_ITEM_SAMPLE:
 		{
 			textOutShadow(19, 101, PAL_FORGRND, PAL_DSKTOP2, "RAW");
-			textOutShadow(19, 115, PAL_FORGRND, PAL_DSKTOP2, "IFF");
+			textOutShadow(19, 115, PAL_FORGRND, PAL_DSKTOP2,
+				tapeheadConfig.sampleExportEXS ? "EXS" : "IFF");
 			textOutShadow(19, 129, PAL_FORGRND, PAL_DSKTOP2, "WAV");
 		}
 		break;
@@ -2295,7 +2508,11 @@ static void setDiskOpItemRadioButtons(void)
 		editor.moduleSaveMode = 3;
 
 	if (editor.sampleSaveMode > 3)
-		editor.sampleSaveMode = 3;
+		editor.sampleSaveMode = SMP_SAVE_MODE_WAV;
+	if (tapeheadConfig.sampleExportEXS && editor.sampleSaveMode == SMP_SAVE_MODE_IFF)
+		editor.sampleSaveMode = SMP_SAVE_MODE_EXS;
+	else if (!tapeheadConfig.sampleExportEXS && editor.sampleSaveMode == SMP_SAVE_MODE_EXS)
+		editor.sampleSaveMode = SMP_SAVE_MODE_IFF;
 
 	radioButtons[RB_DISKOP_MOD_SAVEAS_MOD + editor.moduleSaveMode].state = RADIOBUTTON_CHECKED;
 	radioButtons[RB_DISKOP_SMP_SAVEAS_RAW + editor.sampleSaveMode].state = RADIOBUTTON_CHECKED;
@@ -2310,7 +2527,11 @@ static void setDiskOpItemRadioButtons(void)
 		{
 			default: case DISKOP_ITEM_MODULE:  showRadioButtonGroup(RB_GROUP_DISKOP_MOD_SAVEAS); break;
 			         case DISKOP_ITEM_INSTR:   showRadioButtonGroup(RB_GROUP_DISKOP_INS_SAVEAS); break;
-			         case DISKOP_ITEM_SAMPLE:  showRadioButtonGroup(RB_GROUP_DISKOP_SMP_SAVEAS); break;
+			         case DISKOP_ITEM_SAMPLE:
+					 showRadioButtonGroup(RB_GROUP_DISKOP_SMP_SAVEAS);
+					 hideRadioButton(tapeheadConfig.sampleExportEXS ?
+						 RB_DISKOP_SMP_SAVEAS_IFF : RB_DISKOP_SMP_SAVEAS_EXS);
+					 break;
 			         case DISKOP_ITEM_PATTERN: showRadioButtonGroup(RB_GROUP_DISKOP_PAT_SAVEAS); break;
 			         case DISKOP_ITEM_TRACK:   showRadioButtonGroup(RB_GROUP_DISKOP_TRK_SAVEAS); break;
 		}
@@ -2788,4 +3009,16 @@ void rbDiskOpSmpSaveWav(void)
 	editor.sampleSaveMode = SMP_SAVE_MODE_WAV;
 	checkRadioButton(RB_DISKOP_SMP_SAVEAS_WAV);
 	diskOpChangeFilenameExt(".wav");
+}
+
+void rbDiskOpSmpSaveExs(void)
+{
+	editor.sampleSaveMode = SMP_SAVE_MODE_EXS;
+	checkRadioButton(RB_DISKOP_SMP_SAVEAS_EXS);
+
+	char safeSongName[64];
+	strncpy(safeSongName, song.name[0] != '\0' ? song.name : "Untitled", sizeof (safeSongName)-1);
+	safeSongName[sizeof (safeSongName)-1] = '\0';
+	sanitizeFilename(safeSongName);
+	snprintf(FReq_FileName, PATH_MAX+1, "%s_EXS", safeSongName);
 }

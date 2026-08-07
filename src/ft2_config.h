@@ -302,6 +302,13 @@ enum
 	TAPEHEAD_HD_STYLE_ROUND = 1
 };
 
+enum
+{
+	TAPEHEAD_START_USE_LEGACY = 0,
+	TAPEHEAD_START_TRACKER,
+	TAPEHEAD_START_DECK_MATRIX
+};
+
 typedef struct tapeheadConfig_t
 {
 	bool diskOpBackspaceParent;
@@ -310,6 +317,8 @@ typedef struct tapeheadConfig_t
 	bool hdMode;
 	bool launcherMode;
 	bool launcherStandalone;
+	bool sampleExportEXS;
+	uint8_t startWindow;
 	uint8_t outputBuses;
 	uint8_t hdScale;
 	uint8_t hdStyle;

@@ -23,6 +23,8 @@
 #include "ft2_gui.h"
 #include "ft2_diskop.h"
 #include "ft2_sample_loader.h"
+#include "ft2_module_saver.h"
+#include "ft2_undo.h"
 #include "ft2_smpfx.h"
 #include "ft2_mouse.h"
 #include "ft2_midi.h"
@@ -515,10 +517,12 @@ static void setupLoadedModule(void)
 	resetWavRenderer();
 	clearPattMark();
 	clearSampleUndo();
+	undoResetForLoadedProject();
 	resetTrimSizes();
 	resetPlaybackTime();
 
 	diskOpSetFilename(DISKOP_ITEM_MODULE, editor.tmpFilenameU);
+	setCurrentModuleFilename(editor.tmpFilenameU);
 
 	// redraw top part of screen
 	if (ui.extendedPatternEditor)

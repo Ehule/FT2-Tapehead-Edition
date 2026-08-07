@@ -702,7 +702,10 @@ static bool getCopyBuffer(int32_t size, bool sample16Bit)
 
 static int32_t copySampleThread(void *ptr)
 {
-	undoSampleBegin(editor.curInstr, editor.curSmp, "Paste sample");
+	const bool captureWholeInstrument = instr[editor.curInstr] == NULL;
+	const bool undoStarted = captureWholeInstrument
+		? undoInstrumentBegin(editor.curInstr, "Paste sample")
+		: undoSampleBegin(editor.curInstr, editor.curSmp, "Paste sample");
 	pauseAudio();
 
 	sample_t *src;
@@ -720,16 +723,21 @@ static int32_t copySampleThread(void *ptr)
 
 	resumeAudio();
 
-	undoSampleCommit();
 	editor.updateCurSmp = true;
 	setSongModifiedFlag();
+	if (undoStarted)
+	{
+		if (captureWholeInstrument) undoInstrumentCommit();
+		else undoSampleCommit();
+	}
 	setMouseBusy(false);
 
 	return true;
 
 error:
 	resumeAudio();
-	undoCancelTransaction();
+	if (undoStarted)
+		undoCancelTransaction();
 	okBoxThreadSafe(0, "System message", "Not enough memory!", NULL);
 	return true;
 
@@ -2306,6 +2314,15 @@ static void extractSmpRangeToSampleInternal(int32_t rangeStart, int32_t rangeEnd
 		return;
 	}
 
+	const bool ownsUndo = !undoTransactionIsActive();
+	if ((ownsUndo && !undoTransactionBegin("Extract sample")) ||
+		!undoTransactionAddSample((uint8_t)srcInstr, (uint8_t)dstSmpNum))
+	{
+		if (ownsUndo) undoCancelTransaction();
+		okBox(0, "System message", "Not enough memory to create undo data. Nothing was changed.", NULL);
+		return;
+	}
+
 	const int32_t extractLength = rangeEnd - rangeStart;
 	const bool sample16Bit = !!(srcSmp->flags & SAMPLE_16BIT);
 	char newSampleName[23];
@@ -2325,6 +2342,7 @@ static void extractSmpRangeToSampleInternal(int32_t rangeStart, int32_t rangeEnd
 		memset(dstSmp, 0, sizeof (sample_t));
 		fixSample(srcSmp);
 		resumeAudio();
+		if (ownsUndo) undoCancelTransaction();
 		okBox(0, "System message", "Not enough memory!", NULL);
 		return;
 	}
@@ -2369,6 +2387,8 @@ static void extractSmpRangeToSampleInternal(int32_t rangeStart, int32_t rangeEnd
 		updateInstrumentSwitcher();
 
 	setSongModifiedFlag();
+	if (ownsUndo)
+		undoTransactionCommit();
 }
 
 static int16_t extractSmpRangeToInstrInternal(int32_t rangeStart, int32_t rangeEnd)
@@ -2404,6 +2424,15 @@ static int16_t extractSmpRangeToInstrInternal(int32_t rangeStart, int32_t rangeE
 		return 0;
 	}
 
+	const bool ownsUndo = !undoTransactionIsActive();
+	if ((ownsUndo && !undoTransactionBegin("Extract to instrument")) ||
+		!undoTransactionAddInstrument((uint8_t)dstInstr))
+	{
+		if (ownsUndo) undoCancelTransaction();
+		okBox(0, "System message", "Not enough memory to create undo data. Nothing was changed.", NULL);
+		return 0;
+	}
+
 	const int32_t extractLength = rangeEnd - rangeStart;
 	const bool sample16Bit = !!(srcSmp->flags & SAMPLE_16BIT);
 
@@ -2417,6 +2446,7 @@ static int16_t extractSmpRangeToInstrInternal(int32_t rangeStart, int32_t rangeE
 	{
 		fixSample(srcSmp);
 		resumeAudio();
+		if (ownsUndo) undoCancelTransaction();
 
 		okBox(0, "System message", "Not enough memory!", NULL);
 		return 0;
@@ -2462,6 +2492,7 @@ static int16_t extractSmpRangeToInstrInternal(int32_t rangeStart, int32_t rangeE
 
 		fixSample(srcSmp);
 		resumeAudio();
+		if (ownsUndo) undoCancelTransaction();
 
 		okBox(0, "System message", "Not enough memory!", NULL);
 		return 0;
@@ -2530,6 +2561,8 @@ static int16_t extractSmpRangeToInstrInternal(int32_t rangeStart, int32_t rangeE
 		updateInstrumentSwitcher();
 
 	setSongModifiedFlag();
+	if (ownsUndo)
+		undoTransactionCommit();
 	return dstInstr;
 }
 
@@ -2577,6 +2610,11 @@ static bool stampExtractedInstrument(int16_t dstInstr, int32_t sourceSampleStart
 	}
 
 	const uint8_t patt = song.orders[dstOrder];
+	if (undoTransactionIsActive() && !undoTransactionAddPattern(patt))
+	{
+		okBox(0, "System message", "Not enough memory to create undo data for Extract + Stamp.", NULL);
+		return false;
+	}
 	if (!allocatePattern(patt))
 	{
 		okBox(0, "System message", "Not enough memory for Extract + Stamp.", NULL);
@@ -2606,9 +2644,21 @@ void extractSmpRangeToInstrAndStamp(void)
 		end = tmp;
 	}
 
+	if (!undoTransactionBegin("Extract + Stamp"))
+	{
+		okBox(0, "System message", "Not enough memory to create undo data. Nothing was changed.", NULL);
+		return;
+	}
 	const int16_t dstInstr = extractSmpRangeToInstrInternal(start, end);
 	if (dstInstr > 0)
-		stampExtractedInstrument(dstInstr, start, end);
+	{
+		(void)stampExtractedInstrument(dstInstr, start, end);
+		undoTransactionCommit();
+	}
+	else
+	{
+		undoCancelTransaction();
+	}
 }
 
 void extractSmpFromCursorToInstrAndStamp(void)
@@ -2618,9 +2668,22 @@ void extractSmpFromCursorToInstrAndStamp(void)
 		return;
 
 	const int32_t start = smpEd_Rx1;
-	const int16_t dstInstr = extractSmpRangeToInstrInternal(start, s->length);
+	const int32_t end = s->length;
+	if (!undoTransactionBegin("Extract + Stamp"))
+	{
+		okBox(0, "System message", "Not enough memory to create undo data. Nothing was changed.", NULL);
+		return;
+	}
+	const int16_t dstInstr = extractSmpRangeToInstrInternal(start, end);
 	if (dstInstr > 0)
-		stampExtractedInstrument(dstInstr, start, s->length);
+	{
+		(void)stampExtractedInstrument(dstInstr, start, end);
+		undoTransactionCommit();
+	}
+	else
+	{
+		undoCancelTransaction();
+	}
 }
 
 void extractSmpRangeToInstr(void)
@@ -3397,9 +3460,12 @@ void clearSample(void)
 	if (okBox(1, "System request", "Clear sample?", NULL) != 1)
 		return;
 
+	if (!undoSampleBegin(editor.curInstr, editor.curSmp, "Clear sample"))
+		return;
 	freeSample(editor.curInstr, editor.curSmp);
 	updateNewSample();
 	setSongModifiedFlag();
+	undoSampleCommit();
 }
 
 void sampMinimize(void)

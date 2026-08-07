@@ -1557,22 +1557,24 @@ void handleRedrawing(void)
 						y = 56;
 						areaWidth = 443;
 					}
-					// silent recording indicator
-					fillRect(101, y, 24, FONT1_CHAR_H+1, PAL_DESKTOP);
-
-					if (config.specialFlags2 & SILENT_REC_ENTRY)
-    					textOut(108, y, PAL_FORGRND, "SR");
-
-
-					// clear area
-					uint16_t clrX = x + ((areaWidth - maxStrWidth) / 2);
-					fillRect(clrX, y, maxStrWidth, FONT1_CHAR_H+1, PAL_DESKTOP);
-
-					// draw text (if needed)
-					if (str != NULL)
+					if (!ui.patternEditorOnly)
 					{
-						x += (areaWidth - textWidth(str)) / 2;
-						textOut(x, y, PAL_FORGRND, str);
+						// silent recording indicator
+						fillRect(101, y, 24, FONT1_CHAR_H+1, PAL_DESKTOP);
+
+						if (config.specialFlags2 & SILENT_REC_ENTRY)
+							textOut(108, y, PAL_FORGRND, "SR");
+
+						// clear area
+						const uint16_t clrX = x + ((areaWidth - maxStrWidth) / 2);
+						fillRect(clrX, y, maxStrWidth, FONT1_CHAR_H+1, PAL_DESKTOP);
+
+						// draw text (if needed)
+						if (str != NULL)
+						{
+							x += (areaWidth - textWidth(str)) / 2;
+							textOut(x, y, PAL_FORGRND, str);
+						}
 					}
 				}
 			}

@@ -706,9 +706,16 @@ static void updatePatternEditorGUI(void)
 	}
 }
 
-void patternEditorExtended(void)
+uint8_t getPatternEditorView(void)
 {
-	// backup old screen flags
+	if (ui.patternEditorOnly)
+		return 2;
+
+	return ui.extendedPatternEditor ? 1 : 0;
+}
+
+static void backupPatternEditorScreens(void)
+{
 	ui._aboutScreenShown = ui.aboutScreenShown;
 	ui._helpScreenShown = ui.helpScreenShown;
 	ui._configScreenShown = ui.configScreenShown;
@@ -724,26 +731,25 @@ void patternEditorExtended(void)
 	ui._advEditShown= ui.advEditShown;
 	ui._wavRendererShown = ui.wavRendererShown;
 	ui._trimScreenShown = ui.trimScreenShown;
+}
 
+static void hidePatternEditorSurroundings(void)
+{
 	hideTopScreen();
 	hideSampleEditor();
 	hideInstEditor();
+}
 
-	ui.extendedPatternEditor = true;
-	ui.patternEditorShown = true;
-	updatePatternEditorGUI(); // change pattern editor layout (based on ui.extended flag)
-	ui.updatePatternEditor = true; // redraw pattern editor
-
+static void drawExtendedPatternEditorChrome(void)
+{
 	drawFramework(0,    0, 112, 53, FRAMEWORK_TYPE1);
 	drawFramework(112,  0, 106, 33, FRAMEWORK_TYPE1);
 	drawFramework(112, 33, 106, 20, FRAMEWORK_TYPE1);
 	drawFramework(218,  0, 168, 53, FRAMEWORK_TYPE1);
 
 	// pos ed. stuff
-
 	drawFramework(2,  2, 51, 20, FRAMEWORK_TYPE2);
 	drawFramework(2, 31, 51, 20, FRAMEWORK_TYPE2);
-
 	drawFramework(0, 53, SCREEN_W, 15, FRAMEWORK_TYPE1);
 
 	showScrollBar(SB_POS_ED);
@@ -763,14 +769,12 @@ void patternEditorExtended(void)
 	showPushButton(PB_PATT_DOWN);
 	showPushButton(PB_PATTLEN_UP);
 	showPushButton(PB_PATTLEN_DOWN);
-
 	showPushButton(PB_EXIT_EXT_PATT);
 
 	textOutShadow(116,  5, PAL_FORGRND, PAL_DSKTOP2, "Sng.len.");
 	textOutShadow(116, 19, PAL_FORGRND, PAL_DSKTOP2, "Repst.");
 	textOutShadow(222, 39, PAL_FORGRND, PAL_DSKTOP2, "Ptn.");
 	textOutShadow(305, 39, PAL_FORGRND, PAL_DSKTOP2, "Ln.");
-
 	textOutShadow(4, 56, PAL_FORGRND, PAL_DSKTOP2, "Global volume");
 	textOutShadow(545, 56, PAL_FORGRND, PAL_DSKTOP2, "Time");
 	charOutShadow(591, 56, PAL_FORGRND, PAL_DSKTOP2, ':');
@@ -791,13 +795,53 @@ void patternEditorExtended(void)
 		setScrollBarPos(SB_POS_ED, editor.songPos, DONT_TRIGGER_CALLBACK);
 }
 
+void patternEditorExtended(void)
+{
+	if (!ui.extendedPatternEditor)
+		backupPatternEditorScreens();
+
+	hidePatternEditorSurroundings();
+
+	ui.patternEditorOnly = false;
+	ui.extendedPatternEditor = true;
+	ui.patternEditorShown = true;
+	updatePatternEditorGUI();
+	ui.updatePatternEditor = true;
+
+	drawExtendedPatternEditorChrome();
+}
+
+void patternEditorOnly(void)
+{
+	if (ui.patternEditorOnly)
+		return;
+
+	if (!ui.extendedPatternEditor)
+		backupPatternEditorScreens();
+
+	hidePatternEditorSurroundings();
+
+	/* Pattern-Only intentionally remains an "extended" editor at the state
+	** level so the rest of FT2 keeps the top/bottom editors suppressed. Its
+	** third coordinate-table geometry expands the pattern upward into the
+	** space normally occupied by the song/instrument controls. */
+	ui.extendedPatternEditor = true;
+	ui.patternEditorOnly = true;
+	ui.patternEditorShown = true;
+	updatePatternEditorGUI();
+	hidePushButton(PB_EXIT_EXT_PATT);
+	hideInstrumentSwitcher();
+
+	fillRect(0, 0, SCREEN_W, SCREEN_H, PAL_DESKTOP);
+	ui.updatePatternEditor = true;
+}
+
 void exitPatternEditorExtended(void)
 {
+	ui.patternEditorOnly = false;
 	ui.extendedPatternEditor = false;
 	updatePatternEditorGUI();
 	hidePushButton(PB_EXIT_EXT_PATT);
-
-	// set back top screen button maps
 
 	// set back old screen flags
 	ui.aboutScreenShown = ui._aboutScreenShown;
@@ -826,10 +870,20 @@ void exitPatternEditorExtended(void)
 
 void togglePatternEditorExtended(void)
 {
-	if (ui.extendedPatternEditor)
+	if (ui.patternEditorOnly)
+		patternEditorExtended();
+	else if (ui.extendedPatternEditor)
 		exitPatternEditorExtended();
 	else
 		patternEditorExtended();
+}
+
+void togglePatternEditorOnly(void)
+{
+	if (ui.patternEditorOnly)
+		exitPatternEditorExtended();
+	else
+		patternEditorOnly();
 }
 
 void clearPattMark(void)
@@ -890,7 +944,7 @@ static int8_t mouseXToCh(void) // used to get channel num from mouse x (for patt
 
 static int16_t mouseYToRow(void) // used to get row num from mouse y (for pattern marking)
 {
-	const pattCoordsMouse_t *pattCoordsMouse = &pattCoordMouseTable[config.ptnStretch][ui.pattChanScrollShown][ui.extendedPatternEditor];
+	const pattCoordsMouse_t *pattCoordsMouse = &pattCoordMouseTable[config.ptnStretch][ui.pattChanScrollShown][getPatternEditorView()];
 
 	// clamp mouse y to boundaries
 	const int16_t maxY = ui.pattChanScrollShown ? 382 : 396;
@@ -919,9 +973,17 @@ static int16_t mouseYToRow(void) // used to get row num from mouse y (for patter
 		int16_t row = (editor.row + 1) + ((my - pattCoordsMouse->lowerRowsY) / charHeight);
 
 		// prevent being able to mark the next unseen row on the bottom (in some configurations)
-		const uint8_t mode = (ui.extendedPatternEditor * 4) + (config.ptnStretch * 2) + ui.pattChanScrollShown;
-
-		const int16_t maxRow = (ptnNumRows[mode] + (editor.row - ptnLineSub[mode])) - 1;
+		int16_t maxRow;
+		if (ui.patternEditorOnly)
+		{
+			const pattCoord_t *pattCoord = &pattCoordTable[config.ptnStretch][ui.pattChanScrollShown][getPatternEditorView()];
+			maxRow = editor.row + pattCoord->numLowerRows;
+		}
+		else
+		{
+			const uint8_t mode = (ui.extendedPatternEditor * 4) + (config.ptnStretch * 2) + ui.pattChanScrollShown;
+			maxRow = (ptnNumRows[mode] + (editor.row - ptnLineSub[mode])) - 1;
+		}
 		if (row > maxRow)
 			row = maxRow;
 
@@ -1018,7 +1080,7 @@ void handlePatternDataMouseDown(bool mouseButtonHeld)
 	// scroll down/up with mouse (if song is not playing)
 	if (!songPlaying)
 	{
-		y1 = ui.extendedPatternEditor ? 71 : 176;
+		y1 = ui.patternEditorOnly ? 3 : (ui.extendedPatternEditor ? 71 : 176);
 		y2 = ui.pattChanScrollShown ? 382 : 396;
 
 		if (mouse.y < y1)
@@ -1793,6 +1855,12 @@ bool insertNewPatternAfterCurrentSongPos(bool selectNewPosition)
 	const uint8_t oldPatt = song.orders[song.songPos];
 	const uint8_t newPatt = (uint8_t)unusedPatt;
 	const uint16_t newSongPos = song.songPos + 1;
+	if (!undoTransactionBegin("Insert new pattern") || !undoTransactionAddOrder() ||
+		!undoTransactionAddPattern(newPatt))
+	{
+		undoCancelTransaction();
+		return false;
+	}
 
 	/*
 	** Insert a fresh order after the current position. At the end of the
@@ -1813,6 +1881,7 @@ bool insertNewPatternAfterCurrentSongPos(bool selectNewPosition)
 	ui.updatePosEdScrollBar = true;
 	ui.updatePatternEditor = true;
 	setSongModifiedFlag();
+	undoTransactionCommit();
 
 	return true;
 }
@@ -1831,7 +1900,8 @@ static bool insertDuplicatePatternAfterCurrentSongPos(bool selectNewPosition)
 	const int16_t previousNewPattLength = patternNumRows[newPatt];
 	const int16_t sourcePattLength = patternNumRows[sourcePatt];
 	const uint16_t newSongPos = song.songPos + 1;
-	const bool undoStarted = undoPatternInsertBegin(newPatt, "Duplicate pattern");
+	if (!undoPatternInsertBegin(newPatt, "Duplicate pattern"))
+		return false;
 	const note_t *sourceData = pattern[sourcePatt];
 
 	/*
@@ -1844,8 +1914,7 @@ static bool insertDuplicatePatternAfterCurrentSongPos(bool selectNewPosition)
 		if (!allocatePattern(newPatt))
 		{
 			patternNumRows[newPatt] = previousNewPattLength;
-			if (undoStarted)
-				undoCancelTransaction();
+			undoCancelTransaction();
 			return false;
 		}
 
@@ -1869,8 +1938,7 @@ static bool insertDuplicatePatternAfterCurrentSongPos(bool selectNewPosition)
 	ui.updatePatternEditor = true;
 	setSongModifiedFlag();
 
-	if (undoStarted)
-		undoPatternInsertCommit();
+	undoPatternInsertCommit();
 
 	return true;
 }
@@ -1886,6 +1954,11 @@ bool appendNewPatternToSong(void)
 
 	const uint8_t oldPatt = song.orders[MAX(song.songLength, 1) - 1];
 	const uint8_t newPatt = (uint8_t)unusedPatt;
+	if (undoTransactionIsActive() &&
+		(!undoTransactionAddOrder() || !undoTransactionAddPattern(newPatt)))
+	{
+		return false;
+	}
 	inheritPatternLengthIfUnused(oldPatt, newPatt);
 	song.orders[song.songLength++] = newPatt;
 	patternLauncherNotifySongOrderChanged();
@@ -1917,6 +1990,12 @@ void pbPosEdIns(void)
 	else
 	{
 		/* Original FT2 Insert behavior: duplicate the current order. */
+		if (!undoTransactionBegin("Insert order") || !undoTransactionAddOrder())
+		{
+			undoCancelTransaction();
+			unlockMixerCallback();
+			return;
+		}
 		const uint8_t oldPatt = song.orders[song.songPos];
 
 		for (uint16_t i = 0; i < 255-song.songPos; i++)
@@ -1930,6 +2009,7 @@ void pbPosEdIns(void)
 		ui.updatePosEdScrollBar = true;
 		ui.updatePatternEditor = true;
 		setSongModifiedFlag();
+		undoTransactionCommit();
 	}
 
 	unlockMixerCallback();
@@ -1939,6 +2019,11 @@ void pbPosEdDel(void)
 {
 	if (song.songLength <= 1)
 		return;
+	if (!undoTransactionBegin("Delete order") || !undoTransactionAddOrder())
+	{
+		undoCancelTransaction();
+		return;
+	}
 
 	lockMixerCallback();
 
@@ -1968,6 +2053,7 @@ void pbPosEdDel(void)
 	ui.updatePosSections = true;
 	ui.updatePosEdScrollBar = true;
 	setSongModifiedFlag();
+	undoTransactionCommit();
 }
 
 static bool patternIsReferenced(uint8_t pattNum)
@@ -2009,6 +2095,8 @@ bool patternMatrixClearPattern(uint8_t pattNum, bool removeSongReferences)
 	const bool undoStarted = removeSongReferences
 		? undoPatternInsertBegin(pattNum, "Delete Matrix pattern")
 		: undoPatternBegin(pattNum, "Clear Matrix pattern");
+	if (!undoStarted)
+		return false;
 
 	const bool audioWasntLocked = !audio.locked;
 	if (audioWasntLocked)
@@ -2109,6 +2197,13 @@ void pbPosEdPattUp(void)
 	{
 		const uint8_t oldPatt = song.orders[song.songPos];
 		const uint8_t newPatt = oldPatt + 1;
+		if (!undoTransactionBegin("Change order pattern") || !undoTransactionAddOrder() ||
+			!undoTransactionAddPattern(newPatt))
+		{
+			undoCancelTransaction();
+			unlockMixerCallback();
+			return;
+		}
 
 		inheritPatternLengthIfUnused(oldPatt, newPatt);
 
@@ -2124,6 +2219,7 @@ void pbPosEdPattUp(void)
 		ui.updatePosSections = true;
 
 		setSongModifiedFlag();
+		undoTransactionCommit();
 	}
 	unlockMixerCallback();
 }
@@ -2138,6 +2234,13 @@ void pbPosEdPattDown(void)
 	{
 		const uint8_t oldPatt = song.orders[song.songPos];
 		const uint8_t newPatt = oldPatt - 1;
+		if (!undoTransactionBegin("Change order pattern") || !undoTransactionAddOrder() ||
+			!undoTransactionAddPattern(newPatt))
+		{
+			undoCancelTransaction();
+			unlockMixerCallback();
+			return;
+		}
 
 		inheritPatternLengthIfUnused(oldPatt, newPatt);
 
@@ -2153,6 +2256,7 @@ void pbPosEdPattDown(void)
 		ui.updatePosSections = true;
 
 		setSongModifiedFlag();
+		undoTransactionCommit();
 	}
 	unlockMixerCallback();
 }
@@ -2161,6 +2265,12 @@ void pbPosEdLenUp(void)
 {
 	if (song.songLength >= 255)
 		return;
+
+	if (!undoTransactionBegin("Change song length") || !undoTransactionAddOrder())
+	{
+		undoCancelTransaction();
+		return;
+	}
 
 	const bool audioWasntLocked = !audio.locked;
 	if (audioWasntLocked)
@@ -2171,6 +2281,7 @@ void pbPosEdLenUp(void)
 	ui.updatePosSections = true;
 	ui.updatePosEdScrollBar = true;
 	setSongModifiedFlag();
+	undoTransactionCommit();
 
 	if (audioWasntLocked)
 		unlockAudio();
@@ -2180,6 +2291,12 @@ void pbPosEdLenDown(void)
 {
 	if (song.songLength <= 1)
 		return;
+
+	if (!undoTransactionBegin("Change song length") || !undoTransactionAddOrder())
+	{
+		undoCancelTransaction();
+		return;
+	}
 
 	const bool audioWasntLocked = !audio.locked;
 	if (audioWasntLocked)
@@ -2198,6 +2315,7 @@ void pbPosEdLenDown(void)
 	ui.updatePosSections = true;
 	ui.updatePosEdScrollBar = true;
 	setSongModifiedFlag();
+	undoTransactionCommit();
 
 	if (audioWasntLocked)
 		unlockAudio();
@@ -2211,9 +2329,16 @@ void pbPosEdRepSUp(void)
 
 	if (song.songLoopStart < song.songLength-1)
 	{
+		if (!undoTransactionBegin("Change song loop start") || !undoTransactionAddOrder())
+		{
+			undoCancelTransaction();
+			if (audioWasntLocked) unlockAudio();
+			return;
+		}
 		song.songLoopStart++;
 		ui.updatePosSections = true;
 		setSongModifiedFlag();
+		undoTransactionCommit();
 	}
 
 	if (audioWasntLocked)
@@ -2228,9 +2353,16 @@ void pbPosEdRepSDown(void)
 
 	if (song.songLoopStart > 0)
 	{
+		if (!undoTransactionBegin("Change song loop start") || !undoTransactionAddOrder())
+		{
+			undoCancelTransaction();
+			if (audioWasntLocked) unlockAudio();
+			return;
+		}
 		song.songLoopStart--;
 		ui.updatePosSections = true;
 		setSongModifiedFlag();
+		undoTransactionCommit();
 	}
 
 	if (audioWasntLocked)
@@ -2452,6 +2584,8 @@ void pbPattLenUp(void)
 	if (numRows >= MAX_PATT_LEN)
 		return;
 
+	if (!undoPatternBegin(editor.editPattern, "Resize pattern"))
+		return;
 	const bool audioWasntLocked = !audio.locked;
 	if (audioWasntLocked)
 		lockAudio();
@@ -2462,6 +2596,7 @@ void pbPattLenUp(void)
 	ui.updatePatternEditor = true;
 	ui.updatePosSections = true;
 	setSongModifiedFlag();
+	undoPatternCommit();
 
 	if (audioWasntLocked)
 		unlockAudio();
@@ -2473,6 +2608,8 @@ void pbPattLenDown(void)
 	if (numRows <= 1)
 		return;
 
+	if (!undoPatternBegin(editor.editPattern, "Resize pattern"))
+		return;
 	const bool audioWasntLocked = !audio.locked;
 	if (audioWasntLocked)
 		lockAudio();
@@ -2483,6 +2620,7 @@ void pbPattLenDown(void)
 	ui.updatePatternEditor = true;
 	ui.updatePosSections = true;
 	setSongModifiedFlag();
+	undoPatternCommit();
 
 	if (audioWasntLocked)
 		unlockAudio();
@@ -2490,6 +2628,12 @@ void pbPattLenDown(void)
 
 void drawPosEdNums(int16_t songPos)
 {
+	if (ui.patternEditorOnly)
+	{
+		patternLauncherNotifySongOrderChanged();
+		return;
+	}
+
 	if (songPos >= song.songLength)
 		songPos = song.songLength - 1;
 
@@ -2574,6 +2718,9 @@ void drawPosEdNums(int16_t songPos)
 
 void drawSongLength(void)
 {
+	if (ui.patternEditorOnly)
+		return;
+
 	int16_t x, y;
 
 	if (ui.extendedPatternEditor)
@@ -2592,6 +2739,9 @@ void drawSongLength(void)
 
 void drawSongLoopStart(void)
 {
+	if (ui.patternEditorOnly)
+		return;
+
 	int16_t x, y;
 
 	if (ui.extendedPatternEditor)
@@ -2632,6 +2782,9 @@ void drawSongSpeed(uint16_t val)
 
 void drawEditPattern(uint16_t editPattern)
 {
+	if (ui.patternEditorOnly)
+		return;
+
 	int16_t x, y;
 
 	if (ui.extendedPatternEditor)
@@ -2650,6 +2803,9 @@ void drawEditPattern(uint16_t editPattern)
 
 void drawPatternLength(uint16_t editPattern)
 {
+	if (ui.patternEditorOnly)
+		return;
+
 	int16_t x, y;
 
 	if (ui.extendedPatternEditor)
@@ -2668,6 +2824,9 @@ void drawPatternLength(uint16_t editPattern)
 
 void drawGlobalVol(uint16_t val)
 {
+	if (ui.patternEditorOnly)
+		return;
+
 	uint16_t x = 87, y = 80;
 
 	if (ui.extendedPatternEditor)
@@ -2679,6 +2838,9 @@ void drawGlobalVol(uint16_t val)
 
 void drawIDAdd(void)
 {
+	if (ui.patternEditorOnly)
+		return;
+
 	const uint8_t displayedStep = interpolationGetDisplayedStep();
 	ASSERT(displayedStep <= 16);
 	textOutFixed(152, 64, PAL_FORGRND, PAL_DESKTOP, dec2StrTab[displayedStep]);
@@ -2708,6 +2870,9 @@ void drawPlaybackTime(void)
 
 		last_TimeS = seconds;
 	}
+
+	if (ui.patternEditorOnly)
+		return;
 
 	uint16_t x = 235, y = 80;
 
@@ -2778,6 +2943,9 @@ void changeBadgeType(uint8_t badgeType)
 
 void updateInstrumentSwitcher(void)
 {
+	if (ui.patternEditorOnly)
+		return;
+
 	int16_t y;
 
 	if (ui.aboutScreenShown || ui.configScreenShown || ui.helpScreenShown || ui.nibblesShown)
@@ -2894,6 +3062,9 @@ void updateInstrumentSwitcher(void)
 
 void showInstrumentSwitcher(void)
 {
+	if (ui.patternEditorOnly)
+		return;
+
 	if (!ui.instrSwitcherShown)
 		return;
 
@@ -3421,6 +3592,8 @@ void shrinkPattern(void)
 
 	if (okBox(2, "System request", "Shrink pattern?", NULL) != 1)
 		return;
+	if (!undoPatternBegin(curPattern, "Shrink pattern"))
+		return;
 
 	lockMixerCallback();
 
@@ -3451,6 +3624,7 @@ void shrinkPattern(void)
 
 	unlockMixerCallback();
 	setSongModifiedFlag();
+	undoPatternCommit();
 }
 
 void expandPattern(void)
@@ -3465,6 +3639,8 @@ void expandPattern(void)
 		okBox(0, "System message", "Pattern is too long to be expanded!", NULL);
 		return;
 	}
+	if (!undoPatternBegin(curPattern, "Expand pattern"))
+		return;
 
 	lockMixerCallback();
 
@@ -3499,4 +3675,5 @@ void expandPattern(void)
 
 	unlockMixerCallback();
 	setSongModifiedFlag();
+	undoPatternCommit();
 }

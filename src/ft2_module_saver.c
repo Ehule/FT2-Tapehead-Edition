@@ -6,6 +6,10 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <string.h>
+#ifndef _WIN32
+#include <strings.h>
+#include <unistd.h>
+#endif
 #include "ft2_header.h"
 #include "ft2_audio.h"
 #include "ft2_gui.h"
@@ -15,11 +19,18 @@
 #include "ft2_tables.h"
 #include "ft2_structs.h"
 #include "ft2_sample_launcher.h"
+#include "ft2_diskop.h"
+#include "ft2_undo.h"
 
 static int8_t smpChunkBuf[1024];
 static uint8_t packedPattData[65536], modPattData[64*32*4];
 static SDL_Thread *thread;
 static bool standardXMSave;
+static UNICHAR currentModuleFilenameU[PATH_MAX + 1];
+static uint8_t currentModuleSaveMode = MOD_SAVE_MODE_XM;
+static UNICHAR saveTargetFilenameU[PATH_MAX + 1];
+static uint8_t saveTargetMode = MOD_SAVE_MODE_XM;
+static uint64_t saveTargetStateId;
 
 static const char modIDs[32][5] =
 {
@@ -28,6 +39,118 @@ static const char modIDs[32][5] =
 	"17CH", "18CH", "19CH", "20CH", "21CH", "22CH", "23CH", "24CH",
 	"25CH", "26CH", "27CH", "28CH", "29CH", "30CH", "31CH", "32CH"
 };
+
+static int32_t saveMusicThread(void *ptr);
+
+static bool modulePathIsAbsolute(const UNICHAR *pathU)
+{
+	if (pathU == NULL || pathU[0] == 0)
+		return false;
+#ifdef _WIN32
+	return pathU[0] == '\\' || pathU[0] == '/' ||
+		(pathU[1] == ':' && (pathU[2] == '\\' || pathU[2] == '/'));
+#else
+	return pathU[0] == '/';
+#endif
+}
+
+static bool makeAbsoluteModulePath(const UNICHAR *srcU, UNICHAR *dstU)
+{
+	if (srcU == NULL || srcU[0] == 0 || dstU == NULL)
+		return false;
+
+	const size_t srcLen = UNICHAR_STRLEN(srcU);
+	if (srcLen > PATH_MAX)
+		return false;
+
+	if (modulePathIsAbsolute(srcU))
+	{
+		UNICHAR_STRCPY(dstU, srcU);
+		return true;
+	}
+
+	UNICHAR cwdU[PATH_MAX + 1];
+	if (UNICHAR_GETCWD(cwdU, PATH_MAX) == NULL)
+		return false;
+
+	const size_t cwdLen = UNICHAR_STRLEN(cwdU);
+	const bool addDelimiter = cwdLen > 0 && cwdU[cwdLen-1] != (UNICHAR)DIR_DELIMITER;
+	if (cwdLen + (addDelimiter ? 1 : 0) + srcLen > PATH_MAX)
+		return false;
+
+	UNICHAR_STRCPY(dstU, cwdU);
+	if (addDelimiter)
+	{
+		dstU[cwdLen] = (UNICHAR)DIR_DELIMITER;
+		dstU[cwdLen+1] = 0;
+	}
+	UNICHAR_STRCAT(dstU, srcU);
+	return true;
+}
+
+static uint8_t inferModuleSaveMode(const UNICHAR *filenameU)
+{
+	char *filename = unicharToCp850((UNICHAR *)filenameU, true);
+	if (filename == NULL)
+		return MOD_SAVE_MODE_XM;
+
+	uint8_t mode = MOD_SAVE_MODE_XM;
+	const char *ext = strrchr(filename, '.');
+	if (ext != NULL && !_stricmp(ext, ".mod"))
+		mode = MOD_SAVE_MODE_MOD;
+	free(filename);
+	return mode;
+}
+
+static void rememberCurrentModuleFilename(const UNICHAR *filenameU, uint8_t saveMode)
+{
+	UNICHAR absoluteU[PATH_MAX + 1];
+	if (!makeAbsoluteModulePath(filenameU, absoluteU))
+		return;
+
+	UNICHAR_STRCPY(currentModuleFilenameU, absoluteU);
+	currentModuleSaveMode = saveMode == MOD_SAVE_MODE_MOD ? MOD_SAVE_MODE_MOD : MOD_SAVE_MODE_XM;
+}
+
+void setCurrentModuleFilename(UNICHAR *filenameU)
+{
+	if (filenameU == NULL || filenameU[0] == 0)
+	{
+		currentModuleFilenameU[0] = 0;
+		return;
+	}
+
+	rememberCurrentModuleFilename(filenameU, inferModuleSaveMode(filenameU));
+}
+
+static bool startMusicSave(const UNICHAR *filenameU, uint8_t saveMode)
+{
+	if (!makeAbsoluteModulePath(filenameU, saveTargetFilenameU))
+		return false;
+
+	saveTargetMode = saveMode == MOD_SAVE_MODE_MOD ? MOD_SAVE_MODE_MOD : MOD_SAVE_MODE_XM;
+	saveTargetStateId = undoGetCurrentStateId();
+	UNICHAR_STRCPY(editor.tmpFilenameU, saveTargetFilenameU);
+
+	mouseAnimOn();
+	thread = SDL_CreateThread(saveMusicThread, "mod save thread", NULL);
+	if (thread == NULL)
+	{
+		okBoxThreadSafe(0, "System message", "Couldn't create thread!", NULL);
+		return false;
+	}
+
+	SDL_DetachThread(thread);
+	return true;
+}
+
+bool saveCurrentModule(void)
+{
+	if (currentModuleFilenameU[0] == 0)
+		return false;
+
+	return startMusicSave(currentModuleFilenameU, currentModuleSaveMode);
+}
 
 static uint16_t packPatt(uint8_t *writePtr, uint8_t *pattPtr, uint16_t numRows);
 
@@ -665,36 +788,27 @@ modSaveError:
 
 static int32_t saveMusicThread(void *ptr)
 {
-	ASSERT(editor.tmpFilenameU != NULL);
-	if (editor.tmpFilenameU == NULL)
-		return false;
-
 	pauseAudio();
 
-	if (editor.moduleSaveMode == 1)
-		saveXM(editor.tmpFilenameU);
-	else
-		saveMOD(editor.tmpFilenameU);
+	const bool saved = saveTargetMode == MOD_SAVE_MODE_XM ?
+		saveXM(saveTargetFilenameU) : saveMOD(saveTargetFilenameU);
 
 	resumeAudio();
-	return true;
+
+	if (saved)
+	{
+		rememberCurrentModuleFilename(saveTargetFilenameU, saveTargetMode);
+		undoMarkSavedState(saveTargetStateId);
+	}
+
+	return saved;
 
 	(void)ptr;
 }
 
 void saveMusic(UNICHAR *filenameU)
 {
-	UNICHAR_STRCPY(editor.tmpFilenameU, filenameU);
-
-	mouseAnimOn();
-	thread = SDL_CreateThread(saveMusicThread, "mod save thread", NULL);
-	if (thread == NULL)
-	{
-		okBoxThreadSafe(0, "System message", "Couldn't create thread!", NULL);
-		return;
-	}
-
-	SDL_DetachThread(thread);
+	startMusicSave(filenameU, editor.moduleSaveMode);
 }
 
 static uint16_t packPatt(uint8_t *writePtr, uint8_t *pattPtr, uint16_t numRows)

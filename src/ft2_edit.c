@@ -64,8 +64,13 @@ static bool testNoteKeys(SDL_Scancode scancode)
 			int16_t row = editor.row;
 			resumeMusic();
 
+			if (!undoPatternBegin(curPattern, "Enter note-off"))
+				return true;
 			if (!allocatePattern(curPattern))
+			{
+				undoCancelTransaction();
 				return true; // key pressed
+			}
 
 			pattern[curPattern][(row * MAX_CHANNELS) + cursor.ch].note = NOTE_OFF;
 
@@ -75,6 +80,7 @@ static bool testNoteKeys(SDL_Scancode scancode)
 
 			ui.updatePatternEditor = true;
 			setSongModifiedFlag();
+			undoPatternCommit();
 		}
 
 		return true; // key pressed
@@ -173,53 +179,56 @@ static bool testEditKeys(SDL_Scancode scancode, SDL_Keycode keycode)
 	int16_t row = editor.row;
 	resumeMusic();
 
-	if (i == -1 || !allocatePattern(curPattern))
+	if (i == -1)
 		return false; // no edit to be done
+
+	const char *undoDescription = "Enter pattern data";
+	if (cursor.object == CURSOR_INST1 || cursor.object == CURSOR_INST2) undoDescription = "Enter instrument";
+	else if (cursor.object == CURSOR_VOL1 || cursor.object == CURSOR_VOL2) undoDescription = "Enter volume";
+	else if (cursor.object == CURSOR_EFX0 || cursor.object == CURSOR_EFX1 || cursor.object == CURSOR_EFX2) undoDescription = "Enter effect";
+	if (!undoPatternBegin(curPattern, undoDescription))
+		return true;
+	if (!allocatePattern(curPattern))
+	{
+		undoCancelTransaction();
+		return false;
+	}
 
 	// insert slot data
 
 	note_t *p = &pattern[curPattern][(row * MAX_CHANNELS) + cursor.ch];
+	const note_t oldNote = *p;
 	switch (cursor.object)
 	{
 		case CURSOR_INST1:
 		{
-			uint8_t oldVal = p->instr;
 
 			p->instr = (p->instr & 0x0F) | (i << 4);
 			if (p->instr > MAX_INST)
 				p->instr = MAX_INST;
 
-			if (p->instr != oldVal)
-				setSongModifiedFlag();
 		}
 		break;
 
 		case CURSOR_INST2:
 		{
-			uint8_t oldVal = p->instr;
 			p->instr = (p->instr & 0xF0) | i;
 
-			if (p->instr != oldVal)
-				setSongModifiedFlag();
 		}
 		break;
 
 		case CURSOR_VOL1:
 		{
-			uint8_t oldVal = p->vol;
 
 			p->vol = (p->vol & 0x0F) | ((i + 1) << 4);
 			if (p->vol >= 0x51 && p->vol <= 0x5F)
 				p->vol = 0x50;
 
-			if (p->vol != oldVal)
-				setSongModifiedFlag();
 		}
 		break;
 
 		case CURSOR_VOL2:
 		{
-			uint8_t oldVal = p->vol;
 
 			if (p->vol < 0x10)
 				p->vol = 0x10 + i;
@@ -229,38 +238,27 @@ static bool testEditKeys(SDL_Scancode scancode, SDL_Keycode keycode)
 			if (p->vol >= 0x51 && p->vol <= 0x5F)
 				p->vol = 0x50;
 
-			if (p->vol != oldVal)
-				setSongModifiedFlag();
 		}
 		break;
 
 		case CURSOR_EFX0:
 		{
-			uint8_t oldVal = p->efx;
 
 			p->efx = i;
-			if (p->efx != oldVal)
-				setSongModifiedFlag();
 		}
 		break;
 
 		case CURSOR_EFX1:
 		{
-			uint8_t oldVal = p->efxData;
 
 			p->efxData = (p->efxData & 0x0F) | (i << 4);
-			if (p->efxData != oldVal)
-				setSongModifiedFlag();
 		}
 		break;
 
 		case CURSOR_EFX2:
 		{
-			uint8_t oldVal = p->efxData;
 
 			p->efxData = (p->efxData & 0xF0) | i;
-			if (p->efxData != oldVal)
-				setSongModifiedFlag();
 		}
 		break;
 
@@ -273,8 +271,19 @@ static bool testEditKeys(SDL_Scancode scancode, SDL_Keycode keycode)
 	if (playMode == PLAYMODE_EDIT && numRows >= 1)
 		setSongPos(-1, (row + editor.editRowSkip) % numRows, RESET_SONG_TICK);
 
+	const bool patternDataChanged = memcmp(&oldNote, p, sizeof (note_t)) != 0;
 	if (i == 0) // if we inserted a zero, check if pattern is empty
 		killPatternIfUnused(curPattern);
+
+	if (patternDataChanged)
+	{
+		setSongModifiedFlag();
+		undoPatternCommit();
+	}
+	else
+	{
+		undoCancelTransaction();
+	}
 
 	ui.updatePatternEditor = true;
 	return true;
@@ -467,6 +476,8 @@ void recordNote(uint8_t noteNum, int8_t vol) // directly ported from the origina
 
 		if (editmode || recmode)
 		{
+			if (!undoPatternBegin((uint16_t)pattNum, "Enter note"))
+				return;
 			if (allocatePattern(pattNum))
 			{
 				const int16_t numRows = patternNumRows[pattNum];
@@ -482,22 +493,22 @@ void recordNote(uint8_t noteNum, int8_t vol) // directly ported from the origina
 
 				if (!recmode)
 				{
-					// increase row (only in edit mode)
 					if (numRows >= 1)
 						setSongPos(-1, (editor.row + editor.editRowSkip) % numRows, RESET_SONG_TICK);
 				}
-				else
+				else if (!config.recQuant && tick > 0)
 				{
-					// apply tick delay for note if quantization is disabled
-					if (!config.recQuant && tick > 0)
-					{
-						p->efx = 0x0E;
-						p->efxData = 0xD0 + (tick & 0x0F);
-					}
+					p->efx = 0x0E;
+					p->efxData = 0xD0 + (tick & 0x0F);
 				}
 
 				ui.updatePatternEditor = true;
 				setSongModifiedFlag();
+				undoPatternCommit();
+			}
+			else
+			{
+				undoCancelTransaction();
 			}
 		}
 	}
@@ -529,53 +540,61 @@ void recordNote(uint8_t noteNum, int8_t vol) // directly ported from the origina
 
 		if (config.recRelease && recmode)
 		{
-			if (allocatePattern(pattNum))
+			const uint16_t firstPattern = (uint16_t)pattNum;
+			if (!undoTransactionBegin("Record note-off") ||
+				!undoTransactionAddPattern(firstPattern))
 			{
-				// insert data
-
-				int16_t numRows = patternNumRows[pattNum];
-				p = &pattern[pattNum][(row * MAX_CHANNELS) + c];
-
-				if (p->note != 0)
-					row++;
-
-				if (row >= numRows)
-				{
-					row = 0;
-
-					if (songPlaying)
-					{
-						songPos++;
-						if (songPos >= song.songLength)
-							songPos = song.songLoopStart;
-
-						pattNum = song.orders[songPos];
-						numRows = patternNumRows[pattNum];
-					}
-				}
-
-				p = &pattern[pattNum][(row * MAX_CHANNELS) + c];
-				p->note = NOTE_OFF;
-
-				if (!recmode)
-				{
-					// increase row (only in edit mode)
-					if (numRows >= 1)
-						setSongPos(-1, (editor.row + editor.editRowSkip) % numRows, RESET_SONG_TICK);
-				}
-				else
-				{
-					// apply tick delay for note if quantization is disabled
-					if (!config.recQuant && tick > 0)
-					{
-						p->efx = 0x0E;
-						p->efxData = 0xD0 + (tick & 0x0F);
-					}
-				}
-
-				ui.updatePatternEditor = true;
-				setSongModifiedFlag();
+				undoCancelTransaction();
+				return;
 			}
+
+			if (!allocatePattern(pattNum))
+			{
+				undoCancelTransaction();
+				return;
+			}
+
+			int16_t numRows = patternNumRows[pattNum];
+			p = &pattern[pattNum][(row * MAX_CHANNELS) + c];
+			if (p->note != 0)
+				row++;
+
+			if (row >= numRows)
+			{
+				row = 0;
+				if (songPlaying)
+				{
+					songPos++;
+					if (songPos >= song.songLength)
+						songPos = song.songLoopStart;
+					pattNum = song.orders[songPos];
+					numRows = patternNumRows[pattNum];
+				}
+			}
+
+			if ((uint16_t)pattNum != firstPattern &&
+				!undoTransactionAddPattern((uint16_t)pattNum))
+			{
+				undoCancelTransaction();
+				return;
+			}
+			if (pattern[pattNum] == NULL && !allocatePattern(pattNum))
+			{
+				undoCancelTransaction();
+				return;
+			}
+
+			p = &pattern[pattNum][(row * MAX_CHANNELS) + c];
+			p->note = NOTE_OFF;
+			if (!config.recQuant && tick > 0)
+			{
+				p->efx = 0x0E;
+				p->efxData = 0xD0 + (tick & 0x0F);
+			}
+
+			ui.updatePatternEditor = true;
+			setSongModifiedFlag();
+			undoTransactionCommit();
 		}
 	}
 }
@@ -597,7 +616,10 @@ bool handleEditKeys(SDL_Keycode keycode, SDL_Scancode scancode)
 		if (pattern[curPattern] == NULL)
 			return true;
 
+		if (!undoPatternBegin(curPattern, "Delete pattern entry"))
+			return true;
 		note_t *p = &pattern[curPattern][(row * MAX_CHANNELS) + cursor.ch];
+		const note_t oldNote = *p;
 
 		if (keyb.leftShiftPressed)
 		{
@@ -632,6 +654,7 @@ bool handleEditKeys(SDL_Keycode keycode, SDL_Scancode scancode)
 			}
 		}
 
+		const bool patternDataChanged = memcmp(&oldNote, p, sizeof (note_t)) != 0;
 		killPatternIfUnused(curPattern);
 
 		// increase row (only in edit mode)
@@ -640,7 +663,15 @@ bool handleEditKeys(SDL_Keycode keycode, SDL_Scancode scancode)
 			setSongPos(-1, (row + editor.editRowSkip) % numRows, RESET_SONG_TICK);
 
 		ui.updatePatternEditor = true;
-		setSongModifiedFlag();
+		if (patternDataChanged)
+		{
+			setSongModifiedFlag();
+			undoPatternCommit();
+		}
+		else
+		{
+			undoCancelTransaction();
+		}
 
 		return true;
 	}
@@ -689,8 +720,13 @@ void writeFromMacroSlot(uint8_t slot)
 	if (!editmode && playMode != PLAYMODE_RECSONG && playMode != PLAYMODE_RECPATT)
 		return;
 
-	if (!allocatePattern(curPattern))
+	if (!undoPatternBegin(curPattern, "Insert macro"))
 		return;
+	if (!allocatePattern(curPattern))
+	{
+		undoCancelTransaction();
+		return;
+	}
 	
 	note_t *p = &pattern[curPattern][(row * MAX_CHANNELS) + cursor.ch];
 	if (cursor.object == CURSOR_VOL1 || cursor.object == CURSOR_VOL2)
@@ -721,6 +757,7 @@ void writeFromMacroSlot(uint8_t slot)
 
 	ui.updatePatternEditor = true;
 	setSongModifiedFlag();
+	undoPatternCommit();
 }
 
 void insertPatternNote(void)
@@ -751,9 +788,9 @@ void insertPatternNote(void)
 
 	killPatternIfUnused(curPattern);
 
-	undoPatternCommit();
 	ui.updatePatternEditor = true;
 	setSongModifiedFlag();
+	undoPatternCommit();
 }
 
 void insertPatternLine(void)
@@ -789,9 +826,9 @@ void insertPatternLine(void)
 		killPatternIfUnused(curPattern);
 	}
 
-	undoPatternCommit();
 	ui.updatePatternEditor = true;
 	setSongModifiedFlag();
+	undoPatternCommit();
 }
 
 void clearPreviousPatternEntry(void)
@@ -814,9 +851,11 @@ void clearPreviousPatternEntry(void)
 	note_t *p = pattern[curPattern];
 	if (p != NULL)
 	{
+		undoPatternBegin(curPattern, "Clear previous entry");
 		memset(&p[(row * MAX_CHANNELS) + cursor.ch], 0, sizeof (note_t));
 		killPatternIfUnused(curPattern);
 		setSongModifiedFlag();
+		undoPatternCommit();
 	}
 
 	ui.updatePatternEditor = true;
@@ -861,9 +900,9 @@ void deletePatternNote(void)
 
 	killPatternIfUnused(curPattern);
 
-	undoPatternCommit();
 	ui.updatePatternEditor = true;
 	setSongModifiedFlag();
+	undoPatternCommit();
 }
 
 void deletePatternLine(void)
@@ -910,9 +949,9 @@ void deletePatternLine(void)
 
 	killPatternIfUnused(curPattern);
 
-	undoPatternCommit();
 	ui.updatePatternEditor = true;
 	setSongModifiedFlag();
+	undoPatternCommit();
 }
 
 // ----- TRANSPOSE FUNCTIONS -----
@@ -1060,7 +1099,7 @@ static void buildTransposeViewTargets(uint8_t mode, uint16_t curPattern,
 		return;
 
 	const pattCoord_t *pattCoord =
-		&pattCoordTable[config.ptnStretch][ui.pattChanScrollShown][ui.extendedPatternEditor];
+		&pattCoordTable[config.ptnStretch][ui.pattChanScrollShown][getPatternEditorView()];
 	const int32_t screenRows = pattCoord->numUpperRows + 1 + pattCoord->numLowerRows;
 
 	int32_t firstChannel;
@@ -1620,9 +1659,9 @@ void cutTrack(void)
 
 	killPatternIfUnused(curPattern);
 
-	undoPatternCommit();
 	ui.updatePatternEditor = true;
 	setSongModifiedFlag();
+	undoPatternCommit();
 }
 
 void copyTrack(void)
@@ -1665,9 +1704,9 @@ void pasteTrack(void)
 
 	killPatternIfUnused(curPattern);
 
-	undoPatternCommit();
 	ui.updatePatternEditor = true;
 	setSongModifiedFlag();
+	undoPatternCommit();
 }
 
 void cutPattern(void)
@@ -1704,9 +1743,9 @@ void cutPattern(void)
 
 	killPatternIfUnused(curPattern);
 
-	undoPatternCommit();
 	ui.updatePatternEditor = true;
 	setSongModifiedFlag();
+	undoPatternCommit();
 }
 
 void copyPattern(void)
@@ -1762,9 +1801,9 @@ void pastePattern(void)
 
 	killPatternIfUnused(curPattern);
 
-	undoPatternCommit();
 	ui.updatePatternEditor = true;
 	setSongModifiedFlag();
+	undoPatternCommit();
 }
 
 void cutBlock(void)
@@ -1825,9 +1864,9 @@ void cutBlock(void)
 			blockCopied = true;
 		}
 
-		undoPatternCommit();
 		ui.updatePatternEditor = true;
 		setSongModifiedFlag();
+		undoPatternCommit();
 	}
 }
 
@@ -1926,9 +1965,9 @@ void pasteBlock(void)
 
 	killPatternIfUnused(curPattern);
 
-	undoPatternCommit();
 	ui.updatePatternEditor = true;
 	setSongModifiedFlag();
+	undoPatternCommit();
 }
 
 typedef enum instrumentTransformScope_t
@@ -2161,7 +2200,11 @@ static void closeInstrumentTransform(bool apply)
 	{
 		if (instrumentTransformScope == INST_TRANSFORM_SONG)
 		{
-			restoreInstrumentTransformSnapshots(); undoSongBegin("Instrument transform"); renderInstrumentTransformPreview(); undoSongCommit();
+			restoreInstrumentTransformSnapshots();
+			undoSongBegin("Instrument transform");
+			renderInstrumentTransformPreview();
+			setSongModifiedFlag();
+			undoSongCommit();
 		}
 		else
 		{
@@ -2169,11 +2212,13 @@ static void closeInstrumentTransform(bool apply)
 			const uint32_t bytes = (uint32_t)patternNumRows[ptn] * TRACK_WIDTH;
 			note_t *accepted = pattern[ptn] == NULL ? NULL : (note_t *)malloc(bytes);
 			if (accepted != NULL) memcpy(accepted, pattern[ptn], bytes);
-			restoreInstrumentTransformSnapshots(); undoPatternBegin(ptn, "Instrument transform");
+			restoreInstrumentTransformSnapshots();
+			undoPatternBegin(ptn, "Instrument transform");
 			if (accepted != NULL && allocatePattern(ptn)) memcpy(pattern[ptn], accepted, bytes);
-			free(accepted); undoPatternCommit();
+			free(accepted);
+			setSongModifiedFlag();
+			undoPatternCommit();
 		}
-		setSongModifiedFlag();
 	}
 	else restoreInstrumentTransformSnapshots();
 	instrumentTransformActive = false;
@@ -2214,7 +2259,7 @@ static void drawInstrumentTransformField(int32_t x, int32_t y, uint8_t value, in
 
 void instrumentTransformDrawPanel(void)
 {
-	if (!instrumentTransformActive || ui.sysReqShown) return;
+	if (ui.patternEditorOnly || !instrumentTransformActive || ui.sysReqShown) return;
 	if (instrumentTransformField != INST_TRANSFORM_FIELD_NONE && editor.curInstr != instrumentTransformLastGuiInstr && editor.curInstr > 0)
 	{
 		instrumentTransformLastGuiInstr = editor.curInstr;
@@ -2275,7 +2320,7 @@ void instrumentTransformDrawPanel(void)
 
 bool instrumentTransformHandleMouseDown(int32_t mx, int32_t my, uint8_t mouseButton)
 {
-	if (!instrumentTransformActive || mouseButton != SDL_BUTTON_LEFT) return false;
+	if (ui.patternEditorOnly || !instrumentTransformActive || mouseButton != SDL_BUTTON_LEFT) return false;
 	if (mx < INST_TRANSFORM_PANEL_X || mx >= INST_TRANSFORM_PANEL_X+INST_TRANSFORM_PANEL_W || my < INST_TRANSFORM_PANEL_Y || my >= INST_TRANSFORM_PANEL_Y+INST_TRANSFORM_PANEL_H) return false;
 	const int32_t x=mx-INST_TRANSFORM_PANEL_X, y=my-INST_TRANSFORM_PANEL_Y;
 	if (y>=20 && y<35)
@@ -2327,35 +2372,39 @@ void remapBlock(void)
 	volatile int32_t markY1 = pattMark.markY1, markY2 = pattMark.markY2;
 	resumeMusic();
 	if (editor.srcInstr == editor.curInstr || markY1 == markY2 || markY1 > markY2) return;
+	if (!undoPatternBegin(curPattern, "Remap block")) return;
 	remapInstrXY(curPattern, markX1, markY1, markX2, markY2-1, editor.srcInstr, editor.curInstr);
-	ui.updatePatternEditor = true; setSongModifiedFlag();
+	ui.updatePatternEditor = true; setSongModifiedFlag(); undoPatternCommit();
 }
 
 void remapTrack(void)
 {
 	const volatile uint16_t curPattern = editor.editPattern;
 	if (editor.srcInstr == editor.curInstr) return;
+	if (!undoPatternBegin(curPattern, "Remap track")) return;
 	pauseMusic();
 	remapInstrXY(curPattern, cursor.ch, 0, cursor.ch, patternNumRows[curPattern]-1, editor.srcInstr, editor.curInstr);
-	resumeMusic(); ui.updatePatternEditor = true; setSongModifiedFlag();
+	resumeMusic(); ui.updatePatternEditor = true; setSongModifiedFlag(); undoPatternCommit();
 }
 
 void remapPattern(void)
 {
 	const volatile uint16_t curPattern = editor.editPattern;
 	if (editor.srcInstr == editor.curInstr) return;
+	if (!undoPatternBegin(curPattern, "Remap pattern")) return;
 	pauseMusic();
 	remapInstrXY(curPattern, 0, 0, song.numChannels-1, patternNumRows[curPattern]-1, editor.srcInstr, editor.curInstr);
-	resumeMusic(); ui.updatePatternEditor = true; setSongModifiedFlag();
+	resumeMusic(); ui.updatePatternEditor = true; setSongModifiedFlag(); undoPatternCommit();
 }
 
 void remapSong(void)
 {
 	if (editor.srcInstr == editor.curInstr) return;
+	if (!undoSongBegin("Remap song")) return;
 	pauseMusic();
 	for (int32_t i = 0; i < MAX_PATTERNS; i++)
 		remapInstrXY(i, 0, 0, song.numChannels-1, patternNumRows[i]-1, editor.srcInstr, editor.curInstr);
-	resumeMusic(); ui.updatePatternEditor = true; setSongModifiedFlag();
+	resumeMusic(); ui.updatePatternEditor = true; setSongModifiedFlag(); undoSongCommit();
 }
 
 // "scale-fade volume" routines

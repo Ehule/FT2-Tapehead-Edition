@@ -136,12 +136,12 @@ static void setSampleEditMode(bool enabled)
 
 bool patternLauncherPanelIsShown(void)
 {
-	return patternLauncherPanelShown;
+	return patternLauncherPanelShown && !ui.patternEditorOnly;
 }
 
 bool patternLauncherPanelIsSampleDeck(void)
 {
-	return patternLauncherPanelShown && sampleLauncherDeckShown;
+	return patternLauncherPanelShown && sampleLauncherDeckShown && !ui.patternEditorOnly;
 }
 
 bool patternLauncherStandaloneIsShown(void)
@@ -372,6 +372,9 @@ static void drawSampleLauncherPanel(void)
 
 void patternLauncherDrawPanel(void)
 {
+	if (ui.patternEditorOnly)
+		return;
+
 	if (patternLauncherStandaloneShown)
 	{
 		patternLauncherDrawStandalone();
@@ -564,7 +567,7 @@ static void drawPatternLauncherBankColumn(void)
 
 void patternLauncherForceRedraw(void)
 {
-	if (!patternLauncherPanelShown)
+	if (ui.patternEditorOnly || !patternLauncherPanelShown)
 		return;
 	if (patternLauncherStandaloneShown)
 	{
@@ -1746,7 +1749,7 @@ void handlePatternLauncherPanelRefresh(void)
 		uint32_t added, requested, omitted;
 		if (sampleMatrixImportTakeResult(&added, &requested, &omitted))
 		{
-			char resultText[32];
+			char resultText[64];
 			if (omitted == 0)
 				snprintf(resultText, sizeof (resultText), "%u SAMPLES IMPORTED", added);
 			else

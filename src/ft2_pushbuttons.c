@@ -408,6 +408,8 @@ pushButton_t pushButtons[NUM_PUSHBUTTONS] =
 	{ 606, 43, 23, 13, 1, 4, ARROW_RIGHT_STRING, NULL,    configPalBUp,      NULL },
 	{ 513, 71, 23, 13, 1, 4, ARROW_LEFT_STRING,  NULL,    configPalContDown, NULL },
 	{ 606, 71, 23, 13, 1, 4, ARROW_RIGHT_STRING, NULL,    configPalContUp,   NULL },
+	{ 484, 71, 13, 13, 0, 0, "I",                NULL,    NULL,              configPalImport },
+	{ 498, 71, 13, 13, 0, 0, "E",                NULL,    NULL,              configPalExport },
 
 	// ------ CONFIG MISCELLANEOUS PUSHBUTTONS ------
 	//x,   y,   w,  h,  p, d, text #1,            text #2, funcOnDown,          funcOnUp
