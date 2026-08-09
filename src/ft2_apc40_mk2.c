@@ -490,8 +490,8 @@ static void refreshPatternSlot(uint8_t localSlot)
 	const uint8_t polyAnimation = polyStop ? APC_RGB_BLINK_EIGHTH :
 		(polyStart ? APC_RGB_PULSE_EIGHTH : APC_RGB_PRIMARY);
 
-	const bool loaded = patternLauncherPatternIsExposed(patternNum);
-	bool hasQ = tapeheadActionMatrixSequenceSlotIsPending(localSlot);
+	const bool loaded = patternLauncherTileIsLaunchable(patternNum);
+	bool hasQ = loaded && tapeheadActionMatrixSequenceSlotIsPending(localSlot);
 	uint8_t qColor = hasQ ? APC_COLOR_YELLOW : APC_COLOR_GREEN;
 	uint8_t qAnimation = APC_RGB_PRIMARY;
 	if (patternLauncherGetCurrent() == patternNum)
@@ -535,7 +535,7 @@ static void refreshSampleSlot(uint8_t localSlot)
 		(polyStart ? APC_RGB_PULSE_EIGHTH : APC_RGB_PRIMARY);
 
 	const bool loaded = sampleLauncherTileIsLoaded(tile);
-	bool hasQ = tapeheadActionMatrixSequenceSlotIsPending(localSlot);
+	bool hasQ = loaded && tapeheadActionMatrixSequenceSlotIsPending(localSlot);
 	uint8_t qColor = hasQ ? APC_COLOR_YELLOW : APC_COLOR_GREEN;
 	uint8_t qAnimation = APC_RGB_PRIMARY;
 	if (sampleLauncherGetQCurrent() == tile)

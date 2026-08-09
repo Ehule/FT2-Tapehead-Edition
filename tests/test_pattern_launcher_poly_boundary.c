@@ -89,6 +89,11 @@ void polyMatrixCompleteQHandoffAtBoundary(uint8_t patternNum)
 	polyCompleteAtBoundaryCalls++;
 }
 
+void polyMatrixCancelQHandoff(uint8_t patternNum)
+{
+	(void)patternNum;
+}
+
 bool polyMatrixDestinationAvailableToQ(int32_t destinationChannel,
 	int16_t handoffPattern)
 {
@@ -99,10 +104,12 @@ bool polyMatrixDestinationAvailableToQ(int32_t destinationChannel,
 
 static void resetFixture(void)
 {
+	static note_t launchablePatterns[3][4 * MAX_CHANNELS];
 	memset(&song, 0, sizeof (song));
 	memset(&editor, 0, sizeof (editor));
 	memset(pattern, 0, sizeof (pattern));
 	memset(patternNumRows, 0, sizeof (patternNumRows));
+	memset(launchablePatterns, 0, sizeof (launchablePatterns));
 	memset(polyDestinationAvailable, true, sizeof (polyDestinationAvailable));
 	patternLauncherSetEnabled(false);
 	songPlaying = true;
@@ -113,6 +120,12 @@ static void resetFixture(void)
 	patternNumRows[5] = 4;
 	patternNumRows[6] = 4;
 	patternNumRows[7] = 4;
+	for (uint8_t i = 0; i < 3; i++)
+	{
+		launchablePatterns[i][0].note = 48;
+		pattern[5 + i] = launchablePatterns[i];
+	}
+	patternLauncherResetExposure();
 	stopPlayingCalls = 0;
 	stopPlayingKeepPolyCalls = 0;
 	startPlayingCalls = 0;
@@ -352,6 +365,32 @@ static void testHardStopPullsActiveQImmediately(void)
 	assert(startPlayingCalls == 1);
 }
 
+static void testUnavailableQRequestsAndPendingInvalidation(void)
+{
+	resetFixture();
+	pattern[6][0].note = 0;
+	patternLauncherRequest(6, false, false);
+	patternLauncherRequest(6, false, false);
+	assert(!patternLauncherIsEnabled());
+	assert(patternLauncherGetQueueCount() == 0);
+
+	beginCue(5);
+	patternLauncherRequest(7, false, false);
+	assert(patternLauncherGetQueueCount() == 1);
+	patternLauncherTogglePatternExposure(7);
+	assert(patternLauncherGetQueueCount() == 0);
+	assert(patternLauncherGetCurrent() == 5);
+
+	patternLauncherTogglePatternExposure(5);
+	assert(patternLauncherGetCurrent() == 5);
+	assert(patternLauncherIsEnabled());
+	patternLauncherRequest(5, false, false);
+	assert(patternLauncherGetExitMode() == PATTERN_LAUNCHER_EXIT_NONE);
+	patternLauncherTogglePatternExposure(5);
+	patternLauncherRequest(5, false, false);
+	assert(patternLauncherGetExitMode() == PATTERN_LAUNCHER_EXIT_RETURN);
+}
+
 int main(void)
 {
 	testCueExitPreservesPolySpools();
@@ -367,6 +406,7 @@ int main(void)
 	testStopDeckStopsCueStartedFromIdle();
 	testHardStopCancelsWaitingCueOnly();
 	testHardStopPullsActiveQImmediately();
-	puts("13 Pattern Matrix/Poly ownership boundary tests passed.");
+	testUnavailableQRequestsAndPendingInvalidation();
+	puts("14 Pattern Matrix/Poly ownership boundary tests passed.");
 	return 0;
 }

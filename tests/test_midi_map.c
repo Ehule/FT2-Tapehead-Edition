@@ -148,6 +148,10 @@ bool patternLauncherPatternIsExposed(uint8_t patternNum)
 {
 	return patternExposed[patternNum];
 }
+bool patternLauncherTileIsLaunchable(uint8_t patternNum)
+{
+	return patternLauncherPatternIsExposed(patternNum);
+}
 void patternLauncherRequest(uint8_t patternNum, bool ctrl, bool shift)
 {
 	lastPatternRequest = patternNum;

@@ -26,6 +26,14 @@ CP04.2.
 Pattern and Sample decks share BPM, TPL, and pattern boundaries, but they keep
 independent voice ownership. Starting one deck does not evict the other.
 
+Empty tiles and masked Pattern tiles are dimmed and unavailable: they cannot
+enter either the Q queue or a Poly launch, whether triggered by mouse, APC40,
+another MIDI controller, or an automatic sequence. Unmasking a populated
+Pattern tile or assigning material to an empty tile makes it available
+immediately. Use **Performance Mute**—not an empty or masked launch—to introduce
+structural silence during a Deck performance. Masking or clearing a source does
+not by itself hard-stop a voice that is already sounding.
+
 ## Open Deck Matrix
 
 The supplied `tapehead.ini` enables the full-window surface at startup:

@@ -32,6 +32,21 @@ static bool standaloneClockRunning;
 static uint16_t standaloneClockTick, standaloneClockRow;
 static sampleLauncherCaptureCallback_t captureCallback;
 
+static void validatePendingLaunches(void)
+{
+	uint16_t pending[SAMPLE_LAUNCHER_QUEUE_MAX + SAMPLE_LAUNCHER_MAX_POLY];
+	uint8_t count = 0;
+	for (uint8_t i = 0; i < launcherState.qQueueCount; i++)
+		pending[count++] = (uint16_t)launcherState.qQueue[i];
+	for (uint8_t i = 0; i < launcherState.polyStartCount; i++)
+		pending[count++] = (uint16_t)launcherState.polyStartQueue[i];
+	for (uint8_t i = 0; i < count; i++)
+	{
+		if (!sampleLauncherTileIsLoaded(pending[i]))
+			sampleLauncherStateCancelPending(&launcherState, pending[i]);
+	}
+}
+
 void sampleLauncherSetCaptureCallback(sampleLauncherCaptureCallback_t callback)
 {
 	captureCallback = callback;
@@ -213,6 +228,7 @@ bool sampleLauncherHasPolyWork(void)
 
 static void executeBoundaryActions(void)
 {
+	validatePendingLaunches();
 	sampleLauncherAction_t actions[SAMPLE_LAUNCHER_MAX_ACTIONS];
 	const uint8_t count = sampleLauncherStateCommitBoundary(&launcherState,
 		actions);
@@ -1000,6 +1016,7 @@ bool sampleLauncherQStopPending(void)
 int8_t sampleLauncherGetQQueuePos(uint16_t tile)
 {
 	ensureInitialized();
+	validatePendingLaunches();
 	return sampleLauncherStateGetQQueuePos(&launcherState, tile);
 }
 

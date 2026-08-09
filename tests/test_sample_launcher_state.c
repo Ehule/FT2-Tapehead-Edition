@@ -175,6 +175,22 @@ static void test_layer_stops_do_not_cross_domains(void)
 	assert(sampleLauncherStateGetPolySlot(&state, 2) == -1);
 }
 
+static void test_invalidated_pending_launches_are_cancelled_without_stopping_active(void)
+{
+	sampleLauncherStateInit(&state);
+	assert(sampleLauncherStateRequestQ(&state, 1));
+	assert(sampleLauncherStateTogglePoly(&state, 2));
+	assert(commit() == 2);
+	assert(sampleLauncherStateRequestQ(&state, 3));
+	assert(sampleLauncherStateTogglePoly(&state, 4));
+	assert(sampleLauncherStateCancelPending(&state, 3));
+	assert(sampleLauncherStateCancelPending(&state, 4));
+	assert(state.qQueueCount == 0 && state.polyStartCount == 0);
+	assert(state.qCurrent == 1);
+	assert(sampleLauncherStateGetPolySlot(&state, 2) == 0);
+	assert(commit() == 0);
+}
+
 int main(void)
 {
 	test_q_replaces_only_at_boundary();
@@ -189,6 +205,7 @@ int main(void)
 	test_shift_stop_is_quantized_and_idempotent();
 	test_shift_stop_cancels_pending_launches();
 	test_layer_stops_do_not_cross_domains();
-	puts("12 native Sample Launcher state tests passed.");
+	test_invalidated_pending_launches_are_cancelled_without_stopping_active();
+	puts("13 native Sample Launcher state tests passed.");
 	return 0;
 }

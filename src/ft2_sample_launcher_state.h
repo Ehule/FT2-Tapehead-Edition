@@ -40,6 +40,8 @@ typedef struct sampleLauncherState_t
 
 void sampleLauncherStateInit(sampleLauncherState_t *state);
 void sampleLauncherStateClearQQueue(sampleLauncherState_t *state);
+bool sampleLauncherStateCancelPending(sampleLauncherState_t *state,
+	uint16_t tile);
 bool sampleLauncherStateRequestQ(sampleLauncherState_t *state, uint16_t tile);
 bool sampleLauncherStateTogglePoly(sampleLauncherState_t *state, uint16_t tile);
 bool sampleLauncherStateScheduleStop(sampleLauncherState_t *state,

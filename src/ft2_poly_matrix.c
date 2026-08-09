@@ -212,6 +212,11 @@ static bool everyThreadIsWaiting(
 
 bool polyMatrixTogglePattern(uint8_t patternNum, bool immediate)
 {
+	/* An active voice may always be pulled, but unavailable material can never
+	** create a new spool. */
+	if (findPattern(patternNum) == NULL &&
+		!patternLauncherTileIsLaunchable(patternNum))
+		return false;
 	const bool audioWasntLocked = !audio.locked;
 	if (audioWasntLocked)
 		lockAudio();
@@ -338,6 +343,8 @@ uint8_t polyMatrixGetActiveCount(void)
 
 bool polyMatrixRequestQHandoff(uint8_t patternNum)
 {
+	if (!patternLauncherTileIsLaunchable(patternNum))
+		return false;
 	const bool audioWasntLocked = !audio.locked;
 	if (audioWasntLocked)
 		lockAudio();
@@ -372,6 +379,24 @@ bool polyMatrixRequestQHandoff(uint8_t patternNum)
 	if (audioWasntLocked)
 		unlockAudio();
 	return accepted;
+}
+
+void polyMatrixCancelQHandoff(uint8_t patternNum)
+{
+	const bool audioWasntLocked = !audio.locked;
+	if (audioWasntLocked)
+		lockAudio();
+	volatile polyMatrixSpool_t *spool = findPattern(patternNum);
+	if (spool != NULL)
+	{
+		spool->qHandoffRequested = false;
+		spool->qHandoffReady = false;
+		spool->qHandoffClaimed = false;
+		for (uint8_t i = 0; i < spool->threadCount; i++)
+			spool->threads[i].waitingAtBoundary = false;
+	}
+	if (audioWasntLocked)
+		unlockAudio();
 }
 
 bool polyMatrixClaimReadyQHandoff(uint8_t *patternNum)
