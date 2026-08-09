@@ -19,6 +19,8 @@
 #include "ft2_structs.h"
 #include "ft2_audioselector.h"
 #include "ft2_jack.h"
+#include "ft2_pattern_launcher.h"
+#include "ft2_poly_matrix.h"
 #include "ft2_sample_launcher.h"
 #include "mixer/ft2_mix.h"
 #include "mixer/ft2_silence_mix.h"
@@ -38,6 +40,9 @@ static voice_t voice[MAX_CHANNELS * 2];
 #define SAMPLE_LAUNCHER_AUDIO_VOICES 5
 static voice_t sampleLauncherVoice[SAMPLE_LAUNCHER_AUDIO_VOICES];
 static uint8_t sampleLauncherOutputBus[SAMPLE_LAUNCHER_AUDIO_VOICES];
+static float sampleLauncherBaseVolume[SAMPLE_LAUNCHER_AUDIO_VOICES];
+static uint16_t sampleLauncherAppliedGain[SAMPLE_LAUNCHER_AUDIO_VOICES];
+static volatile uint16_t matrixQGain = 256, matrixPolyGain = 256;
 static bool jackDiagnosticsEnabled;
 static int8_t jackDiagnosticToneBus = -1;
 static uint32_t jackDiagnosticFrames;
@@ -51,6 +56,21 @@ chSyncData_t *chSyncEntry;
 chSync_t chSync;
 pattSync_t pattSync;
 volatile bool pattQueueClearing, chQueueClearing;
+
+void audioSetMatrixMixerGains(uint16_t qGain, uint16_t polyGain)
+{
+	if (qGain > 256) qGain = 256;
+	if (polyGain > 256) polyGain = 256;
+	matrixQGain = qGain;
+	matrixPolyGain = polyGain;
+
+	/* The audio thread owns the actual ramp. Mark every tracker voice dirty so
+	** currently sounding Q/Poly channels acquire the new target without
+	** touching normal Song volume. Sample-deck voices are refreshed in their
+	** mixer loop from the same two integer targets. */
+	for (int32_t i = 0; i < song.numChannels && i < MAX_CHANNELS; i++)
+		channel[i].status |= CS_UPDATE_VOL | CS_USE_QUICK_VOLRAMP;
+}
 
 void stopVoice(int32_t i)
 {
@@ -74,6 +94,8 @@ void audioSampleLauncherStop(uint8_t voiceIndex)
 
 	memset(&sampleLauncherVoice[voiceIndex], 0, sizeof (voice_t));
 	sampleLauncherVoice[voiceIndex].panning = 128;
+	sampleLauncherBaseVolume[voiceIndex] = 0.0f;
+	sampleLauncherAppliedGain[voiceIndex] = UINT16_MAX;
 }
 
 void audioSampleLauncherStopAll(void)
@@ -118,7 +140,12 @@ void audioSampleLauncherTrigger(uint8_t voiceIndex, const sample_t *sample,
 	v->position = 0;
 	v->positionFrac = 0;
 	v->panning = sample->panning;
-	v->fVolume = sample->volume * (1.0f / 64.0f);
+	sampleLauncherBaseVolume[voiceIndex] =
+		sample->volume * (1.0f / 64.0f);
+	const uint16_t gain = voiceIndex == 0 ? matrixQGain : matrixPolyGain;
+	sampleLauncherAppliedGain[voiceIndex] = gain;
+	v->fVolume = sampleLauncherBaseVolume[voiceIndex] *
+		(gain * (1.0f / 256.0f));
 	if (audio.monoOutputMode)
 	{
 		v->fCurrVolumeL = v->fTargetVolumeL = v->fVolume;
@@ -419,6 +446,7 @@ static void voiceTrigger(int32_t ch, sample_t *s, int32_t position)
 	}
 
 	v->hasLooped = false; // for cubic/sinc interpolation special case
+	v->oneShot = false;
 	v->samplingBackwards = false;
 	v->loopType = loopType;
 	v->sampleEnd = (loopType == LOOP_DISABLED) ? length : loopEnd;
@@ -436,6 +464,27 @@ static void voiceTrigger(int32_t ch, sample_t *s, int32_t position)
 
 	v->mixFuncOffset = ((int32_t)sample16Bit * 15) + (audio.interpolationType * 3) + loopType;
 	v->active = true;
+}
+
+static void voiceApplyTapeheadOneShot(voice_t *v, const sample_t *s,
+	bool reverse)
+{
+	const bool sample16Bit = !!(s->flags & SAMPLE_16BIT);
+	v->oneShot = true;
+	v->hasLooped = false;
+	v->loopStart = 0;
+	v->loopLength = s->length;
+	v->sampleEnd = s->length;
+	v->position = 0;
+	v->positionFrac = 0;
+	v->samplingBackwards = reverse;
+	v->loopType = reverse ? LOOP_PINGPONG : LOOP_DISABLED;
+	if (sample16Bit)
+		v->revBase16 = &v->base16[s->length];
+	else
+		v->revBase8 = &v->base8[s->length];
+	v->mixFuncOffset = ((int32_t)sample16Bit * 15) +
+		(audio.interpolationType * 3) + v->loopType;
 }
 
 void resetRampVolumes(void)
@@ -474,7 +523,13 @@ void updateVoices(void)
 			** Scope volume deliberately remains based on the unmuted value,
 			** allowing the waveform to keep moving underneath the red X.
 			*/
-			v->fVolume = performanceMute[i] ? 0.0f : ch->fFinalVol;
+			float matrixGain = 1.0f;
+			if (polyMatrixOwnsDestination(i))
+				matrixGain = matrixPolyGain * (1.0f / 256.0f);
+			else if (patternLauncherOwnsDestination(i))
+				matrixGain = matrixQGain * (1.0f / 256.0f);
+			v->fVolume = performanceMute[i] ? 0.0f :
+				ch->fFinalVol * matrixGain;
 			v->scopeVolume = (uint8_t)((ch->fFinalVol * (SCOPE_HEIGHT*4.0f)) + 0.5f);
 		}
 
@@ -486,7 +541,9 @@ void updateVoices(void)
 
 		if (status & CF_UPDATE_PERIOD)
 		{
-			v->delta = period2VoiceDelta(ch->finalPeriod);
+			const int64_t baseDelta = period2VoiceDelta(ch->finalPeriod);
+			v->delta = microtonalScaleDelta(baseDelta,
+				microtonalCurrentCents16(&ch->microtonal));
 
 			if (audio.sincInterpolation)
 			{
@@ -500,7 +557,15 @@ void updateVoices(void)
 		}
 
 		if (status & CS_TRIGGER_VOICE)
+		{
 			voiceTrigger(i, ch->smpPtr, ch->smpStartPos);
+			if (v->active && ch->tapeheadOneShotDirection != 0)
+			{
+				voiceApplyTapeheadOneShot(v, ch->smpPtr,
+					ch->tapeheadOneShotDirection == 2);
+			}
+			ch->tapeheadOneShotDirection = 0;
+		}
 	}
 }
 
@@ -616,11 +681,44 @@ static void mixSampleLauncherVoice(voice_t *v, int32_t bufferPosition,
 		mixFuncTab[v->mixFuncOffset](v, bufferPosition, samplesToMix);
 }
 
+static void refreshSampleLauncherMatrixGain(uint8_t voiceIndex)
+{
+	voice_t *v = &sampleLauncherVoice[voiceIndex];
+	const uint16_t gain = voiceIndex == 0 ? matrixQGain : matrixPolyGain;
+	if (!v->active || sampleLauncherAppliedGain[voiceIndex] == gain)
+		return;
+
+	sampleLauncherAppliedGain[voiceIndex] = gain;
+	v->fVolume = sampleLauncherBaseVolume[voiceIndex] *
+		(gain * (1.0f / 256.0f));
+	v->fTargetVolumeL = v->fVolume * fSqrtPanningTable[256-v->panning];
+	v->fTargetVolumeR = v->fVolume * fSqrtPanningTable[v->panning];
+	v->fTargetVolumeMono = v->fVolume;
+
+	if (!audio.volumeRampingFlag || audio.quickVolRampSamples == 0)
+	{
+		v->fCurrVolumeL = v->fTargetVolumeL;
+		v->fCurrVolumeR = v->fTargetVolumeR;
+		v->fCurrVolumeMono = v->fTargetVolumeMono;
+		v->volumeRampLength = 0;
+		return;
+	}
+
+	v->volumeRampLength = audio.quickVolRampSamples;
+	v->fVolumeLDelta = (v->fTargetVolumeL - v->fCurrVolumeL) *
+		audio.fQuickVolRampSamplesMul;
+	v->fVolumeRDelta = (v->fTargetVolumeR - v->fCurrVolumeR) *
+		audio.fQuickVolRampSamplesMul;
+	v->fVolumeMonoDelta = (v->fTargetVolumeMono - v->fCurrVolumeMono) *
+		audio.fQuickVolRampSamplesMul;
+}
+
 static void doSampleLauncherMixing(int32_t bufferPosition,
 	int32_t samplesToMix, uint8_t outputBusCount)
 {
 	for (uint8_t i = 0; i < SAMPLE_LAUNCHER_AUDIO_VOICES; i++)
 	{
+		refreshSampleLauncherMatrixGain(i);
 		voice_t *v = &sampleLauncherVoice[i];
 		if (!v->active)
 			continue;
@@ -774,6 +872,48 @@ static void doChannelMixing(int32_t bufferPosition, int32_t samplesToMix,
 }
 
 #ifdef TAPEHEAD_AUDIO_ROUTING_TEST
+bool tapeheadTestRenderOneShot(bool reverse, float *samples,
+	uint8_t sampleCount)
+{
+	if (samples == NULL || sampleCount < 4)
+		return false;
+
+	int8_t sampleData[4] = { 16, 32, 48, 64 };
+	float right[4] = { 0 };
+	sample_t sample;
+	memset(&sample, 0, sizeof (sample));
+	sample.dataPtr = sampleData;
+	sample.length = sample.loopLength = 4;
+	sample.flags = LOOP_FORWARD;
+
+	voice_t oldVoice = voice[0];
+	float *oldMixL = audio.fMixBufferL;
+	float *oldMixR = audio.fMixBufferR;
+	const uint8_t oldInterpolation = audio.interpolationType;
+	const bool oldMono = audio.monoOutputMode;
+
+	memset(&voice[0], 0, sizeof (voice[0]));
+	audio.interpolationType = INTERPOLATION_DISABLED;
+	audio.monoOutputMode = false;
+	audio.fMixBufferL = samples;
+	audio.fMixBufferR = right;
+	memset(samples, 0, sampleCount * sizeof (float));
+	voiceTrigger(0, &sample, 0);
+	voiceApplyTapeheadOneShot(&voice[0], &sample, reverse);
+	voice[0].delta = 1ULL << MIXER_FRAC_BITS;
+	voice[0].fCurrVolumeL = 1.0f;
+	voice[0].fCurrVolumeR = 0.0f;
+	mixFuncTab[voice[0].mixFuncOffset](&voice[0], 0, 4);
+	const bool ended = !voice[0].active;
+
+	voice[0] = oldVoice;
+	audio.fMixBufferL = oldMixL;
+	audio.fMixBufferR = oldMixR;
+	audio.interpolationType = oldInterpolation;
+	audio.monoOutputMode = oldMono;
+	return ended;
+}
+
 bool tapeheadTestRouteSyntheticVoice(uint16_t outputMask,
 	uint8_t renderBusCount, uint8_t staleGlobalBusCount, float *peakBusA,
 	float *peakBusB)
@@ -921,6 +1061,8 @@ bool tapeheadTestRouteSyntheticSampleLauncherVoice(uint8_t outputBus,
 	const bool oldMonoOutputMode = audio.monoOutputMode;
 	voice_t oldLauncherVoice = sampleLauncherVoice[0];
 	const uint8_t oldLauncherBus = sampleLauncherOutputBus[0];
+	const float oldLauncherBaseVolume = sampleLauncherBaseVolume[0];
+	const uint16_t oldLauncherAppliedGain = sampleLauncherAppliedGain[0];
 	float *oldBusAL = audio.fBusMixBufferL[0];
 	float *oldBusAR = audio.fBusMixBufferR[0];
 	float *oldBusBL = audio.fBusMixBufferL[1];
@@ -936,6 +1078,8 @@ bool tapeheadTestRouteSyntheticSampleLauncherVoice(uint8_t outputBus,
 	sampleLauncherVoice[0].fCurrVolumeL = 1.0f;
 	sampleLauncherVoice[0].fCurrVolumeR = 1.0f;
 	sampleLauncherVoice[0].mixFuncOffset = 0;
+	sampleLauncherBaseVolume[0] = 1.0f;
+	sampleLauncherAppliedGain[0] = matrixQGain;
 	sampleLauncherOutputBus[0] = outputBus;
 	audio.fBusMixBufferL[0] = busAL;
 	audio.fBusMixBufferR[0] = busAR;
@@ -958,6 +1102,8 @@ bool tapeheadTestRouteSyntheticSampleLauncherVoice(uint8_t outputBus,
 	audio.fBusMixBufferR[1] = oldBusBR;
 	sampleLauncherVoice[0] = oldLauncherVoice;
 	sampleLauncherOutputBus[0] = oldLauncherBus;
+	sampleLauncherBaseVolume[0] = oldLauncherBaseVolume;
+	sampleLauncherAppliedGain[0] = oldLauncherAppliedGain;
 	audio.monoOutputMode = oldMonoOutputMode;
 	song.numChannels = oldNumChannels;
 	return true;

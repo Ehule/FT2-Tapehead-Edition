@@ -9,6 +9,19 @@ result has been realized.
 Use it when a standard XM player must reproduce a FasTracks composition or
 when a live ratio performance should become editable linear pattern data.
 
+After choosing Fast Bake or Live, choose an output target:
+
+- **Standard XM** deliberately removes Tapehead `Mxx` MicroTune and `Nxx`
+  MicroDrift because another XM player cannot reproduce their cent-accurate,
+  persistent pitch state or continuous drift faithfully. Notes and other
+  fields sharing those cells remain.
+- **Tapehead XM** preserves `Mxx` and `Nxx` in the flattened pattern data for
+  reopening and continued work in Tapehead Edition. It remains an ordinary
+  `.xm` file; no new container format is required.
+
+The completion dialog reports how many microtonal commands were stripped or
+preserved; see [`MICROTONAL_PITCH.md`](MICROTONAL_PITCH.md).
+
 ## Before baking
 
 Stop ordinary Song/Pattern playback and all Pattern Q, Pattern Poly, Sample Q,
@@ -24,9 +37,10 @@ loaded composition into the baked result.
 2. Choose the destination directory and filename.
 3. Hold **Shift** and click **Save**.
 4. Choose **Fast Bake** or **Live**.
+5. Choose **Standard XM** or **Tapehead XM**.
 
-Tapehead adds `-BAKED` before the `.xm` extension unless the name already ends
-with that suffix. Normal Save behavior is unchanged when Shift is not held.
+Standard output receives `-BAKED.xm`. Tapehead output receives
+`-BAKED-TAPEHEAD.xm`. Normal Save behavior is unchanged when Shift is not held.
 
 The window also contains **Merge exact duplicate voices**. It is enabled by
 default and remembers its most recent setting for the current program run.
@@ -67,8 +81,8 @@ Live Bake records an audible performance:
 
 1. Choose **Live** in the Bake Module window.
 2. Tapehead returns to the tracker and arms the recorder.
-3. Press **Play Song**. Pattern Play and Record transports are rejected while
-   the live song baker is armed.
+3. Press **Play Song** or **Play Pattern**, or begin moving the cue encoder or
+   crossfader without starting transport.
 4. Let the source song loop while changing FasTracks ratios, clutch, direction,
    synchronization, modes, and master controls.
 5. Press the ordinary **Stop** button to finish and save.
@@ -78,8 +92,11 @@ therefore become a long XM containing distinct performed variations. MIDI Dub
 remains active during the audible capture.
 
 Live Bake always uses tick resolution because FasTracks can be enabled or
-changed after recording is armed. Pressing **Stop** before **Play Song** cancels
-the armed bake without writing a file.
+changed after recording is armed. For transportless Performance Bake,
+wall-clock time at the armed BPM determines gesture spacing and preserves
+silence. Every row crossed by one fader sweep is retained in order. Pressing
+**Stop** before playback or a manual strum cancels the armed bake without
+writing a file.
 
 ## Collision allocation and duplicate policy
 
@@ -114,9 +131,11 @@ counts.
 - TPL 1 for tick-resolution bakes
 - Smallest compacted output channel count
 - Standard XM instruments and sample payload
+- Tapehead output preserves `Mxx` and `Nxx`; Standard output removes them
 - Tapehead `Zxx`, resolved `Bxx`/`Dxx`/`E6x` flow instructions, and resolved
   tick-speed commands removed where appropriate
-- No Tapehead Sample Matrix metadata in the baked file
+- Standard output omits Tapehead Sample Matrix metadata; Tapehead output keeps
+  the current Tapehead metadata alongside the preserved pattern extensions
 
 ## Lossless-first failure rules
 

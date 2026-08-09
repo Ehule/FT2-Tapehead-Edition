@@ -186,6 +186,19 @@ bool sampleLauncherHasTransportWork(void)
 	return hasTransportWork();
 }
 
+bool sampleLauncherHasQWork(void)
+{
+	ensureInitialized();
+	return launcherState.qCurrent >= 0 || launcherState.qQueueCount > 0 ||
+		launcherState.qStopPending;
+}
+
+bool sampleLauncherHasPolyWork(void)
+{
+	ensureInitialized();
+	return launcherState.polyStartCount > 0 || sampleLauncherGetPolyCount() > 0;
+}
+
 static void executeBoundaryActions(void)
 {
 	sampleLauncherAction_t actions[SAMPLE_LAUNCHER_MAX_ACTIONS];
@@ -947,6 +960,12 @@ int16_t sampleLauncherGetQCurrent(void)
 	return launcherState.qCurrent;
 }
 
+void sampleLauncherClearQQueue(void)
+{
+	ensureInitialized();
+	sampleLauncherStateClearQQueue(&launcherState);
+}
+
 bool sampleLauncherQStopPending(void)
 {
 	ensureInitialized();
@@ -1023,6 +1042,45 @@ bool sampleLauncherTogglePoly(uint16_t tile)
 		executeBoundaryActions();
 	}
 	return true;
+}
+
+bool sampleLauncherScheduleStop(uint16_t tile)
+{
+	ensureInitialized();
+	return sampleLauncherStateScheduleStop(&launcherState, tile);
+}
+
+static bool executeImmediateLayerStop(bool poly)
+{
+	const bool hadWork = poly ?
+		(launcherState.polyStartCount > 0 || sampleLauncherGetPolyCount() > 0) :
+		(launcherState.qCurrent >= 0 || launcherState.qQueueCount > 0 ||
+			launcherState.qStopPending);
+	sampleLauncherAction_t actions[SAMPLE_LAUNCHER_MAX_ACTIONS];
+	const uint8_t count = poly ?
+		sampleLauncherStateStopPoly(&launcherState, actions) :
+		sampleLauncherStateStopQ(&launcherState, actions);
+	for (uint8_t i = 0; i < count; i++)
+	{
+		if (actions[i].type == SAMPLE_LAUNCHER_ACTION_STOP_Q ||
+			actions[i].type == SAMPLE_LAUNCHER_ACTION_STOP_POLY)
+		{
+			audioSampleLauncherStop((uint8_t)actions[i].voice);
+		}
+	}
+	return hadWork;
+}
+
+bool sampleLauncherStopQ(void)
+{
+	ensureInitialized();
+	return executeImmediateLayerStop(false);
+}
+
+bool sampleLauncherStopPoly(void)
+{
+	ensureInitialized();
+	return executeImmediateLayerStop(true);
 }
 
 void sampleLauncherHardStop(uint16_t tile)

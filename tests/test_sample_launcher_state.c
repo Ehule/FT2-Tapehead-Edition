@@ -135,6 +135,46 @@ static void test_hard_stop_cancels_pending_poly_start(void)
 	assert(commit() == 0);
 }
 
+static void test_shift_stop_is_quantized_and_idempotent(void)
+{
+	sampleLauncherStateInit(&state);
+	assert(sampleLauncherStateRequestQ(&state, 5));
+	assert(sampleLauncherStateTogglePoly(&state, 5));
+	assert(commit() == 2);
+	assert(sampleLauncherStateScheduleStop(&state, 5));
+	assert(state.qStopPending);
+	assert(sampleLauncherStatePolyStopPending(&state, 5));
+	assert(!sampleLauncherStateScheduleStop(&state, 5));
+	assert(state.qStopPending);
+	assert(sampleLauncherStatePolyStopPending(&state, 5));
+	assert(commit() == 2);
+	assert(actions[0].type == SAMPLE_LAUNCHER_ACTION_STOP_Q);
+	assert(actions[1].type == SAMPLE_LAUNCHER_ACTION_STOP_POLY);
+}
+
+static void test_shift_stop_cancels_pending_launches(void)
+{
+	sampleLauncherStateInit(&state);
+	assert(sampleLauncherStateRequestQ(&state, 7));
+	assert(sampleLauncherStateTogglePoly(&state, 7));
+	assert(sampleLauncherStateScheduleStop(&state, 7));
+	assert(state.qQueueCount == 0 && state.polyStartCount == 0);
+	assert(commit() == 0);
+}
+
+static void test_layer_stops_do_not_cross_domains(void)
+{
+	sampleLauncherStateInit(&state);
+	assert(sampleLauncherStateRequestQ(&state, 1));
+	assert(sampleLauncherStateTogglePoly(&state, 2));
+	commit();
+	assert(sampleLauncherStateStopQ(&state, actions) == 1);
+	assert(state.qCurrent == -1);
+	assert(sampleLauncherStateGetPolySlot(&state, 2) == 0);
+	assert(sampleLauncherStateStopPoly(&state, actions) == 1);
+	assert(sampleLauncherStateGetPolySlot(&state, 2) == -1);
+}
+
 int main(void)
 {
 	test_q_replaces_only_at_boundary();
@@ -146,6 +186,9 @@ int main(void)
 	test_hard_stop_cancels_waiting_q_only();
 	test_hard_stop_kills_q_and_poly_immediately();
 	test_hard_stop_cancels_pending_poly_start();
-	puts("9 native Sample Launcher state tests passed.");
+	test_shift_stop_is_quantized_and_idempotent();
+	test_shift_stop_cancels_pending_launches();
+	test_layer_stops_do_not_cross_domains();
+	puts("12 native Sample Launcher state tests passed.");
 	return 0;
 }

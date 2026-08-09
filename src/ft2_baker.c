@@ -10,6 +10,7 @@
 #include "ft2_gui.h"
 #include "ft2_module_saver.h"
 #include "ft2_mouse.h"
+#include "ft2_microtonal.h"
 #include "ft2_pattern_launcher.h"
 #include "ft2_poly_matrix.h"
 #include "ft2_structs.h"
@@ -27,6 +28,7 @@ enum
 	BAKE_OFFLINE,
 	BAKE_LIVE_ARMED,
 	BAKE_LIVE_CAPTURING,
+	BAKE_PERFORMANCE_CAPTURING,
 	BAKE_LIVE_SAVING
 };
 
@@ -35,15 +37,19 @@ static SDL_Thread *bakeThread;
 static note_t *bakePatterns[MAX_PATTERNS];
 static int32_t bakeRow;
 static uint32_t bakeCollisions, bakeUnsupportedSubTicks, bakeRelocatedEvents;
-static uint32_t bakeMergedDuplicateEvents;
+static uint32_t bakeMergedDuplicateEvents, bakeStrippedMicrotonalCommands;
+static uint32_t bakePreservedMicrotonalCommands;
 static bool bakeOverflow, bakeMergeExactDuplicates, bakeTickResolution;
+static bakerOutputTarget_t bakeOutputTarget;
 static uint16_t bakeInitialBPM, bakeInitialSpeed;
+static uint64_t bakePerformanceStartCounter;
 static UNICHAR bakeFilenameU[PATH_MAX+1];
 static bakerChannelAllocator_t bakeAllocator;
 
 bool bakerIsRunning(void)
 {
-	return bakeState == BAKE_OFFLINE || bakeState == BAKE_LIVE_CAPTURING;
+	return bakeState == BAKE_OFFLINE || bakeState == BAKE_LIVE_CAPTURING ||
+		bakeState == BAKE_PERFORMANCE_CAPTURING;
 }
 
 bool bakerIsOfflineRunning(void)
@@ -58,7 +64,51 @@ bool bakerLiveIsArmed(void)
 
 bool bakerLiveIsCapturing(void)
 {
-	return bakeState == BAKE_LIVE_CAPTURING;
+	return bakeState == BAKE_LIVE_CAPTURING ||
+		bakeState == BAKE_PERFORMANCE_CAPTURING;
+}
+
+static int32_t performanceElapsedRow(void)
+{
+	const uint64_t frequency = SDL_GetPerformanceFrequency();
+	if (frequency == 0)
+		return 0;
+
+	const uint64_t elapsed = SDL_GetPerformanceCounter() -
+		bakePerformanceStartCounter;
+	/* One TPL-1 XM row is one tracker tick: 2.5/BPM seconds. Keep the
+	** calculation integral so long performances remain stable. */
+	const uint64_t numerator = elapsed * bakeInitialBPM * 2;
+	const uint64_t denominator = frequency * 5;
+	const uint64_t row = numerator / denominator;
+	return row >= BAKE_MAX_ROWS ? BAKE_MAX_ROWS : (int32_t)row;
+}
+
+void bakerBeginManualRow(void)
+{
+	if (bakeState == BAKE_LIVE_ARMED)
+	{
+		bakeInitialBPM = song.BPM;
+		bakeInitialSpeed = song.speed;
+		bakePerformanceStartCounter = SDL_GetPerformanceCounter();
+		bakeState = BAKE_PERFORMANCE_CAPTURING;
+		showRecPlusOverlay("PERFORMANCE BAKE");
+	}
+
+	if (bakeState == BAKE_PERFORMANCE_CAPTURING)
+	{
+		const int32_t elapsedRow = performanceElapsedRow();
+		/* An absolute fader message may cross many source rows at one instant.
+		** Preserve their order instead of collapsing them into one XM cell. */
+		bakeRow = MAX(elapsedRow, bakeRow + 1);
+		if (bakeRow >= BAKE_MAX_ROWS)
+			bakeOverflow = true;
+	}
+}
+
+void bakerCaptureManualEvent(int32_t channelIndex, const note_t *event)
+{
+	bakerCaptureEvent(channelIndex, event);
 }
 
 static bool eventIsEmpty(const note_t *event)
@@ -130,7 +180,25 @@ void bakerCaptureEvent(int32_t channelIndex, const note_t *event)
 	/* These commands have already done their work in the source replayer. A
 	** conventional XM must receive their outcome, not repeat the Tapehead or
 	** source-flow instruction in its newly linear order list. */
-	if (flattened.efx == 0x0B || flattened.efx == 0x0D || flattened.efx == 0x23 ||
+	if (microtonalEffectIsPitchExtension(flattened.efx))
+	{
+		if (bakeOutputTarget == BAKER_OUTPUT_STANDARD_XM)
+		{
+			/* Standard XM has no cent-accurate persistent offset or smooth
+			** drift. Strip the extension deliberately; never make another
+			** player guess. */
+			flattened.efx = 0;
+			flattened.efxData = 0;
+			bakeStrippedMicrotonalCommands++;
+		}
+		else
+		{
+			/* Tapehead XM uses the same XM pattern cells and keeps Mxx/Nxx as
+			** compositional instructions for a later Tapehead playback. */
+			bakePreservedMicrotonalCommands++;
+		}
+	}
+	else if (flattened.efx == 0x0B || flattened.efx == 0x0D || flattened.efx == 0x23 ||
 		(flattened.efx == 0x0E && (flattened.efxData & 0xF0) == 0x60))
 	{
 		flattened.efx = 0;
@@ -243,6 +311,8 @@ static void resetBakeCapture(bool tickResolution)
 	bakeUnsupportedSubTicks = 0;
 	bakeRelocatedEvents = 0;
 	bakeMergedDuplicateEvents = 0;
+	bakeStrippedMicrotonalCommands = 0;
+	bakePreservedMicrotonalCommands = 0;
 	bakeOverflow = false;
 	bakeTickResolution = tickResolution;
 	bakeInitialBPM = song.BPM;
@@ -415,7 +485,8 @@ static bool saveBakeResult(int32_t bakedRows)
 	}
 	patternNumRows[patternCount-1] = (int16_t)(((bakedRows - 1) % BAKE_PATTERN_ROWS) + 1);
 
-	const bool saved = saveStandardXM(bakeFilenameU);
+	const bool saved = bakeOutputTarget == BAKER_OUTPUT_TAPEHEAD_XM ?
+		saveXM(bakeFilenameU) : saveStandardXM(bakeFilenameU);
 
 	for (int32_t i = 0; i < MAX_PATTERNS; i++)
 		bakePatterns[i] = i < patternCount ? pattern[i] : ownedBakePatterns[i];
@@ -502,16 +573,28 @@ static int32_t bakeCompositionThread(void *unused)
 	else if (saved)
 	{
 		char message[256];
-		snprintf(message, sizeof (message),
-			"Bake complete: %u events relocated, %u exact duplicates merged.",
-			bakeRelocatedEvents, bakeMergedDuplicateEvents);
+		if (bakeOutputTarget == BAKER_OUTPUT_TAPEHEAD_XM)
+		{
+			snprintf(message, sizeof (message),
+				"Tapehead bake complete: %u relocated, %u duplicates merged, %u microtonal commands preserved.",
+				bakeRelocatedEvents, bakeMergedDuplicateEvents,
+				bakePreservedMicrotonalCommands);
+		}
+		else
+		{
+			snprintf(message, sizeof (message),
+				"Standard XM bake complete: %u relocated, %u duplicates merged, %u microtonal commands stripped (pitch omitted).",
+				bakeRelocatedEvents, bakeMergedDuplicateEvents,
+				bakeStrippedMicrotonalCommands);
+		}
 		okBoxThreadSafe(0, "Bake Module", message, NULL);
 	}
 
 	return 0;
 }
 
-void bakeComposition(UNICHAR *filenameU, bool mergeExactDuplicates)
+void bakeComposition(UNICHAR *filenameU, bool mergeExactDuplicates,
+	bakerOutputTarget_t outputTarget)
 {
 	if (bakeState != BAKE_IDLE)
 		return;
@@ -526,6 +609,7 @@ void bakeComposition(UNICHAR *filenameU, bool mergeExactDuplicates)
 	UNICHAR_STRNCPY(bakeFilenameU, filenameU, PATH_MAX);
 	bakeFilenameU[PATH_MAX] = '\0';
 	bakeMergeExactDuplicates = mergeExactDuplicates;
+	bakeOutputTarget = outputTarget;
 	bakeState = BAKE_OFFLINE;
 	mouseAnimOn();
 	bakeThread = SDL_CreateThread(bakeCompositionThread, "composition bake thread", NULL);
@@ -540,7 +624,8 @@ void bakeComposition(UNICHAR *filenameU, bool mergeExactDuplicates)
 	SDL_DetachThread(bakeThread);
 }
 
-void armLiveCompositionBake(UNICHAR *filenameU, bool mergeExactDuplicates)
+void armLiveCompositionBake(UNICHAR *filenameU, bool mergeExactDuplicates,
+	bakerOutputTarget_t outputTarget)
 {
 	if (bakeState != BAKE_IDLE)
 	{
@@ -556,6 +641,7 @@ void armLiveCompositionBake(UNICHAR *filenameU, bool mergeExactDuplicates)
 	}
 
 	bakeMergeExactDuplicates = mergeExactDuplicates;
+	bakeOutputTarget = outputTarget;
 	/* Live Bake is specifically allowed to change Fast Tracks state after it is
 	** armed, so it always records on the tick-resolution timeline. */
 	resetBakeCapture(true);
@@ -568,14 +654,15 @@ void armLiveCompositionBake(UNICHAR *filenameU, bool mergeExactDuplicates)
 	UNICHAR_STRNCPY(bakeFilenameU, filenameU, PATH_MAX);
 	bakeFilenameU[PATH_MAX] = '\0';
 	bakeState = BAKE_LIVE_ARMED;
-	okBox(0, "Live Bake", "Armed. Press Play Song, adjust Fast Tracks while it loops, then press Stop to export.", NULL);
+	okBox(0, "Live Bake", "Armed. Press Play Song/Pattern, or strum without transport. Press Stop to export.", NULL);
 }
 
 bool bakerAllowPlaybackStart(int8_t mode)
 {
-	if (bakeState == BAKE_LIVE_ARMED && mode != PLAYMODE_SONG)
+	if (bakeState == BAKE_LIVE_ARMED && mode != PLAYMODE_SONG &&
+		mode != PLAYMODE_PATT && mode != PLAYMODE_RECPATT)
 	{
-		okBox(0, "Live Bake", "Live Bake is armed for Play Song. Press Stop to cancel it.", NULL);
+		okBox(0, "Live Bake", "Live Bake supports Play Song or Play Pattern. Press Stop to cancel it.", NULL);
 		return false;
 	}
 
@@ -584,7 +671,8 @@ bool bakerAllowPlaybackStart(int8_t mode)
 
 void bakerPlaybackStarted(int8_t mode)
 {
-	if (bakeState == BAKE_LIVE_ARMED && mode == PLAYMODE_SONG)
+	if (bakeState == BAKE_LIVE_ARMED && (mode == PLAYMODE_SONG ||
+		mode == PLAYMODE_PATT || mode == PLAYMODE_RECPATT))
 	{
 		bakeInitialBPM = song.BPM;
 		bakeInitialSpeed = song.speed;
@@ -604,7 +692,15 @@ void bakerFinishOrCancelLive(void)
 	}
 
 	if (bakeState != BAKE_LIVE_CAPTURING)
-		return;
+	{
+		if (bakeState != BAKE_PERFORMANCE_CAPTURING)
+			return;
+		const int32_t elapsedRow = performanceElapsedRow();
+		if (elapsedRow > bakeRow)
+			bakeRow = elapsedRow;
+		if (bakeRow >= BAKE_MAX_ROWS)
+			bakeOverflow = true;
+	}
 
 	bakeState = BAKE_LIVE_SAVING;
 	mouseAnimOn();
@@ -640,9 +736,20 @@ void bakerFinishOrCancelLive(void)
 	else if (saved)
 	{
 		char message[256];
-		snprintf(message, sizeof (message),
-			"Live bake complete: %u events relocated, %u exact duplicates merged.",
-			bakeRelocatedEvents, bakeMergedDuplicateEvents);
+		if (bakeOutputTarget == BAKER_OUTPUT_TAPEHEAD_XM)
+		{
+			snprintf(message, sizeof (message),
+				"Tapehead live bake complete: %u relocated, %u duplicates merged, %u microtonal commands preserved.",
+				bakeRelocatedEvents, bakeMergedDuplicateEvents,
+				bakePreservedMicrotonalCommands);
+		}
+		else
+		{
+			snprintf(message, sizeof (message),
+				"Standard XM live bake complete: %u relocated, %u duplicates merged, %u microtonal commands stripped (pitch omitted).",
+				bakeRelocatedEvents, bakeMergedDuplicateEvents,
+				bakeStrippedMicrotonalCommands);
+		}
 		okBox(0, "Live Bake", message, NULL);
 	}
 }

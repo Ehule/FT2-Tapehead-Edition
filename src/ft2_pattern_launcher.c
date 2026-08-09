@@ -138,6 +138,12 @@ static void clearPatternLauncherQueue(void)
 		patternLauncherQueue[i] = -1;
 }
 
+void patternLauncherClearQueue(void)
+{
+	clearPatternLauncherQueue();
+	patternLauncherExitMode = PATTERN_LAUNCHER_EXIT_NONE;
+}
+
 static void removePatternFromQueue(int16_t patternNum)
 {
 	uint8_t writeIndex = 0;
@@ -330,6 +336,41 @@ bool patternLauncherHardStop(uint8_t patternNum)
 	}
 
 	return found;
+}
+
+bool patternLauncherScheduleStop(uint8_t patternNum)
+{
+	bool changed = false;
+	for (uint8_t i = 0; i < patternLauncherQueueCount; i++)
+	{
+		if (patternLauncherQueue[i] == patternNum)
+		{
+			removePatternFromQueue(patternNum);
+			changed = true;
+			break;
+		}
+	}
+
+	if (patternLauncherPolyHandoffPending == patternNum)
+	{
+		patternLauncherPolyHandoffPending = -1;
+		changed = true;
+	}
+	if (patternLauncherForcedNext == patternNum)
+	{
+		patternLauncherForcedNext = -1;
+		changed = true;
+	}
+
+	if (patternLauncherEnabled && patternLauncherCurrent == patternNum)
+	{
+		/* This is an assertion, not a toggle. Repeated Shift+pad presses
+		** therefore cannot accidentally re-arm the loop. */
+		changed |= patternLauncherExitMode != PATTERN_LAUNCHER_EXIT_STOP;
+		patternLauncherExitMode = PATTERN_LAUNCHER_EXIT_STOP;
+	}
+
+	return changed;
 }
 
 bool patternLauncherRequestPolyHandoff(uint8_t patternNum)

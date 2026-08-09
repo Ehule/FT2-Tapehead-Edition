@@ -79,6 +79,8 @@ int32_t fastTracksPOCGetSourcePattern(int32_t channelIndex);
 bool fastTracksPOCIsMasterAligned(int32_t channelIndex);
 uint8_t fastTracksPOCGetRatioNumerator(int32_t channelIndex);
 uint8_t fastTracksPOCGetRatioDenominator(int32_t channelIndex);
+uint8_t fastTracksPOCGetRatioIndex(int32_t channelIndex);
+uint8_t fastTracksPOCGetRatioCount(void);
 void fastTracksPOCGetSnapshot(fastTracksSnapshot_t *snapshot);
 void fastTracksPOCGetRuntimeState(fastTracksRuntimeState_t *state);
 void fastTracksPOCSetRuntimeState(const fastTracksRuntimeState_t *state);

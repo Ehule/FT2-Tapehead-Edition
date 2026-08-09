@@ -244,6 +244,31 @@ bool polyMatrixTogglePattern(uint8_t patternNum, bool immediate)
 	return result;
 }
 
+bool polyMatrixSchedulePatternStop(uint8_t patternNum)
+{
+	const bool audioWasntLocked = !audio.locked;
+	if (audioWasntLocked)
+		lockAudio();
+
+	volatile polyMatrixSpool_t *spool = findPattern(patternNum);
+	bool changed = false;
+	if (spool != NULL)
+	{
+		changed = !spool->stopAtWrap || spool->qHandoffRequested ||
+			spool->qHandoffReady || spool->qHandoffClaimed;
+		spool->qHandoffRequested = false;
+		spool->qHandoffReady = false;
+		spool->qHandoffClaimed = false;
+		spool->stopAtWrap = true;
+		for (uint8_t i = 0; i < spool->threadCount; i++)
+			spool->threads[i].waitingAtBoundary = false;
+	}
+
+	if (audioWasntLocked)
+		unlockAudio();
+	return changed;
+}
+
 bool polyMatrixStartPatternAtBoundary(uint8_t patternNum)
 {
 	/* Called by the replayer at an ordinary Q boundary. The audio callback is

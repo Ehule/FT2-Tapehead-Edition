@@ -66,7 +66,7 @@ typedef struct
 {
 	const int8_t *base8, *revBase8;
 	const int16_t *base16, *revBase16;
-	bool active, samplingBackwards, isFadeOutVoice, hasLooped;
+	bool active, samplingBackwards, isFadeOutVoice, hasLooped, oneShot;
 	uint8_t scopeVolume, mixFuncOffset, panning, loopType;
 	int32_t position, sampleEnd, loopStart, loopLength;
 	uint32_t volumeRampLength;
@@ -135,6 +135,7 @@ void decreaseMasterVol(void);
 void increaseMasterVol(void);
 
 void calcPanningTable(void);
+void audioSetMatrixMixerGains(uint16_t qGain, uint16_t polyGain);
 void setAudioAmp(int16_t amp, int16_t masterVol, bool bitDepth32Flag);
 void setNewAudioFreq(uint32_t freq);
 void setBackOldAudioFreq(void);
@@ -156,6 +157,8 @@ bool tapeheadTestRouteSyntheticMonoVoice(uint8_t outputDestination,
 	uint8_t panning, float *peaks, uint8_t peakCount);
 bool tapeheadTestRouteSyntheticSampleLauncherVoice(uint8_t outputBus,
 	float *peakBusA, float *peakBusB);
+bool tapeheadTestRenderOneShot(bool reverse, float *samples,
+	uint8_t sampleCount);
 #endif
 void closeAudio(void);
 void pauseAudio(void);

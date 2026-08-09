@@ -16,6 +16,7 @@
 ** mixer trim/output and FasTracks ratio/direction personality.
 */
 bool polyMatrixTogglePattern(uint8_t patternNum, bool immediate);
+bool polyMatrixSchedulePatternStop(uint8_t patternNum);
 bool polyMatrixIsPatternActive(uint8_t patternNum);
 bool polyMatrixPatternStopPending(uint8_t patternNum);
 bool polyMatrixPatternQHandoffPending(uint8_t patternNum);

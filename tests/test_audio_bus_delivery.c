@@ -9,6 +9,16 @@ int main(void)
 {
 	float peakA, peakB;
 	float monoPeaks[4];
+	float oneShot[4];
+
+	/* Looped source metadata is overridden for strum one-shots. Forward and
+	** hand-reversed playback each stop at exactly one natural boundary. */
+	assert(tapeheadTestRenderOneShot(false, oneShot, 4));
+	assert(oneShot[0] == 0.125f && oneShot[1] == 0.25f &&
+		oneShot[2] == 0.375f && oneShot[3] == 0.5f);
+	assert(tapeheadTestRenderOneShot(true, oneShot, 4));
+	assert(oneShot[0] == 0.5f && oneShot[1] == 0.375f &&
+		oneShot[2] == 0.25f && oneShot[3] == 0.125f);
 
 	assert(tapeheadTestRouteSyntheticVoice(1, 2, 1, &peakA, &peakB));
 	assert(peakA > 0.0f);

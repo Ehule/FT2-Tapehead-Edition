@@ -364,6 +364,11 @@
 #define WRAP_PINGPONG_LOOP \
 	if (position >= v->sampleEnd) \
 	{ \
+		if (v->oneShot) \
+		{ \
+			v->active = false; \
+			return; \
+		} \
 		do \
 		{ \
 			position -= v->loopLength; \

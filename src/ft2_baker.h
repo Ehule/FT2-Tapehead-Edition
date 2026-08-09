@@ -5,6 +5,12 @@
 #include "ft2_unicode.h"
 #include "ft2_replayer.h"
 
+typedef enum bakerOutputTarget_t
+{
+	BAKER_OUTPUT_STANDARD_XM = 0,
+	BAKER_OUTPUT_TAPEHEAD_XM
+} bakerOutputTarget_t;
+
 bool bakerIsRunning(void);
 bool bakerIsOfflineRunning(void);
 bool bakerLiveIsArmed(void);
@@ -14,5 +20,9 @@ void bakerPlaybackStarted(int8_t mode);
 void bakerFinishOrCancelLive(void);
 void bakerBeginTick(void);
 void bakerCaptureEvent(int32_t channelIndex, const note_t *event);
-void bakeComposition(UNICHAR *filenameU, bool mergeExactDuplicates);
-void armLiveCompositionBake(UNICHAR *filenameU, bool mergeExactDuplicates);
+void bakerBeginManualRow(void);
+void bakerCaptureManualEvent(int32_t channelIndex, const note_t *event);
+void bakeComposition(UNICHAR *filenameU, bool mergeExactDuplicates,
+	bakerOutputTarget_t outputTarget);
+void armLiveCompositionBake(UNICHAR *filenameU, bool mergeExactDuplicates,
+	bakerOutputTarget_t outputTarget);

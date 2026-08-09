@@ -9,6 +9,23 @@ milestones and may contain limitations or planned work that later entries
 supersede. See [`docs/README.md`](docs/README.md) for the current documentation
 map.
 
+## Transport Punch + manual one-shot strumming — 2026-08-09
+
+- Added APC footswitch Transport Punch with configurable Sustain/Cut,
+  Toggle/Hold, and Silent/Audition frozen-navigation behavior.
+- Frozen transport stops ordinary, Matrix, and FastTracks scheduling without
+  pausing the mixer; manual strumming remains active and resume honors whether
+  the destination row was already auditioned.
+- Fixed the automatic display queue repainting its frozen row over manual jog
+  and order-navigation positions. Added `TransportFreezeResume=Next|Retrigger`
+  so the original freeze row can either be consumed or deliberately replayed.
+- Changed Momentary strumming into a natural forward one-shot and added
+  direction-sensitive ManualPingPong one-shots. Both override sample loops.
+- Shift + APC Up/Down now jumps through song-order positions by the current edit
+  step, including repeated occurrences of the same pattern.
+- Remapped APC Record Arm 1–8 to the corresponding per-track FastTracks clutch;
+  shifted presses remain unassigned.
+
 ## CP04.6 — 2026-08-04 — Fast Tracks tick-resolution baker
 
 Frozen as tag `cp04.6` on the `baker-experimental` branch.

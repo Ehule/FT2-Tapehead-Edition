@@ -309,11 +309,26 @@ enum
 	TAPEHEAD_START_DECK_MATRIX
 };
 
+enum
+{
+	TAPEHEAD_MIDI_PROFILE_NONE = 0,
+	TAPEHEAD_MIDI_PROFILE_APC40_MK2
+};
+
+enum
+{
+	TAPEHEAD_PATTERN_JOG_AUDITION_OFF = 0,
+	TAPEHEAD_PATTERN_JOG_AUDITION_MOMENTARY,
+	TAPEHEAD_PATTERN_JOG_AUDITION_LATCHED,
+	TAPEHEAD_PATTERN_JOG_AUDITION_MANUAL_PINGPONG
+};
+
 typedef struct tapeheadConfig_t
 {
 	bool diskOpBackspaceParent;
 	bool patternBackspacePullUp;
 	bool monoOutputs;
+	bool midiPerformanceControl;
 	bool hdMode;
 	bool launcherMode;
 	bool launcherStandalone;
@@ -322,6 +337,15 @@ typedef struct tapeheadConfig_t
 	uint8_t outputBuses;
 	uint8_t hdScale;
 	uint8_t hdStyle;
+	uint8_t midiProfile;
+	uint8_t patternJogAudition;
+	bool patternJogIncludeFastTracks;
+	bool transportFreezeAudioCut;
+	bool transportFreezePedalHold;
+	bool transportFreezeNavigationAudition;
+	bool transportFreezeResumeRetrigger;
+	char midiControlInput[256];
+	char midiControlOutput[256];
 	uint8_t midiDubTrackChannels[MAX_CHANNELS];
 	uint32_t undoMemoryMB;
 } tapeheadConfig_t;

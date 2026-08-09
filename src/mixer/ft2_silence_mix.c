@@ -23,7 +23,7 @@ void silenceMixRoutine(voice_t *v, int32_t numSamples)
 
 	// end of sample (or loop) reached
 
-	if (v->loopType == LOOP_DISABLED)
+	if (v->loopType == LOOP_DISABLED || v->oneShot)
 	{
 		v->active = false; // shut down voice
 		return;

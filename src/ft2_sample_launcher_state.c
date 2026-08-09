@@ -110,16 +110,114 @@ static void clearQQueue(sampleLauncherState_t *state)
 		state->qQueue[i] = -1;
 }
 
-uint8_t sampleLauncherStateHardStop(sampleLauncherState_t *state, uint16_t tile,
+void sampleLauncherStateClearQQueue(sampleLauncherState_t *state)
+{
+	clearQQueue(state);
+	state->qStopPending = false;
+}
+
+bool sampleLauncherStateScheduleStop(sampleLauncherState_t *state,
+	uint16_t tile)
+{
+	if (tile >= SAMPLE_LAUNCHER_MAX_TILES)
+		return false;
+
+	bool changed = false;
+	uint8_t writeIndex = 0;
+	for (uint8_t readIndex = 0; readIndex < state->qQueueCount; readIndex++)
+	{
+		if (state->qQueue[readIndex] == tile)
+		{
+			changed = true;
+			continue;
+		}
+		state->qQueue[writeIndex++] = state->qQueue[readIndex];
+	}
+	for (uint8_t i = writeIndex; i < state->qQueueCount; i++)
+		state->qQueue[i] = -1;
+	state->qQueueCount = writeIndex;
+
+	if (state->qCurrent == tile)
+	{
+		changed |= !state->qStopPending;
+		state->qStopPending = true;
+	}
+
+	const int8_t activeSlot = sampleLauncherStateGetPolySlot(state, tile);
+	if (activeSlot >= 0)
+	{
+		changed |= !state->polyStopPending[activeSlot];
+		state->polyStopPending[activeSlot] = true;
+	}
+
+	for (uint8_t i = 0; i < state->polyStartCount;)
+	{
+		if (state->polyStartQueue[i] == tile)
+		{
+			removePendingPolyStart(state, i);
+			changed = true;
+		}
+		else
+		{
+			i++;
+		}
+	}
+	return changed;
+}
+
+static void initializeActions(
 	sampleLauncherAction_t actions[SAMPLE_LAUNCHER_MAX_ACTIONS])
 {
-	uint8_t actionCount = 0;
 	for (uint8_t i = 0; i < SAMPLE_LAUNCHER_MAX_ACTIONS; i++)
 	{
 		actions[i].type = SAMPLE_LAUNCHER_ACTION_NONE;
 		actions[i].voice = -1;
 		actions[i].tile = -1;
 	}
+}
+
+uint8_t sampleLauncherStateStopQ(sampleLauncherState_t *state,
+	sampleLauncherAction_t actions[SAMPLE_LAUNCHER_MAX_ACTIONS])
+{
+	initializeActions(actions);
+	uint8_t actionCount = 0;
+	if (state->qCurrent >= 0)
+	{
+		appendAction(actions, &actionCount, SAMPLE_LAUNCHER_ACTION_STOP_Q,
+			0, state->qCurrent);
+	}
+	state->qCurrent = -1;
+	state->qStopPending = false;
+	clearQQueue(state);
+	return actionCount;
+}
+
+uint8_t sampleLauncherStateStopPoly(sampleLauncherState_t *state,
+	sampleLauncherAction_t actions[SAMPLE_LAUNCHER_MAX_ACTIONS])
+{
+	initializeActions(actions);
+	uint8_t actionCount = 0;
+	for (uint8_t i = 0; i < SAMPLE_LAUNCHER_MAX_POLY; i++)
+	{
+		if (state->polyTile[i] >= 0)
+		{
+			appendAction(actions, &actionCount, SAMPLE_LAUNCHER_ACTION_STOP_POLY,
+				(int8_t)(i + 1), state->polyTile[i]);
+		}
+		state->polyTile[i] = -1;
+		state->polyStopPending[i] = false;
+	}
+	state->polyStartCount = 0;
+	for (uint8_t i = 0; i < SAMPLE_LAUNCHER_MAX_POLY; i++)
+		state->polyStartQueue[i] = -1;
+	return actionCount;
+}
+
+uint8_t sampleLauncherStateHardStop(sampleLauncherState_t *state, uint16_t tile,
+	sampleLauncherAction_t actions[SAMPLE_LAUNCHER_MAX_ACTIONS])
+{
+	uint8_t actionCount = 0;
+	initializeActions(actions);
 
 	if (tile >= SAMPLE_LAUNCHER_MAX_TILES)
 		return 0;

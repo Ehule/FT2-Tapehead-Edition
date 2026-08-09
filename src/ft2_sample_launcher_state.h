@@ -39,8 +39,15 @@ typedef struct sampleLauncherState_t
 } sampleLauncherState_t;
 
 void sampleLauncherStateInit(sampleLauncherState_t *state);
+void sampleLauncherStateClearQQueue(sampleLauncherState_t *state);
 bool sampleLauncherStateRequestQ(sampleLauncherState_t *state, uint16_t tile);
 bool sampleLauncherStateTogglePoly(sampleLauncherState_t *state, uint16_t tile);
+bool sampleLauncherStateScheduleStop(sampleLauncherState_t *state,
+	uint16_t tile);
+uint8_t sampleLauncherStateStopQ(sampleLauncherState_t *state,
+	sampleLauncherAction_t actions[SAMPLE_LAUNCHER_MAX_ACTIONS]);
+uint8_t sampleLauncherStateStopPoly(sampleLauncherState_t *state,
+	sampleLauncherAction_t actions[SAMPLE_LAUNCHER_MAX_ACTIONS]);
 uint8_t sampleLauncherStateHardStop(sampleLauncherState_t *state, uint16_t tile,
 	sampleLauncherAction_t actions[SAMPLE_LAUNCHER_MAX_ACTIONS]);
 uint8_t sampleLauncherStateCommitBoundary(sampleLauncherState_t *state,

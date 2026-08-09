@@ -13,6 +13,7 @@ enum
 #define SYSREQ_TYPE_BAKE_MODULE 10
 #define SYSREQ_TYPE_EXS_EXPORT 11
 #define SYSREQ_TYPE_FOLDER_SCOPE 12
+#define SYSREQ_TYPE_BAKE_OUTPUT 13
 
 // for thread-safe version of okBox()
 typedef struct okBoxData_t

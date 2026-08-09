@@ -16,6 +16,7 @@
 #include "ft2_mouse.h"
 #include "ft2_sample_ed.h"
 #include "ft2_module_loader.h"
+#include "ft2_microtonal.h"
 #include "ft2_tables.h"
 #include "ft2_structs.h"
 #include "ft2_sample_launcher.h"
@@ -830,6 +831,14 @@ static uint16_t packPatt(uint8_t *writePtr, uint8_t *pattPtr, uint16_t numRows)
 			bytes[2] = *pattPtr++;
 			bytes[3] = *pattPtr++;
 			bytes[4] = *pattPtr++;
+
+			/* saveStandardXM() is the final compatibility boundary used by the
+			** baker. Keep it safe even if a future capture path misses a command. */
+			if (standardXMSave && microtonalEffectIsPitchExtension(bytes[3]))
+			{
+				bytes[3] = 0;
+				bytes[4] = 0;
+			}
 
 			uint8_t *firstBytePtr = writePtr++;
 

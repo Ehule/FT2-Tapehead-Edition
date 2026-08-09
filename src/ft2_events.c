@@ -22,6 +22,8 @@
 #include "ft2_sample_loader.h"
 #include "ft2_mouse.h"
 #include "ft2_midi.h"
+#include "ft2_midi_map.h"
+#include "ft2_apc40_mk2.h"
 #include "ft2_video.h"
 #include "ft2_trim.h"
 #include "ft2_inst_ed.h"
@@ -72,6 +74,11 @@ void handleThreadEvents(void)
 void handleEvents(void)
 {
 #ifdef HAS_MIDI
+	/* Controller actions are executed here, never on RtMidi's callback thread. */
+	tapeheadMidiMapProcessPending();
+	if (midi.initThreadDone)
+		tapeheadAPC40Mk2Refresh();
+
 	// called after MIDI has been initialized
 	if (midi.rescanDevicesFlag)
 	{

@@ -17,7 +17,24 @@ def main() -> None:
         executable = tmp_path / "test_midi_dub_config"
         tapehead_ini = tmp_path / "tapehead.ini"
         tapehead_ini.write_text(
-            """[MIDIDub]
+            """[MIDI]
+PerformanceControl=true
+Profile=APC40MK2
+ControlInput=APC40 mkII
+ControlOutput=APC40 mkII MIDI Out
+PatternJogFastTracks=Include
+PatternJogAudition=ManualPingPong
+TransportFreezeAudio=Cut
+TransportFreezePedalMode=Hold
+TransportFreezeNavigation=Audition
+TransportFreezeResume=Retrigger
+
+[MIDI_MAP]
+NoteOn.1.48=TrackPerformanceMuteToggle:1
+CC.1.7=TrackTrim:1
+NoteOn.17.48=PerformanceUnmuteAll
+
+[MIDIDub]
 Track01=16
 Track2=9
 Track03=0
@@ -43,6 +60,7 @@ Track33=7
                 f"-I{ROOT / 'src'}",
                 str(ROOT / "tests/test_midi_dub_config.c"),
                 str(ROOT / "src/ft2_config.c"),
+				str(ROOT / "src/ft2_midi_map.c"),
                 "-Wl,--gc-sections",
                 "-o",
                 str(executable),

@@ -30,6 +30,8 @@
 int32_t getSamplePositionFromScopes(uint8_t ch);
 void stopAllScopes(void);
 void refreshScopes(void);
+void redrawScopeChannel(int32_t channelIndex);
+void setChannelMute(int32_t chNr, bool off);
 bool testScopesMouseDown(void);
 bool testScopesMouseWheel(bool directionUp);
 void drawScopes(void);

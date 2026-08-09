@@ -144,6 +144,11 @@ bool patternLauncherPanelIsSampleDeck(void)
 	return patternLauncherPanelShown && sampleLauncherDeckShown && !ui.patternEditorOnly;
 }
 
+bool patternLauncherDeckIsSample(void)
+{
+	return sampleLauncherDeckShown;
+}
+
 bool patternLauncherStandaloneIsShown(void)
 {
 	return patternLauncherStandaloneShown;
@@ -602,6 +607,28 @@ void patternLauncherSetPage(uint8_t page)
 		patternLauncherPage = page & 7;
 	if (patternLauncherPanelShown)
 		patternLauncherDrawPanel();
+}
+
+uint8_t patternLauncherGetPage(void)
+{
+	return patternLauncherPage;
+}
+
+void patternLauncherSetDeckMode(bool sampleDeck)
+{
+	if (sampleLauncherDeckShown == sampleDeck)
+		return;
+
+	sampleLauncherDeckShown = sampleDeck;
+	if (patternLauncherPanelShown)
+		patternLauncherDrawPanel();
+}
+
+bool patternLauncherPatternIsExposed(uint8_t patternNum)
+{
+	if (!patternLauncherExposureInitialized)
+		patternLauncherResetExposure();
+	return patternLauncherExposedPatterns[patternNum];
 }
 
 bool patternLauncherHandlePanelClick(int16_t x, int16_t y)

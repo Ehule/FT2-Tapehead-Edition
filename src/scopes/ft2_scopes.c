@@ -20,6 +20,7 @@
 #include "../ft2_structs.h"
 #include "../ft2_hpc.h"
 #include "../ft2_keyboard.h"
+#include "../ft2_tapehead_actions.h"
 #include "ft2_scopes.h"
 #include "ft2_scopedraw.h"
 
@@ -65,7 +66,7 @@ void stopAllScopes(void)
 }
 
 // toggle mute
-static void setChannelMute(int32_t chNr, bool off)
+void setChannelMute(int32_t chNr, bool off)
 {
 	channel_t *ch = &channel[chNr];
 
@@ -249,9 +250,21 @@ static void redrawScope(int32_t ch)
 		if (config.ptnChnNumbers)
 			drawScopeNumber(x + 1, y + 1, (uint8_t)i, true);
 	}
+	else if (performanceMute[i])
+	{
+		drawPerformanceMuteX(x, y, chanLookup, scopeLen);
+		if (config.ptnChnNumbers)
+			drawScopeNumber(x + 1, y + 1, (uint8_t)i, true);
+	}
 
 	drawOutputBusMarker(x + 1, y + 1, scopeLen, i);
 	scope[ch].wasCleared = false;
+}
+
+void redrawScopeChannel(int32_t channelIndex)
+{
+	if (channelIndex >= 0 && channelIndex < song.numChannels)
+		redrawScope(channelIndex);
 }
 
 void refreshScopes(void)
@@ -291,7 +304,9 @@ static void channelMode(int32_t chn)
 	}
 	else if (m)
 	{
-		editor.channelMuted[chn] ^= 1;
+		tapeheadActionTrackMuteToggle(chn);
+		redrawScope(chn);
+		return;
 	}
 	else
 	{
@@ -358,29 +373,10 @@ bool testScopesMouseWheel(bool directionUp)
 	if (mouse.y >= 134)
 		channelIndex += chansPerRow;
 
-	uint16_t trim = channelVolumeTrim[channelIndex];
-
 	// 4 units = 1.5625%, since 256 units represents 100%.
-	if (directionUp)
-	{
-		if (trim < 512-4)
-			trim += 4;
-		else
-			trim = 512;
-	}
-	else
-	{
-		if (trim > 4)
-			trim -= 4;
-		else
-			trim = 0;
-	}
-
-	channelVolumeTrim[channelIndex] = trim;
-
-	// Force the mixer and scope volume to refresh immediately,
-	// even while a note is already sustaining.
-	channel[channelIndex].status |= CS_UPDATE_VOL;
+	const int32_t trimDelta = directionUp ? 4 : -4;
+	tapeheadActionTrackTrimSet(channelIndex,
+		(int32_t)channelVolumeTrim[channelIndex] + trimDelta);
 
 	redrawScope(channelIndex);
 
@@ -466,14 +462,7 @@ bool testScopesMouseDown(void)
 		if (keyb.leftShiftPressed &&
 			mouse.leftButtonPressed && !mouse.rightButtonPressed)
 		{
-			performanceMute[chanToToggle] ^= 1;
-
-			/*
-			** Use the quick ramp to avoid an abrupt waveform discontinuity,
-			** while still making the mute feel immediate.
-			*/
-			channel[chanToToggle].status |=
-				CS_UPDATE_VOL | CS_USE_QUICK_VOLRAMP;
+			tapeheadActionTrackPerformanceMuteToggle(chanToToggle);
 
 			scope[chanToToggle].wasCleared = false;
 			redrawScope(chanToToggle);
@@ -487,8 +476,8 @@ bool testScopesMouseDown(void)
 		if (keyb.leftCtrlPressed &&
 			mouse.leftButtonPressed && !mouse.rightButtonPressed)
 		{
-			channelVolumeTrim[chanToToggle] = 256;
-			channel[chanToToggle].status |= CS_UPDATE_VOL;
+			tapeheadActionTrackTrimSet(chanToToggle,
+				TAPEHEAD_TRACK_TRIM_UNITY);
 
 			scope[chanToToggle].wasCleared = false;
 			redrawScope(chanToToggle);

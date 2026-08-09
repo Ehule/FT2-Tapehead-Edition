@@ -489,6 +489,21 @@ uint8_t fastTracksPOCGetRatioDenominator(int32_t channelIndex)
 	return getFastTracksPOCRatio(channelIndex)->denominator;
 }
 
+uint8_t fastTracksPOCGetRatioIndex(int32_t channelIndex)
+{
+	const volatile fastTracksChannelState_t *state =
+		getFastTracksPOCChannelState(channelIndex);
+	if (state == NULL)
+		return FAST_TRACKS_ONE_TO_ONE_RATIO_INDEX;
+
+	return state->ratioIndex % FAST_TRACKS_RATIO_COUNT;
+}
+
+uint8_t fastTracksPOCGetRatioCount(void)
+{
+	return FAST_TRACKS_RATIO_COUNT;
+}
+
 void fastTracksPOCGetSnapshot(fastTracksSnapshot_t *snapshot)
 {
 	if (snapshot == NULL)

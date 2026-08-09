@@ -66,6 +66,126 @@ MonoOutputs=false
 Routing assignments are runtime performance state and are not stored in XM.
 See [`MULTICHANNEL_OUTPUT.md`](MULTICHANNEL_OUTPUT.md).
 
+## MIDI performance control
+
+```ini
+[MIDI]
+PerformanceControl=false
+Profile=None
+ControlInput=
+ControlOutput=
+PatternJogAudition=Latched
+PatternJogFastTracks=Ignore
+
+[MIDI_MAP]
+NoteOn.1.48=TrackPerformanceMuteToggle:1
+NoteOn.1.49=PerformanceUnmuteNext
+NoteOn.1.50=PerformanceMutePrevious
+NoteOn.1.51=MatrixModeToggle
+NoteOn.1.52=MatrixBankNext
+NoteOn.1.53=MatrixSlotTrigger:1
+CC.1.7=TrackTrim:1
+CC.1.48=FastTrackRatio:1
+```
+
+`PerformanceControl` enables the generic controller map. `ControlInput` and
+`ControlOutput` select dedicated RtMidi ports for the surface. They do not
+replace the musical keyboard chosen in Config > MIDI Input, and the output is
+separate from MIDI Dub. This allows a keyboard and control surface to operate
+at the same time.
+
+Device selection is name-based rather than port-number-based. An exact
+case-insensitive name is preferred; a unique partial name such as
+`APC40 mkII` is also accepted so volatile ALSA client/port-number suffixes do
+not need to be stored. An empty, missing, or ambiguous name leaves only that
+surface port closed. It does not disable the keyboard, MIDI Dub, or the other
+surface direction.
+
+`Profile=None` keeps the hardware-neutral map. `Profile=APC40MK2` adds the
+built-in Akai layout for any inputs not overridden in `[MIDI_MAP]`, sends the
+official Alternate Ableton/Mode 2 introduction message, and enables state-led
+feedback. See [`APC40_MK2.md`](APC40_MK2.md) for the complete physical map.
+
+`PatternJogAudition=Latched` makes a CC mapped to `PatternJogRelative` or
+`PatternJogAbsolute` sustain notes encountered while ordinary playback is
+stopped until the pattern supplies a note-off or Shift + Stop All Clips
+hard-silences the jog voices.
+`Momentary` is a forward one-shot regardless of strum direction.
+`ManualPingPong` plays forward or backward one-shots according to the gesture.
+Both ignore sample loop flags and decay to the natural sample boundary. `Off`
+moves the row without sound.
+
+`PatternJogFastTracks=Ignore` preserves the original isolated-strum effect:
+channels assigned to a FastTracks private transport are neither auditioned nor
+captured by cue-encoder/crossfader Live Bake gestures. `Include` makes both
+controls read the visible ordinary row on those channels too. It does not
+change their FastTracks mode; their private heads resume on subsequent
+FastTracks events. The same setting governs what Live Bake records, so the
+Tapehead bake matches the strummed performance.
+
+Mapping keys use `Message.MIDIChannel.Number`. MIDI channels, tracker tracks,
+Matrix banks, and Matrix slots are one-based in the file. Inputs are `NoteOn`
+(or the `Note` alias) and `CC`.
+
+| Note action | Argument |
+| --- | --- |
+| `TrackSelect`, `TrackMuteToggle`, `TrackPerformanceMuteToggle` | Tracker track `1..32` |
+| `PerformanceUnmuteAll`, `PerformanceUnmuteNext`, `PerformanceMutePrevious`, `UnmuteAll` | None |
+| `FastTrackToggle`, `FastTrackRatioNext`, `FastTrackRatioPrevious`, `FastTrackRatioReset`, `FastTrackReverseToggle`, `FastTrackClutchToggle` | Tracker track `1..32` |
+| `FastTrackMasterToggle`, `FastTrackGlobalModeToggle`, `FastTrackResetAll` | None |
+| `MatrixModePattern`, `MatrixModeSample`, `MatrixModeToggle` | None |
+| `MatrixBankSelect`, `MatrixLayerBankSelect` | Bank `1..8`; layered form uses Pattern normally and Sample while Shift is held |
+| `MatrixBankNext`, `MatrixBankPrevious` | None |
+| `MatrixSlotTrigger` | Local slot `1..32` |
+| `MatrixSequenceRow`, `MatrixSequenceColumn` | Row `1..4` / column `1..8` |
+| `MatrixSequenceBank` | None |
+| `TransportPlaySong`, `TransportPlayPattern`, `TransportPlaySongToggle`, `TransportPlayPatternToggle`, `TransportStop`, `TransportStopSong`, `TransportStopDeck`, `TransportStopAll` | None |
+
+CC actions are `TrackTrim:1..32`, `FastTrackRatio:1..32`, `TempoRelative`,
+`PatternJogRelative`, `PatternJogAbsolute`, `MatrixMasterVolume`, and
+`MatrixCrossfader`, plus the binary `TransportPunch`. Trim maps
+`0..127` to `0..200%`. FastTrack ratio maps the same CC range across the 17
+musical ratios from `1/2` through `5/1`, including the centered `1/1` value.
+Matrix Master maps `0..127` to silence..unity for Q and Poly together.
+Crossfader A isolates Q, the center keeps Q and Poly at unity, and B isolates
+Poly; short audio ramps smooth both controls.
+
+Transport Punch is configured independently:
+
+```ini
+TransportFreezeAudio=Sustain
+TransportFreezePedalMode=Toggle
+TransportFreezeNavigation=Silent
+TransportFreezeResume=Next
+```
+
+`Sustain`/`Cut` chooses whether voices survive the punch-out; `Toggle`/`Hold`
+chooses the pedal gesture; `Silent`/`Audition` chooses whether frozen song-order
+jumps sound row `00`. `Next` continues after the row that was already heard
+when the pedal froze time; `Retrigger` deliberately strikes that row again on
+resume. A later silent relocation always makes its destination pending, while
+an auditioned or strummed destination is consumed and resumes on the next row.
+
+Note On with velocity zero is treated as Note Off. Button actions run on the
+press edge only, so a release cannot toggle a track a second time. CC values
+map linearly from `0..127` to Tapehead trim `0..512` (`0..200%`). Repeated
+pending absolute CC values are coalesced before the main thread applies them.
+Relative Tempo and both Pattern Jog message types are never coalesced, so every
+encoder detent and crossfader position reaches the action queue.
+
+Pattern and Sample Matrix banks remain independent. Matrix mode selects which
+system receives bank and slot actions; switching back restores that system's
+previous bank. `PerformanceUnmuteNext` scans low-to-high and skips ordinary
+mutes. `PerformanceMutePrevious` reverses only the reveal-next history.
+
+Only messages arriving through `ControlInput` are considered by the map.
+Unmapped surface messages are ignored and never become tracker notes. Musical
+keyboard messages continue through FT2's normal note-entry path and cannot
+accidentally trigger mapped controller actions.
+
+The generic map remains hardware-neutral. The APC profile is a thin default
+mapping and feedback layer over these same Tapehead actions.
+
 ## MIDI Dub
 
 ```ini

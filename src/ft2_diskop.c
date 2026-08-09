@@ -873,22 +873,37 @@ void createFileOverwriteText(char *filename, char *buffer)
 	sprintf(buffer, "Overwrite file \"%s\"?", nameTmp);
 }
 
-static void addBakedFilenameSuffix(void)
+static void addBakedFilenameSuffix(bakerOutputTarget_t outputTarget)
 {
 	char *extension = strrchr(FReq_FileName, '.');
 	if (extension == NULL)
 		extension = FReq_FileName + strlen(FReq_FileName);
 
-	const size_t baseLength = (size_t)(extension - FReq_FileName);
-	if (baseLength >= 6 && !_strnicmp(&FReq_FileName[baseLength-6], "-BAKED", 6))
+	size_t baseLength = (size_t)(extension - FReq_FileName);
+	const char *suffix = outputTarget == BAKER_OUTPUT_TAPEHEAD_XM ?
+		"-BAKED-TAPEHEAD" : "-BAKED";
+	size_t suffixLength = strlen(suffix);
+	if (baseLength >= suffixLength &&
+		!_strnicmp(&FReq_FileName[baseLength-suffixLength], suffix, suffixLength))
+	{
 		return;
+	}
+
+	/* If the user already typed the ordinary suffix and then chooses Tapehead
+	** output, extend it instead of producing -BAKED-BAKED-TAPEHEAD. */
+	if (outputTarget == BAKER_OUTPUT_TAPEHEAD_XM && baseLength >= 6 &&
+		!_strnicmp(&FReq_FileName[baseLength-6], "-BAKED", 6))
+	{
+		suffix = "-TAPEHEAD";
+		suffixLength = 9;
+	}
 
 	const size_t extensionLength = strlen(extension) + 1;
-	if (strlen(FReq_FileName) + 6 > PATH_MAX)
+	if (strlen(FReq_FileName) + suffixLength > PATH_MAX)
 		return;
 
-	memmove(extension + 6, extension, extensionLength);
-	memcpy(extension, "-BAKED", 6);
+	memmove(extension + suffixLength, extension, extensionLength);
+	memcpy(extension, suffix, suffixLength);
 }
 
 static void diskOpSave(bool checkOverwrite, bool bakeCompositionRequested)
@@ -923,13 +938,21 @@ static void diskOpSave(bool checkOverwrite, bool bakeCompositionRequested)
 			if (bakeCompositionRequested)
 			{
 				diskOpChangeFilenameExt(".xm");
-				addBakedFilenameSuffix();
 
 				const int16_t bakeMode = choiceBoxWithCheckBox(SYSREQ_TYPE_BAKE_MODULE,
 					"Bake Module", "Fast: silent pass   Live: perform loops, then Stop",
 					"Merge exact duplicate voices", &bakeMergeExactDuplicates);
 				if (bakeMode != 1 && bakeMode != 2)
 					return;
+
+				const int16_t outputChoice = okBox(SYSREQ_TYPE_BAKE_OUTPUT,
+					"Bake Output", "Standard strips M/N; Tapehead keeps M/N in an XM file", NULL);
+				if (outputChoice != 1 && outputChoice != 2)
+					return;
+
+				const bakerOutputTarget_t outputTarget = outputChoice == 2 ?
+					BAKER_OUTPUT_TAPEHEAD_XM : BAKER_OUTPUT_STANDARD_XM;
+				addBakedFilenameSuffix(outputTarget);
 
 				if (checkOverwrite && fileExistsAnsi(FReq_FileName))
 				{
@@ -947,12 +970,12 @@ static void diskOpSave(bool checkOverwrite, bool bakeCompositionRequested)
 
 				if (bakeMode == 1)
 				{
-					bakeComposition(fileNameU, bakeMergeExactDuplicates);
+					bakeComposition(fileNameU, bakeMergeExactDuplicates, outputTarget);
 				}
 				else
 				{
 					exitDiskOpScreen();
-					armLiveCompositionBake(fileNameU, bakeMergeExactDuplicates);
+					armLiveCompositionBake(fileNameU, bakeMergeExactDuplicates, outputTarget);
 				}
 				free(fileNameU);
 				return;

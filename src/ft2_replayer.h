@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "ft2_unicode.h"
+#include "ft2_microtonal.h"
 #include "mixer/ft2_windowed_sinc.h"
 
 enum
@@ -254,6 +255,7 @@ typedef struct channel_t
 {
 	bool dontRenderThisChannel, keyOff, channelOff, mute, semitonePortaMode;
 	volatile uint8_t status, tmpStatus;
+	uint8_t tapeheadOneShotDirection;
 	int8_t relativeNote, finetune;
 	uint8_t smpNum, instrNum, efxData, efx, sampleOffset, tremorParam, tremorPos;
 	uint8_t globVolSlideSpeed, panningSlideSpeed, vibTremCtrl, portamentoDirection;
@@ -269,6 +271,7 @@ typedef struct channel_t
 	uint16_t midiVibDepth, fadeoutVol, fadeoutSpeed;
 	int32_t smpStartPos;
 	float fFinalVol;
+	microtonalState_t microtonal;
 
 	sample_t *smpPtr;
 	instr_t *instrPtr;
@@ -292,6 +295,8 @@ int32_t getSampleC4Hz(sample_t *s);
 void setSampleC4Hz(sample_t *s, double dC4Hz);
 
 void setNewSongPos(int32_t pos);
+void tapeheadReplayerSetTransportPunchSongPos(int32_t pos);
+void tapeheadReplayerBeginTransportPunch(void);
 
 void fixString(char *str, int32_t lastChrPos); // removes leading spaces and 0x1A chars
 void fixSongName(void);
@@ -330,6 +335,8 @@ void resumeMusic(void); // starts reading pattern data
 void setSongModifiedFlag(void);
 void removeSongModifiedFlag(void);
 void playTone(uint8_t chNum, uint8_t insNum, uint8_t note, int8_t vol, uint16_t midiVibDepth, uint16_t midiPitch);
+void playToneOneShot(uint8_t chNum, uint8_t insNum, uint8_t note, int8_t vol,
+	uint16_t midiVibDepth, uint16_t midiPitch, bool reverse);
 void playSample(uint8_t chNum, uint8_t insNum, uint8_t smpNum, uint8_t note, uint16_t midiVibDepth, uint16_t midiPitch);
 void playRange(uint8_t chNum, uint8_t insNum, uint8_t smpNum, uint8_t note, uint16_t midiVibDepth, uint16_t midiPitch, int32_t smpOffset, int32_t length);
 void keyOff(channel_t *ch);
@@ -341,6 +348,7 @@ void setPatternLen(uint16_t pattNum, int16_t numRows);
 void setLinearPeriods(bool linearPeriodsFlag);
 void resetVolumes(channel_t *ch);
 void triggerInstrument(channel_t *ch);
+void applyChannelMicrotonalEffect(uint8_t channelIndex, uint8_t effect, uint8_t parameter);
 void tickReplayer(void); // periodically called from audio callback
 void resetChannels(void);
 bool patternEmpty(uint16_t pattNum);
@@ -351,6 +359,7 @@ void setNoEnvelope(instr_t *ins);
 void setSyncedReplayerVars(void);
 void decSongPos(void);
 void incSongPos(void);
+void tapeheadReplayerResumeTransportPunch(bool currentRowConsumed);
 void decCurIns(void);
 void incCurIns(void);
 void decCurSmp(void);

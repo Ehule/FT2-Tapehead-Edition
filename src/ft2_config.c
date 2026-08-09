@@ -33,6 +33,10 @@
 #include "ft2_sampling.h"
 #include "ft2_audioselector.h"
 #include "ft2_midi.h"
+#include "ft2_midi_map.h"
+#ifdef HAS_MIDI
+#include "ft2_apc40_mk2.h"
+#endif
 #include "ft2_palette.h"
 #include "ft2_pattern_draw.h"
 #include "ft2_tables.h"
@@ -612,6 +616,56 @@ static int32_t parseMidiDubTrackKey(const char *key)
 	return (int32_t)trackNumber - 1;
 }
 
+static void writeDefaultAPC40Map(FILE *f)
+{
+	fputs("[APC40MK2_MAP]\n\n", f);
+	fputs("; Human-readable APC40 mkII profile. Use None to disable a control.\n", f);
+	fputs("; Shift reveals Sample banks and FastTracks Song Mode status.\n", f);
+	for (int32_t i = 0; i < 32; i++)
+		fprintf(f, "GridSlot%02d=MatrixSlotTrigger:%d\n", i + 1, i + 1);
+	for (int32_t i = 0; i < 8; i++)
+		fprintf(f, "GridTopPad%02d=MatrixSequenceColumn:%d\n", i + 1, i + 1);
+	fputc('\n', f);
+	for (int32_t i = 0; i < 8; i++)
+	{
+		fprintf(f, "RecordArm%02d=FastTrackClutchToggle:%d\n", i + 1, i + 1);
+		fprintf(f, "Solo%02d=TrackPerformanceSoloToggle:%d\n", i + 1, i + 1);
+		fprintf(f, "Activator%02d=MatrixLayerBankSelect:%d\n", i + 1, i + 1);
+		fprintf(f, "TrackSelect%02d=FastTrackDirectionOrSongMode:%d\n", i + 1, i + 1);
+		fprintf(f, "ClipStop%02d=TrackPerformanceMuteToggle:%d\n", i + 1, i + 1);
+		fprintf(f, "CrossfaderAB%02d=FastTrackToggle:%d\n", i + 1, i + 1);
+		fprintf(f, "TrackFader%02d=TrackTrim:%d\n", i + 1, i + 1);
+		fprintf(f, "TrackControl%02d=FastTrackRatio:%d\n", i + 1, i + 1);
+		fprintf(f, "DeviceKnob%02d=SampleMorphSelect:%d\n", i + 1, i + 1);
+	}
+	fputs("\nDeviceLeft=SampleMorphAllPrevious\n", f);
+	fputs("DeviceRight=SampleMorphAllNext\n", f);
+	fputs("BankLeft=FastTrackRatioAllOrMatrixBankPrevious\n", f);
+	fputs("BankRight=FastTrackRatioAllOrMatrixBankNext\n", f);
+	fputs("DeviceOnOff=SampleMorphArmToggle\n", f);
+	fputs("DeviceLock=FastTrackResetAll\n", f);
+	fputs("ClipDeviceView=FastTrackTransmissionClutchToggle\n", f);
+	fputs("DetailView=FastTrackMasterToggle\n", f);
+	fputs("Master=PerformanceMuteMaster\n", f);
+	fputs("StopAllClips=TransportStopDeck\n", f);
+	fputs("SceneLaunch1=MatrixSequenceBank\n", f);
+	for (int32_t i = 1; i <= 4; i++)
+		fprintf(f, "SceneLaunch%d=MatrixSequenceRow:%d\n", i + 1, i);
+	fputs("Pan=MatrixModePattern\nSends=MatrixModeSample\n", f);
+	fputs("User=MatrixVisibilityToggle\n", f);
+	fputs("Metronome=FastTrackGlobalReverseToggle\n", f);
+	fputs("Play=TransportPlaySongToggle\n", f);
+	fputs("Record=TransportPlayPatternToggle\n", f);
+	fputs("Up=SongOrderPrevious\nDown=SongOrderNext\nRight=CursorRight\nLeft=CursorLeft\n", f);
+	fputs("Shift=ShiftModifier\nTapTempo=FastTrackGlobalModeToggle\n", f);
+	fputs("NudgeMinus=SpeedDown\nNudgePlus=SpeedUp\n", f);
+	fputs("Session=MatrixGridModeToggle\nBank=TransportStopSelectedDeck\n", f);
+	fputs("TempoEncoder=TempoRelative\nMasterFader=MasterVolume\n", f);
+	fputs("Crossfader=PatternJogAbsolute\n", f);
+	fputs("CueLevel=PatternJogRelative\n", f);
+	fputs("Footswitch=TransportPunch\n\n", f);
+}
+
 static void writeDefaultTapeheadConfig(const UNICHAR *filePathU)
 {
 	FILE *f = UNICHAR_FOPEN(filePathU, "w");
@@ -653,6 +707,41 @@ static void writeDefaultTapeheadConfig(const UNICHAR *filePathU)
 	fputs("; Route each tracker lane to one physical mono output instead of a stereo bus.\n", f);
 	fputs("; The Config -> Audio checkbox can also change this while FT2 is running.\n", f);
 	fputs("MonoOutputs=false\n\n", f);
+	fputs("[MIDI]\n\n", f);
+	fputs("; Enables device-independent MIDI performance mappings below.\n", f);
+	fputs("; The dedicated surface ports are separate from Config > MIDI Input and\n", f);
+	fputs("; MIDI Dub, so the musical keyboard remains available at the same time.\n", f);
+	fputs("PerformanceControl=false\n", f);
+	fputs("; APC40MK2 enables the built-in Akai profile, Mode 2 and feedback.\n", f);
+	fputs("Profile=None\n", f);
+	fputs("; Exact device names are preferred. A unique partial name is also accepted.\n", f);
+	fputs("ControlInput=\n", f);
+	fputs("ControlOutput=\n", f);
+	fputs("; Cue Level/Crossfader strum: Latched, Momentary, ManualPingPong or Off.\n", f);
+	fputs("PatternJogAudition=Latched\n", f);
+	fputs("; FastTracks channels during Cue Level/Crossfader strumming: Ignore or Include.\n", f);
+	fputs("PatternJogFastTracks=Ignore\n", f);
+	fputs("; APC footswitch Transport Punch: Sustain or Cut existing audio.\n", f);
+	fputs("TransportFreezeAudio=Sustain\n", f);
+	fputs("; Toggle punches on/off with successive presses; Hold freezes while depressed.\n", f);
+	fputs("TransportFreezePedalMode=Toggle\n", f);
+	fputs("; Frozen Up/Down relocation: Silent or Audition the destination row.\n", f);
+	fputs("TransportFreezeNavigation=Silent\n", f);
+	fputs("; Resume after an untouched freeze: Next or Retrigger the frozen row.\n", f);
+	fputs("TransportFreezeResume=Next\n\n", f);
+	fputs("[MIDI_MAP]\n\n", f);
+	fputs("; Format: Message.MIDIChannel.Number=Action[:Argument]\n", f);
+	fputs("; MIDI channels, tracker tracks, Matrix banks and slots are all 1-based.\n", f);
+	fputs("; Uncomment examples and enable PerformanceControl to try them.\n", f);
+	fputs(";NoteOn.1.48=TrackPerformanceMuteToggle:1\n", f);
+	fputs(";NoteOn.1.49=PerformanceUnmuteNext\n", f);
+	fputs(";NoteOn.1.50=PerformanceMutePrevious\n", f);
+	fputs(";NoteOn.1.51=MatrixModeToggle\n", f);
+	fputs(";NoteOn.1.52=MatrixBankNext\n", f);
+	fputs(";NoteOn.1.53=MatrixSlotTrigger:1\n", f);
+	fputs(";CC.1.7=TrackTrim:1\n", f);
+	fputs(";CC.1.48=FastTrackRatio:1\n\n", f);
+	writeDefaultAPC40Map(f);
 	fputs("[MIDIDub]\n\n", f);
 	fputs("; Outgoing MIDI channel for each tracker track (accepted values: 1-16).\n", f);
 	fputs("; Tracks may share a MIDI channel. Invalid or missing entries keep the\n", f);
@@ -671,6 +760,16 @@ void loadTapeheadConfig(void)
 	tapeheadConfig.diskOpBackspaceParent = false;
 	tapeheadConfig.patternBackspacePullUp = false;
 	tapeheadConfig.monoOutputs = false;
+	tapeheadConfig.midiPerformanceControl = false;
+	tapeheadConfig.midiProfile = TAPEHEAD_MIDI_PROFILE_NONE;
+	tapeheadConfig.patternJogAudition = TAPEHEAD_PATTERN_JOG_AUDITION_LATCHED;
+	tapeheadConfig.patternJogIncludeFastTracks = false;
+	tapeheadConfig.transportFreezeAudioCut = false;
+	tapeheadConfig.transportFreezePedalHold = false;
+	tapeheadConfig.transportFreezeNavigationAudition = false;
+	tapeheadConfig.transportFreezeResumeRetrigger = false;
+	tapeheadConfig.midiControlInput[0] = '\0';
+	tapeheadConfig.midiControlOutput[0] = '\0';
 	tapeheadConfig.hdMode = false;
 	tapeheadConfig.launcherMode = false;
 	tapeheadConfig.launcherStandalone = false;
@@ -682,6 +781,7 @@ void loadTapeheadConfig(void)
 	tapeheadConfig.undoMemoryMB = 32;
 	for (int32_t i = 0; i < MAX_CHANNELS; i++)
 		tapeheadConfig.midiDubTrackChannels[i] = (uint8_t)(i & 15);
+	tapeheadMidiMapReset();
 
 	UNICHAR *filePathU = getFullTapeheadConfigPathU();
 	if (filePathU == NULL)
@@ -704,6 +804,9 @@ void loadTapeheadConfig(void)
 		TAPEHEAD_SECTION_DISKOP,
 		TAPEHEAD_SECTION_KEYBOARD,
 		TAPEHEAD_SECTION_AUDIO,
+		TAPEHEAD_SECTION_MIDI,
+		TAPEHEAD_SECTION_MIDI_MAP,
+		TAPEHEAD_SECTION_APC40_MK2_MAP,
 		TAPEHEAD_SECTION_MIDI_DUB,
 		TAPEHEAD_SECTION_UNDO
 	} section = TAPEHEAD_SECTION_NONE;
@@ -728,6 +831,12 @@ void loadTapeheadConfig(void)
 				section = TAPEHEAD_SECTION_KEYBOARD;
 			else if (!_stricmp(text + 1, "Audio"))
 				section = TAPEHEAD_SECTION_AUDIO;
+			else if (!_stricmp(text + 1, "MIDI"))
+				section = TAPEHEAD_SECTION_MIDI;
+			else if (!_stricmp(text + 1, "MIDI_MAP"))
+				section = TAPEHEAD_SECTION_MIDI_MAP;
+			else if (!_stricmp(text + 1, "APC40MK2_MAP"))
+				section = TAPEHEAD_SECTION_APC40_MK2_MAP;
 			else if (!_stricmp(text + 1, "MIDIDub"))
 				section = TAPEHEAD_SECTION_MIDI_DUB;
 			else if (!_stricmp(text + 1, "Undo"))
@@ -817,6 +926,102 @@ void loadTapeheadConfig(void)
 		{
 			parseBoolValue(value, &tapeheadConfig.monoOutputs);
 		}
+		else if (section == TAPEHEAD_SECTION_MIDI &&
+			!_stricmp(key, "PerformanceControl"))
+		{
+			parseBoolValue(value, &tapeheadConfig.midiPerformanceControl);
+		}
+		else if (section == TAPEHEAD_SECTION_MIDI &&
+			!_stricmp(key, "ControlInput"))
+		{
+			snprintf(tapeheadConfig.midiControlInput,
+				sizeof (tapeheadConfig.midiControlInput), "%s", value);
+		}
+		else if (section == TAPEHEAD_SECTION_MIDI &&
+			!_stricmp(key, "Profile"))
+		{
+			if (!_stricmp(value, "APC40MK2") ||
+				!_stricmp(value, "APC40 MKII"))
+			{
+				tapeheadConfig.midiProfile = TAPEHEAD_MIDI_PROFILE_APC40_MK2;
+			}
+			else if (!_stricmp(value, "None") || *value == '\0')
+			{
+				tapeheadConfig.midiProfile = TAPEHEAD_MIDI_PROFILE_NONE;
+			}
+		}
+		else if (section == TAPEHEAD_SECTION_MIDI &&
+			!_stricmp(key, "ControlOutput"))
+		{
+			snprintf(tapeheadConfig.midiControlOutput,
+				sizeof (tapeheadConfig.midiControlOutput), "%s", value);
+		}
+		else if (section == TAPEHEAD_SECTION_MIDI &&
+			!_stricmp(key, "PatternJogAudition"))
+		{
+			if (!_stricmp(value, "Off"))
+				tapeheadConfig.patternJogAudition = TAPEHEAD_PATTERN_JOG_AUDITION_OFF;
+			else if (!_stricmp(value, "Momentary"))
+				tapeheadConfig.patternJogAudition = TAPEHEAD_PATTERN_JOG_AUDITION_MOMENTARY;
+			else if (!_stricmp(value, "Latched"))
+				tapeheadConfig.patternJogAudition = TAPEHEAD_PATTERN_JOG_AUDITION_LATCHED;
+			else if (!_stricmp(value, "ManualPingPong") ||
+				!_stricmp(value, "Manual_PingPong"))
+			{
+				tapeheadConfig.patternJogAudition =
+					TAPEHEAD_PATTERN_JOG_AUDITION_MANUAL_PINGPONG;
+			}
+		}
+		else if (section == TAPEHEAD_SECTION_MIDI &&
+			!_stricmp(key, "PatternJogFastTracks"))
+		{
+			if (!_stricmp(value, "Include"))
+				tapeheadConfig.patternJogIncludeFastTracks = true;
+			else if (!_stricmp(value, "Ignore"))
+				tapeheadConfig.patternJogIncludeFastTracks = false;
+		}
+		else if (section == TAPEHEAD_SECTION_MIDI &&
+			!_stricmp(key, "TransportFreezeAudio"))
+		{
+			if (!_stricmp(value, "Cut"))
+				tapeheadConfig.transportFreezeAudioCut = true;
+			else if (!_stricmp(value, "Sustain"))
+				tapeheadConfig.transportFreezeAudioCut = false;
+		}
+		else if (section == TAPEHEAD_SECTION_MIDI &&
+			!_stricmp(key, "TransportFreezePedalMode"))
+		{
+			if (!_stricmp(value, "Hold"))
+				tapeheadConfig.transportFreezePedalHold = true;
+			else if (!_stricmp(value, "Toggle"))
+				tapeheadConfig.transportFreezePedalHold = false;
+		}
+		else if (section == TAPEHEAD_SECTION_MIDI &&
+			!_stricmp(key, "TransportFreezeNavigation"))
+		{
+			if (!_stricmp(value, "Audition"))
+				tapeheadConfig.transportFreezeNavigationAudition = true;
+			else if (!_stricmp(value, "Silent"))
+				tapeheadConfig.transportFreezeNavigationAudition = false;
+		}
+		else if (section == TAPEHEAD_SECTION_MIDI &&
+			!_stricmp(key, "TransportFreezeResume"))
+		{
+			if (!_stricmp(value, "Retrigger"))
+				tapeheadConfig.transportFreezeResumeRetrigger = true;
+			else if (!_stricmp(value, "Next"))
+				tapeheadConfig.transportFreezeResumeRetrigger = false;
+		}
+		else if (section == TAPEHEAD_SECTION_MIDI_MAP)
+		{
+			tapeheadMidiMapAddBinding(key, value);
+		}
+		else if (section == TAPEHEAD_SECTION_APC40_MK2_MAP)
+		{
+#ifdef HAS_MIDI
+			tapeheadAPC40Mk2AddNamedMapping(key, value);
+#endif
+		}
 		else if (section == TAPEHEAD_SECTION_MIDI_DUB)
 		{
 			const int32_t trackIndex = parseMidiDubTrackKey(key);
@@ -836,6 +1041,7 @@ void loadTapeheadConfig(void)
 
 	fclose(f);
 	free(filePathU);
+	tapeheadMidiMapSetEnabled(tapeheadConfig.midiPerformanceControl);
 }
 
 static bool setPortableConfigFileLocation(void)

@@ -14,6 +14,7 @@ was built a particular way.
 | [`DECK_MATRIX.md`](DECK_MATRIX.md) | Deck Matrix quick start and links to the exhaustive command table |
 | [`DECK_MATRIX_CP03.md`](DECK_MATRIX_CP03.md) | Maintained detailed Pattern/Sample Deck command reference; filename retained for history |
 | [`FAST_TRACKS.md`](FAST_TRACKS.md) | Transport model, ratios, controls, and frozen `Zxx` command map |
+| [`MICROTONAL_PITCH.md`](MICROTONAL_PITCH.md) | `Mxx` MicroTune, `Nxx` MicroDrift, strumming, and bake compatibility |
 | [`MULTICHANNEL_OUTPUT.md`](MULTICHANNEL_OUTPUT.md) | Stereo buses, JACK/PipeWire-JACK, Mono Outputs, and routing gestures |
 | [`CONFIGURATION.md`](CONFIGURATION.md) | Every `tapehead.ini` section and startup behavior |
 | [`PATTERN_INTERPOLATION.md`](PATTERN_INTERPOLATION.md) | Interpolation and Melodic Walk previews |

@@ -35,6 +35,7 @@
 #include "ft2_poly_matrix.h"
 #include "ft2_pattern_launcher_ui.h"
 #include "ft2_sample_launcher.h"
+#include "ft2_tapehead_actions.h"
 
 bool detectBEM(FILE *f);
 bool loadBEM(FILE *f, uint32_t filesize);
@@ -492,6 +493,7 @@ static void setupLoadedModule(void)
 	resetChannels();
 	setSongPos(0, 0, RESET_SONG_TICK);
 	fastTracksPOCResetForLoadedModule();
+	tapeheadActionsResetForLoadedModule();
 	polyMatrixReset();
 	patternLauncherResetExposure();
 	setMixerBPM(song.BPM);

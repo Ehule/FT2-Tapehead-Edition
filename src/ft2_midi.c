@@ -18,6 +18,9 @@
 #include "ft2_config.h"
 #include "ft2_gui.h"
 #include "ft2_midi.h"
+#include "ft2_midi_map.h"
+#include "ft2_midi_surface.h"
+#include "ft2_apc40_mk2.h"
 #include "ft2_audio.h"
 #include "ft2_mouse.h"
 #include "ft2_pattern_ed.h"
@@ -799,6 +802,16 @@ int32_t initMidiFunc(void *ptr)
 	rescanMidiOutputDevices();
 	setMidiInputDeviceFromConfig();
 	openMidiInDevice(midi.inputDevice);
+	if (tapeheadConfig.midiPerformanceControl)
+	{
+		if (tapeheadConfig.midiProfile == TAPEHEAD_MIDI_PROFILE_APC40_MK2)
+			tapeheadAPC40Mk2InstallDefaultMappings();
+
+		(void)tapeheadMidiSurfaceOpen(tapeheadConfig.midiControlInput,
+			tapeheadConfig.midiControlOutput);
+		if (tapeheadConfig.midiProfile == TAPEHEAD_MIDI_PROFILE_APC40_MK2)
+			tapeheadAPC40Mk2Open();
+	}
 	midi.rescanDevicesFlag = true;
 	midi.initThreadDone = true;
 

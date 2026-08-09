@@ -34,6 +34,8 @@
 #include "ft2_audioselector.h"
 #include "ft2_help.h"
 #include "ft2_midi.h"
+#include "ft2_midi_surface.h"
+#include "ft2_apc40_mk2.h"
 #include "ft2_events.h"
 #include "ft2_bmp.h"
 #include "ft2_structs.h"
@@ -367,6 +369,8 @@ static void cleanUpAndExit(void) // never call this inside the main loop!
 	midi.enable = false; // stop MIDI callback from doing things
 	while (midi.callbackBusy) SDL_Delay(10); // wait for MIDI callback to finish
 
+	tapeheadAPC40Mk2Close();
+	tapeheadMidiSurfaceClose();
 	closeMidiInDevice();
 	freeMidiIn();
 	midiDubPanic();

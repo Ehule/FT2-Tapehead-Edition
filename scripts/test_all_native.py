@@ -10,12 +10,18 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TEST_SCRIPTS = (
+	"test_apc40_mk2.py",
+    "test_sample_morph.py",
+    "test_tapehead_actions.py",
+	"test_midi_map.py",
+	"test_midi_surface.py",
     "test_undo_transactions.py",
 	"test_baker_allocator.py",
 	"test_sample_launcher_native.py",
 	"test_sample_launcher_banks.py",
 	"test_sample_matrix_browser.py",
 	"test_fasttracks_native.py",
+	"test_microtonal.py",
     "test_fasttracks_transport.py",
     "test_multichannel_native.py",
     "test_audio_bus_delivery.py",

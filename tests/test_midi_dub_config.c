@@ -1,9 +1,24 @@
 #include <stdio.h>
 #include <stdint.h>
+#include <string.h>
+#include <SDL2/SDL_atomic.h>
 #include "ft2_config.h"
+#include "ft2_midi_map.h"
 #include "ft2_structs.h"
 
 editor_t editor;
+
+void SDLCALL SDL_AtomicLock(SDL_SpinLock *lock)
+{
+	while (__sync_lock_test_and_set(lock, 1))
+	{
+	}
+}
+
+void SDLCALL SDL_AtomicUnlock(SDL_SpinLock *lock)
+{
+	__sync_lock_release(lock);
+}
 
 static int expectChannel(int32_t track, uint8_t expected)
 {
@@ -26,6 +41,26 @@ int main(int argc, char **argv)
 
 	editor.configFileLocationU = argv[1];
 	loadTapeheadConfig();
+	if (!tapeheadConfig.midiPerformanceControl ||
+		!tapeheadMidiMapIsEnabled() || tapeheadMidiMapGetBindingCount() != 2)
+	{
+		fprintf(stderr, "generic MIDI performance mapping config failed\n");
+		return 1;
+	}
+	if (strcmp(tapeheadConfig.midiControlInput, "APC40 mkII") ||
+		strcmp(tapeheadConfig.midiControlOutput, "APC40 mkII MIDI Out") ||
+		tapeheadConfig.midiProfile != TAPEHEAD_MIDI_PROFILE_APC40_MK2 ||
+		!tapeheadConfig.patternJogIncludeFastTracks ||
+		tapeheadConfig.patternJogAudition !=
+			TAPEHEAD_PATTERN_JOG_AUDITION_MANUAL_PINGPONG ||
+		!tapeheadConfig.transportFreezeAudioCut ||
+		!tapeheadConfig.transportFreezePedalHold ||
+		!tapeheadConfig.transportFreezeNavigationAudition ||
+		!tapeheadConfig.transportFreezeResumeRetrigger)
+	{
+		fprintf(stderr, "control-surface device-name config failed\n");
+		return 1;
+	}
 
 	int failures = 0;
 	for (int32_t track = 1; track <= MAX_CHANNELS; track++)

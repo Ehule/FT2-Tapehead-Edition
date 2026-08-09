@@ -2,6 +2,8 @@
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <ClCompile Include="..\..\src\ft2_about.c" />
+	<ClCompile Include="..\..\src\ft2_apc40_mk2.c" />
+	<ClCompile Include="..\..\src\ft2_sample_morph.c" />
     <ClCompile Include="..\..\src\ft2_audio.c" />
     <ClCompile Include="..\..\src\ft2_audioselector.c" />
     <ClCompile Include="..\..\src\ft2_baker.c" />
@@ -20,6 +22,8 @@
     <ClCompile Include="..\..\src\ft2_keyboard.c" />
     <ClCompile Include="..\..\src\ft2_main.c" />
     <ClCompile Include="..\..\src\ft2_midi.c" />
+    <ClCompile Include="..\..\src\ft2_midi_map.c" />
+    <ClCompile Include="..\..\src\ft2_midi_surface.c" />
     <ClCompile Include="..\..\src\ft2_multichannel.c" />
     <ClCompile Include="..\..\src\ft2_module_loader.c" />
     <ClCompile Include="..\..\src\ft2_module_saver.c" />
@@ -45,6 +49,7 @@
     <ClCompile Include="..\..\src\ft2_scrollbars.c" />
     <ClCompile Include="..\..\src\ft2_structs.c" />
     <ClCompile Include="..\..\src\ft2_sysreqs.c" />
+    <ClCompile Include="..\..\src\ft2_tapehead_actions.c" />
     <ClCompile Include="..\..\src\ft2_tables.c" />
     <ClCompile Include="..\..\src\ft2_textboxes.c" />
     <ClCompile Include="..\..\src\ft2_trim.c" />
@@ -164,6 +169,12 @@
     <ClInclude Include="..\..\src\ft2_about.h">
       <Filter>headers</Filter>
     </ClInclude>
+	<ClInclude Include="..\..\src\ft2_apc40_mk2.h">
+	  <Filter>headers</Filter>
+	</ClInclude>
+	<ClInclude Include="..\..\src\ft2_sample_morph.h">
+	  <Filter>headers</Filter>
+	</ClInclude>
     <ClInclude Include="..\..\src\ft2_audio.h">
       <Filter>headers</Filter>
     </ClInclude>
@@ -207,6 +218,12 @@
       <Filter>headers</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\ft2_midi.h">
+      <Filter>headers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\ft2_midi_map.h">
+      <Filter>headers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\ft2_midi_surface.h">
       <Filter>headers</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\ft2_multichannel.h">
@@ -294,6 +311,9 @@
       <Filter>headers</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\ft2_sysreqs.h">
+      <Filter>headers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\ft2_tapehead_actions.h">
       <Filter>headers</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\ft2_tables.h">

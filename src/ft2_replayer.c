@@ -32,6 +32,8 @@
 #include "ft2_random.h"
 #include "ft2_pattern_launcher.h"
 #include "ft2_sample_launcher.h"
+#include "ft2_sample_morph.h"
+#include "ft2_tapehead_actions.h"
 #include "ft2_poly_matrix.h"
 #include "ft2_baker.h"
 #include "ft2_structs.h"
@@ -52,6 +54,7 @@ static bool recPlusGeneratedThisTake;
 static bool recPlusGameOverShown;
 static volatile bool recPlusExhaustionPending;
 static volatile bool recPlusEarnedGameOver;
+static volatile bool transportPunchSkipResumeRow;
 
 #define TAPEHEAD_MAX_DEFERRED_GLOBAL_COMMANDS \
 	(MAX_CHANNELS * FAST_TRACKS_MAX_CROSSINGS_PER_TICK)
@@ -136,6 +139,10 @@ void resetReplayerState(void)
 	{
 		ch->patternLoopStartRow = 0;
 		ch->patternLoopCounter = 0;
+		/* Starting the ordinary transport must not retune a Poly-owned voice
+		** that is already sounding on its independent transport. */
+		if (!polyMatrixOwnsDestination(i))
+			microtonalReset(&ch->microtonal, (uint32_t)i);
 	}
 	
 	/*
@@ -178,6 +185,7 @@ void resetChannels(void)
 	channel_t *ch = channel;
 	for (int32_t i = 0; i < MAX_CHANNELS; i++, ch++)
 	{
+		microtonalReset(&ch->microtonal, (uint32_t)i);
 		ch->instrPtr = instr[0];
 		ch->status = CS_UPDATE_VOL;
 		ch->oldPan = 128;
@@ -625,6 +633,10 @@ static uint8_t midiDubVelocityFromNoteVolume(const channel_t *ch, uint8_t efx, u
 
 void triggerNote(uint8_t note, uint8_t efx, uint8_t efxData, channel_t *ch)
 {
+	/* Every ordinary trigger restores the sample's native loop personality.
+	** playToneOneShot() installs its transient override after this reset. */
+	ch->tapeheadOneShotDirection = 0;
+
 	if (note == NOTE_OFF)
 	{
 		keyOff(ch);
@@ -652,7 +664,10 @@ void triggerNote(uint8_t note, uint8_t efx, uint8_t efxData, channel_t *ch)
 	if (note > 96) // non-FT2 sanity check
 		note = 96;
 
-	ch->smpNum = ins->note2SampleLUT[note-1] & 0xF; // FT2 doesn't mask here, but let's do it anyway
+	const uint8_t defaultSample = ins->note2SampleLUT[note-1] & 0xF;
+	const uint8_t channelIndex = ch >= channel && ch < channel + MAX_CHANNELS
+		? (uint8_t)(ch - channel) : UINT8_MAX;
+	ch->smpNum = sampleMorphResolve(channelIndex, ch->instrNum, defaultSample);
 	sample_t *s = &ins->smp[ch->smpNum];
 
 	ch->smpPtr = s;
@@ -709,6 +724,36 @@ static void dummy(channel_t *ch, uint8_t param)
 	(void)ch;
 	(void)param;
 	return;
+}
+
+static void microTune(channel_t *ch, uint8_t param)
+{
+	microtonalSetTune(&ch->microtonal, param);
+	ch->status |= CF_UPDATE_PERIOD;
+}
+
+static void microDrift(channel_t *ch, uint8_t param)
+{
+	microtonalSetDriftDepth(&ch->microtonal, param);
+	ch->status |= CF_UPDATE_PERIOD;
+}
+
+void applyChannelMicrotonalEffect(uint8_t channelIndex, uint8_t effect, uint8_t parameter)
+{
+	if (channelIndex >= MAX_CHANNELS || !microtonalEffectIsPitchExtension(effect))
+		return;
+
+	const bool audioWasntLocked = !audio.locked;
+	if (audioWasntLocked)
+		lockAudio();
+
+	if (effect == TAPEHEAD_EFX_MICROTUNE)
+		microTune(&channel[channelIndex], parameter);
+	else
+		microDrift(&channel[channelIndex], parameter);
+
+	if (audioWasntLocked)
+		unlockAudio();
 }
 
 static void finePitchSlideUp(channel_t *ch, uint8_t param)
@@ -1237,8 +1282,8 @@ static const efxRoutine JumpTab_TickZero[36] =
 	dummy,              // J
 	dummy,              // K
 	setEnvelopePos,     // L
-	dummy,              // M
-	dummy,              // N
+	microTune,          // M - Tapehead MicroTune
+	microDrift,         // N - Tapehead MicroDrift
 	dummy,              // O
 	dummy,              // P
 	dummy,              // Q
@@ -2034,6 +2079,9 @@ void updateVolPanAutoVib(channel_t *ch)
 		}
 #endif
 	}
+
+	if (microtonalAdvance(&ch->microtonal, song.BPM))
+		ch->status |= CF_UPDATE_PERIOD;
 }
 
 // for arpeggio and portamento (semitone-slide mode)
@@ -2561,7 +2609,11 @@ static void getNextPos(void)
 		sampleLauncherHandleBoundary();
 		const patternLauncherBoundaryResult_t launcherResult = patternLauncherHandleBoundary();
 		if (launcherResult == PATTERN_LAUNCHER_BOUNDARY_STOPPED)
+		{
+			tapeheadActionMatrixSequenceCancel();
 			return;
+		}
+		tapeheadActionMatrixSequenceHandleBoundary();
 
 		if (launcherResult == PATTERN_LAUNCHER_BOUNDARY_INACTIVE &&
 			playMode != PLAYMODE_PATT && playMode != PLAYMODE_RECPATT)
@@ -2694,6 +2746,27 @@ void tickReplayer(void) // periodically called from audio callback
 	if (!bakerIsOfflineRunning())
 		midiDubTick();
 #endif
+	/* Transport Punch removes the sequencers from time without pausing the
+	** mixer. Existing voices, envelopes and effect tails keep breathing, but
+	** no ordinary, Matrix or FastTracks head advances. */
+	if (tapeheadActionTransportPunchIsFrozen())
+	{
+		channel_t *frozenChannel = channel;
+		for (int32_t i = 0; i < song.numChannels; i++, frozenChannel++)
+			updateVolPanAutoVib(frozenChannel);
+		return;
+	}
+
+	/* An auditioned manual row has already sounded. Advance it once before
+	** the normal tick-zero read so Transport Punch resumes on the next row
+	** instead of striking the destination twice. */
+	if (transportPunchSkipResumeRow)
+	{
+		transportPunchSkipResumeRow = false;
+		song.tick = 1;
+		getNextPos();
+	}
+
 	if (!bakerIsOfflineRunning())
 		sampleLauncherTick();
 
@@ -2868,6 +2941,7 @@ void tickReplayer(void) // periodically called from audio callback
 
 void resetMusic(void)
 {
+	transportPunchSkipResumeRow = false;
 	const bool audioWasntLocked = !audio.locked;
 	if (audioWasntLocked)
 		lockAudio();
@@ -3450,6 +3524,7 @@ void startPlaying(int8_t mode, int16_t row)
 		return;
 
 	lockMixerCallback();
+	transportPunchSkipResumeRow = false;
 
 	ASSERT(mode != PLAYMODE_IDLE && mode != PLAYMODE_EDIT);
 	if (mode == PLAYMODE_PATT || mode == PLAYMODE_RECPATT)
@@ -3526,6 +3601,7 @@ void stopPlayingKeepPoly(void)
 	*/
 	playMode = PLAYMODE_IDLE;
 	songPlaying = false;
+	transportPunchSkipResumeRow = false;
 
 	for (uint8_t i = 0; i < MAX_CHANNELS; i++)
 	{
@@ -3556,6 +3632,7 @@ void stopPlaying(void)
 	bool songWasPlaying = songPlaying;
 	playMode = PLAYMODE_IDLE;
 	songPlaying = false;
+	transportPunchSkipResumeRow = false;
 
 	if (config.killNotesOnStopPlay)
 	{
@@ -3599,7 +3676,9 @@ void stopPlaying(void)
 }
 
 // from keyboard/smp. ed.
-void playTone(uint8_t chNum, uint8_t insNum, uint8_t note, int8_t vol, uint16_t midiVibDepth, uint16_t midiPitch)
+static void playToneInternal(uint8_t chNum, uint8_t insNum, uint8_t note,
+	int8_t vol, uint16_t midiVibDepth, uint16_t midiPitch,
+	uint8_t oneShotDirection)
 {
 	instr_t *ins = instr[insNum];
 	if (ins == NULL)
@@ -3635,6 +3714,8 @@ void playTone(uint8_t chNum, uint8_t insNum, uint8_t note, int8_t vol, uint16_t 
 	ch->efxData = 0;
 
 	triggerNote(note, 0, 0, ch);
+	if (note != NOTE_OFF && (ch->status & CS_TRIGGER_VOICE))
+		ch->tapeheadOneShotDirection = oneShotDirection;
 
 	if (note != NOTE_OFF)
 	{
@@ -3655,6 +3736,70 @@ void playTone(uint8_t chNum, uint8_t insNum, uint8_t note, int8_t vol, uint16_t 
 	updateVolPanAutoVib(ch);
 
 	unlockAudio();
+}
+
+void playTone(uint8_t chNum, uint8_t insNum, uint8_t note, int8_t vol,
+	uint16_t midiVibDepth, uint16_t midiPitch)
+{
+	playToneInternal(chNum, insNum, note, vol, midiVibDepth, midiPitch, 0);
+}
+
+void playToneOneShot(uint8_t chNum, uint8_t insNum, uint8_t note, int8_t vol,
+	uint16_t midiVibDepth, uint16_t midiPitch, bool reverse)
+{
+	playToneInternal(chNum, insNum, note, vol, midiVibDepth, midiPitch,
+		reverse ? 2 : 1);
+}
+
+void tapeheadReplayerBeginTransportPunch(void)
+{
+	const bool audioWasntLocked = !audio.locked;
+	if (audioWasntLocked)
+		lockAudio();
+
+	/* The delayed display position is what the performer actually saw and
+	** heard when the pedal went down. Latch the scheduler to that exact row so
+	** Next and Retrigger have deterministic meanings even if the internal
+	** clock had already prepared the following row. */
+	if (songPlaying && song.songLength > 0)
+	{
+		int32_t pos = editor.songPos;
+		if (pos < 0) pos = 0;
+		if (pos >= song.songLength) pos = song.songLength - 1;
+
+		const uint8_t pattNum = song.orders[pos];
+		uint16_t row = editor.row;
+		const uint16_t rows = patternNumRows[pattNum];
+		if (rows > 0 && row >= rows)
+			row = rows - 1;
+
+		setSongPos((int16_t)pos, (int16_t)row, DONT_RESET_SONG_TICK);
+		syncEditorPatternContextToSong();
+	}
+	else
+	{
+		resetSyncQueues();
+		audio.resetSyncTickTimeFlag = true;
+	}
+
+	if (audioWasntLocked)
+		unlockAudio();
+}
+
+void tapeheadReplayerResumeTransportPunch(bool currentRowConsumed)
+{
+	const bool audioWasntLocked = !audio.locked;
+	if (audioWasntLocked)
+		lockAudio();
+
+	transportPunchSkipResumeRow = currentRowConsumed && songPlaying;
+	if (songPlaying)
+		song.tick = 1;
+	resetSyncQueues();
+	audio.resetSyncTickTimeFlag = true;
+
+	if (audioWasntLocked)
+		unlockAudio();
 }
 
 // smp. ed.
@@ -3797,6 +3942,7 @@ void stopVoices(void)
 		ch->midiVibDepth = 0;
 		ch->midiPitch = 0;
 		ch->portamentoDirection = 0; // FT2 bugfix: fixes weird portamento behavior
+		microtonalReset(&ch->microtonal, (uint32_t)i);
 
 		stopVoice(i);
 	}
@@ -3826,6 +3972,32 @@ void setNewSongPos(int32_t pos)
 	syncEditorPatternContextToSong();
 
 	// FT2 fix: if song speed was 0, set it back to initial speed
+	if (song.speed == 0)
+		song.speed = song.initialSpeed;
+
+	if (audioWasntLocked)
+		unlockAudio();
+}
+
+void tapeheadReplayerSetTransportPunchSongPos(int32_t pos)
+{
+	const bool audioWasntLocked = !audio.locked;
+	if (audioWasntLocked)
+		lockAudio();
+
+	/* Relocate only the punched-out scheduler. resetReplayerState() would also
+	** reset microtonal pitch and global voice state, which would make a held
+	** chord visibly/audibly change while the human flywheel searches. */
+	song.pattDelTime = song.pattDelTime2 = 0;
+	song.posJumpFlag = song.pBreakFlag = false;
+	song.pBreakPos = 0;
+	for (int32_t i = 0; i < song.numChannels; i++)
+	{
+		channel[i].patternLoopStartRow = 0;
+		channel[i].patternLoopCounter = 0;
+	}
+	setSongPos((int16_t)pos, 0, RESET_SONG_TICK);
+	syncEditorPatternContextToSong();
 	if (song.speed == 0)
 		song.speed = song.initialSpeed;
 
@@ -4019,7 +4191,12 @@ void setSyncedReplayerVars(void)
 		ui.drawReplayerPianoFlag = true;
 	}
 
-	if (!songPlaying || pattSyncEntry == NULL)
+	/* While Transport Punch is frozen, channel/scope sync remains live but the
+	** automatic pattern-position queue must not repaint the last scheduled row
+	** over the human-controlled playhead. The queue is still drained above so
+	** no stale frame can burst through later. */
+	if (!songPlaying || pattSyncEntry == NULL ||
+		tapeheadActionTransportPunchIsFrozen())
 		return;
 
 	// we have a new tick
