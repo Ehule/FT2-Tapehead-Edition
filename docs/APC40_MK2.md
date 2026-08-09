@@ -69,6 +69,12 @@ anything already playing:
 | Crossfader A/B button | Enable/disable FastTracks for that track | — | Dim = selected while master bypassed; bright = active |
 
 Track faders control the complete tracker channel and can boost above unity.
+They are deliberately excluded from Composition Baker data, as are the master
+fader and mouse-wheel trim changes. A zero fader does not remove structural
+events from a bake. **What you hear is what you bake, other than fader data.
+The faders remain the live mix.** Record audio to preserve exact fader gain,
+above-unity boost, and distortion. Performance Mute, Solo, mute-all, and reveal
+are structural controls and are captured as effective silence and XM note cuts.
 `TrackTrimMaxPercent=100` makes the top of their physical travel unity;
 `TrackTrimMaxPercent=200` preserves the full 0–200% boost range. The complete
 fader travel is always remapped to the selected ceiling. The narrow green,

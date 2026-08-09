@@ -1624,8 +1624,6 @@ static void preparePortamento(channel_t *ch, const note_t *p, uint8_t inst)
 
 static void getNewNote(channel_t *ch, const note_t *p)
 {
-	bakerCaptureEvent((int32_t)(ch - channel), p);
-
 	ch->volColumnVol = p->vol;
 
 	if (ch->efx == 0)
@@ -1655,6 +1653,23 @@ static void getNewNote(channel_t *ch, const note_t *p)
 		handleMoreEffects_TickZero(ch);
 		return;
 	}
+
+	/* Capture only after ordinary mute has resolved, and resolve the same
+	** instrument/sample choice that triggerNote() will make below. Performance
+	** mute is combined by the Baker with ordinary mute; fader/trim gain is
+	** intentionally absent from this structural event. */
+	uint8_t resolvedInstrument = p->instr > 0 && p->instr <= MAX_INST
+		? p->instr : ch->instrNum;
+	uint8_t resolvedSample = ch->smpNum;
+	if (p->note >= 1 && p->note <= 96 && resolvedInstrument > 0 &&
+		resolvedInstrument <= MAX_INST && instr[resolvedInstrument] != NULL)
+	{
+		resolvedSample = instr[resolvedInstrument]->note2SampleLUT[p->note-1] & 0x0F;
+		resolvedSample = sampleMorphResolve((uint8_t)(ch - channel),
+			resolvedInstrument, resolvedSample);
+	}
+	bakerCaptureResolvedEvent((int32_t)(ch - channel), p,
+		resolvedInstrument, resolvedSample);
 
 	// this "inst" variable is used for later if-checks...
 	uint8_t inst = p->instr;

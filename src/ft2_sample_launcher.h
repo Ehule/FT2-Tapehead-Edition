@@ -15,6 +15,10 @@ typedef enum sampleLauncherPlaceResult_t
 	SAMPLE_LAUNCHER_PLACE_NO_MEMORY
 } sampleLauncherPlaceResult_t;
 
+typedef void (*sampleLauncherCaptureCallback_t)(uint16_t tile, uint8_t voice,
+	bool start);
+void sampleLauncherSetCaptureCallback(sampleLauncherCaptureCallback_t callback);
+
 typedef enum sampleLauncherTileMapState_t
 {
 	SAMPLE_LAUNCHER_MAP_AUTO = 0,
@@ -32,6 +36,7 @@ typedef struct sampleLauncherUndoState_t
 } sampleLauncherUndoState_t;
 
 bool sampleLauncherTileIsLoaded(uint16_t tile);
+bool sampleLauncherTileIsPopulated(uint16_t tile);
 const char *sampleLauncherGetTileName(uint16_t tile);
 uint8_t sampleLauncherGetTileBus(uint16_t tile);
 void sampleLauncherCycleTileBus(uint16_t tile, uint8_t busCount);

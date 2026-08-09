@@ -88,3 +88,40 @@ bool bakerTimelineShouldAdvance(bool tickResolution, bool songPlaying,
 {
 	return songPlaying && (tickResolution || currentTick == 1);
 }
+
+void bakerAudibilitySnapshot(bakerAudibilityState_t *state,
+	const bool *ordinaryMute, const bool *performanceMute, uint8_t channels)
+{
+	if (state == NULL)
+		return;
+	memset(state, 0, sizeof (*state));
+	if (channels > BAKER_ALLOCATOR_CHANNELS)
+		channels = BAKER_ALLOCATOR_CHANNELS;
+	for (uint8_t i = 0; i < channels; i++)
+		state->audible[i] = !ordinaryMute[i] && !performanceMute[i];
+}
+
+uint32_t bakerAudibilityUpdate(bakerAudibilityState_t *state,
+	const bool *ordinaryMute, const bool *performanceMute, uint8_t channels)
+{
+	if (state == NULL)
+		return 0;
+	if (channels > BAKER_ALLOCATOR_CHANNELS)
+		channels = BAKER_ALLOCATOR_CHANNELS;
+	uint32_t becameMuted = 0;
+	for (uint8_t i = 0; i < channels; i++)
+	{
+		const bool audible = !ordinaryMute[i] && !performanceMute[i];
+		if (state->audible[i] && !audible)
+			becameMuted |= UINT32_C(1) << i;
+		state->audible[i] = audible;
+	}
+	return becameMuted;
+}
+
+bool bakerChannelIsAudible(const bakerAudibilityState_t *state,
+	int32_t channel)
+{
+	return state != NULL && channel >= 0 &&
+		channel < BAKER_ALLOCATOR_CHANNELS && state->audible[channel];
+}

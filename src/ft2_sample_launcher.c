@@ -30,6 +30,18 @@ static uint8_t currentBank;
 static bool initialized, bankMapScanned, pendingTileMapValid;
 static bool standaloneClockRunning;
 static uint16_t standaloneClockTick, standaloneClockRow;
+static sampleLauncherCaptureCallback_t captureCallback;
+
+void sampleLauncherSetCaptureCallback(sampleLauncherCaptureCallback_t callback)
+{
+	captureCallback = callback;
+}
+
+static void captureAction(uint16_t tile, uint8_t voice, bool start)
+{
+	if (captureCallback != NULL)
+		captureCallback(tile, voice, start);
+}
 
 static void ensureInitialized(void)
 {
@@ -211,6 +223,8 @@ static void executeBoundaryActions(void)
 			action->type == SAMPLE_LAUNCHER_ACTION_STOP_POLY)
 		{
 			audioSampleLauncherStop((uint8_t)action->voice);
+			captureAction(action->tile >= 0 ? (uint16_t)action->tile : UINT16_MAX,
+				(uint8_t)action->voice, false);
 		}
 		else if ((action->type == SAMPLE_LAUNCHER_ACTION_START_Q ||
 			action->type == SAMPLE_LAUNCHER_ACTION_START_POLY) &&
@@ -219,6 +233,8 @@ static void executeBoundaryActions(void)
 			sample_t *sample = getTileSample((uint16_t)action->tile);
 			const uint8_t outputBus = sampleLauncherGetTileBus((uint16_t)action->tile);
 			audioSampleLauncherTrigger((uint8_t)action->voice, sample, outputBus);
+			captureAction((uint16_t)action->tile,
+				(uint8_t)action->voice, true);
 		}
 	}
 }
@@ -227,6 +243,15 @@ bool sampleLauncherTileIsLoaded(uint16_t tile)
 {
 	const sample_t *sample = getTileSample(tile);
 	return sample != NULL && sample->dataPtr != NULL && sample->length > 0;
+}
+
+bool sampleLauncherTileIsPopulated(uint16_t tile)
+{
+	if (tile >= SAMPLE_LAUNCHER_MAX_TILES)
+		return false;
+	if (tileMap[tile].state == SAMPLE_LAUNCHER_MAP_REFERENCE)
+		return true;
+	return sampleLauncherTileIsLoaded(tile);
 }
 
 const char *sampleLauncherGetTileName(uint16_t tile)
@@ -1066,6 +1091,7 @@ static bool executeImmediateLayerStop(bool poly)
 			actions[i].type == SAMPLE_LAUNCHER_ACTION_STOP_POLY)
 		{
 			audioSampleLauncherStop((uint8_t)actions[i].voice);
+			captureAction(UINT16_MAX, (uint8_t)actions[i].voice, false);
 		}
 	}
 	return hadWork;
@@ -1095,6 +1121,7 @@ void sampleLauncherHardStop(uint16_t tile)
 			actions[i].type == SAMPLE_LAUNCHER_ACTION_STOP_POLY)
 		{
 			audioSampleLauncherStop((uint8_t)actions[i].voice);
+			captureAction(tile, (uint8_t)actions[i].voice, false);
 		}
 	}
 }
