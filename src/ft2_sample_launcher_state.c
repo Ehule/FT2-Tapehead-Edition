@@ -116,6 +116,39 @@ void sampleLauncherStateClearQQueue(sampleLauncherState_t *state)
 	state->qStopPending = false;
 }
 
+bool sampleLauncherStateCancelPending(sampleLauncherState_t *state,
+	uint16_t tile)
+{
+	bool changed = false;
+	uint8_t writeIndex = 0;
+	for (uint8_t readIndex = 0; readIndex < state->qQueueCount; readIndex++)
+	{
+		if (state->qQueue[readIndex] == tile)
+		{
+			changed = true;
+			continue;
+		}
+		state->qQueue[writeIndex++] = state->qQueue[readIndex];
+	}
+	for (uint8_t i = writeIndex; i < state->qQueueCount; i++)
+		state->qQueue[i] = -1;
+	state->qQueueCount = writeIndex;
+
+	for (uint8_t i = 0; i < state->polyStartCount;)
+	{
+		if (state->polyStartQueue[i] == tile)
+		{
+			removePendingPolyStart(state, i);
+			changed = true;
+		}
+		else
+		{
+			i++;
+		}
+	}
+	return changed;
+}
+
 bool sampleLauncherStateScheduleStop(sampleLauncherState_t *state,
 	uint16_t tile)
 {

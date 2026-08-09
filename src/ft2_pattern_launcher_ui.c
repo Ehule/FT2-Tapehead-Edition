@@ -33,8 +33,6 @@ static uint8_t patternLauncherPage;
 static uint8_t patternLauncherBreatheFrame;
 static bool patternLauncherSongPatterns[MAX_PATTERNS];
 static bool patternLauncherVisiblePatterns[32];
-static bool patternLauncherExposedPatterns[MAX_PATTERNS];
-static bool patternLauncherExposureInitialized;
 static uint8_t standaloneOrderPos;
 static uint16_t standaloneStatusFrames;
 static char standaloneStatusText[32];
@@ -154,12 +152,6 @@ bool patternLauncherStandaloneIsShown(void)
 	return patternLauncherStandaloneShown;
 }
 
-void patternLauncherResetExposure(void)
-{
-	for (uint16_t i = 0; i < MAX_PATTERNS; i++)
-		patternLauncherExposedPatterns[i] = true;
-	patternLauncherExposureInitialized = true;
-}
 
 static int8_t getPatternLauncherQueuePos(int16_t patternNum)
 {
@@ -229,8 +221,7 @@ static void hexOutPatternLauncherColor(uint16_t xPos, uint16_t yPos,
 
 static bool rebuildPatternLauncherSongUsage(void)
 {
-	if (!patternLauncherExposureInitialized)
-		patternLauncherResetExposure();
+	(void)patternLauncherPatternIsExposed(0);
 	bool changed = false;
 	bool songPatterns[MAX_PATTERNS] = { false };
 
@@ -335,6 +326,12 @@ static void drawSampleLauncherPanel(void)
 					polyStop ? 0xFF287A83 :
 					(polyStart ? 0xFF2F9D87 : 0xFF35C9D0));
 			}
+			else if (!loaded)
+			{
+				fillPatternLauncherRect(x + 2, y + 2, 36, 14,
+					blendPatternLauncherColor(video.palette[PAL_DSKTOP2],
+						video.palette[PAL_DESKTOP], 55));
+			}
 
 			if (loaded)
 			{
@@ -408,7 +405,8 @@ void patternLauncherDrawPanel(void)
 			const int16_t y = 4 + (row * 19);
 			const int8_t queuePos = getPatternLauncherQueuePos(patternNum);
 			const bool patternUsed = pattern[patternNum] != NULL;
-			const bool exposed = patternLauncherExposedPatterns[patternNum];
+			const bool exposed = patternLauncherPatternIsExposed(patternNum);
+			const bool launchable = patternLauncherTileIsLaunchable(patternNum);
 			const bool songPattern = patternLauncherSongPatterns[patternNum];
 			const bool polyActive =
 				polyMatrixIsPatternActive((uint8_t)patternNum);
@@ -454,6 +452,12 @@ void patternLauncherDrawPanel(void)
 				/* Cyan = independently threaded Poly Matrix spool. A pending
 				** graceful pull darkens it until the current revolution ends. */
 				fillPatternLauncherRect(x + 2, y + 2, 36, 14, polyColor);
+			}
+			else if (!launchable)
+			{
+				fillPatternLauncherRect(x + 2, y + 2, 36, 14,
+					blendPatternLauncherColor(video.palette[PAL_DSKTOP2],
+						video.palette[PAL_DESKTOP], exposed ? 70 : 40));
 			}
 
 			/* Text color describes membership while the cell background is
@@ -526,7 +530,9 @@ bool patternLauncherHandlePanelMiddleClick(int16_t x, int16_t y, bool shiftPress
 		patternLauncherDrawPanel();
 		return true;
 	}
-	if (!patternLauncherExposedPatterns[patternNum])
+	if (!patternLauncherPatternIsExposed(patternNum))
+		return true;
+	if (!patternLauncherTileIsLaunchable(patternNum))
 		return true;
 
 	/* An active Q tile transfers at Q's next loop boundary. A tile already
@@ -624,13 +630,6 @@ void patternLauncherSetDeckMode(bool sampleDeck)
 		patternLauncherDrawPanel();
 }
 
-bool patternLauncherPatternIsExposed(uint8_t patternNum)
-{
-	if (!patternLauncherExposureInitialized)
-		patternLauncherResetExposure();
-	return patternLauncherExposedPatterns[patternNum];
-}
-
 bool patternLauncherHandlePanelClick(int16_t x, int16_t y)
 {
 	if (!patternLauncherPanelShown || x < 423 || x >= 587 || y < 4 || y >= 156)
@@ -689,11 +688,11 @@ bool patternLauncherHandlePanelClick(int16_t x, int16_t y)
 
 	if (keyb.leftAltPressed && !mouse.rightButtonPressed)
 	{
-		patternLauncherExposedPatterns[patternNum] ^= 1;
+		patternLauncherTogglePatternExposure(patternNum);
 		patternLauncherDrawPanel();
 		return true;
 	}
-	if (!patternLauncherExposedPatterns[patternNum])
+	if (!patternLauncherPatternIsExposed(patternNum))
 		return true;
 
 	if (mouse.rightButtonPressed)
@@ -770,7 +769,8 @@ static void drawStandalonePatternTile(uint8_t patternNum, int16_t x, int16_t y)
 	const int16_t current = patternLauncherGetCurrent();
 	const uint8_t exitMode = patternLauncherGetExitMode();
 	const bool patternUsed = pattern[patternNum] != NULL;
-	const bool exposed = patternLauncherExposedPatterns[patternNum];
+	const bool exposed = patternLauncherPatternIsExposed(patternNum);
+	const bool launchable = patternLauncherTileIsLaunchable(patternNum);
 	const bool songPattern = patternLauncherSongPatterns[patternNum];
 	const bool polyActive = polyMatrixIsPatternActive(patternNum);
 	const uint8_t polySlot = polyMatrixGetPatternSlot(patternNum);
@@ -822,6 +822,13 @@ static void drawStandalonePatternTile(uint8_t patternNum, int16_t x, int16_t y)
 	{
 		fillPatternLauncherRect(x + 2, y + 2, STANDALONE_TILE_W - 4,
 			STANDALONE_TILE_H - 4, polyColor);
+	}
+	else if (!launchable)
+	{
+		fillPatternLauncherRect(x + 2, y + 2, STANDALONE_TILE_W - 4,
+			STANDALONE_TILE_H - 4,
+			blendPatternLauncherColor(video.palette[PAL_DSKTOP2],
+				video.palette[PAL_DESKTOP], exposed ? 70 : 40));
 	}
 
 	if (!exposed)
@@ -887,6 +894,13 @@ static void drawStandaloneSampleTile(uint16_t tile, int16_t x, int16_t y)
 		fillPatternLauncherRect(x + 2, y + 2, STANDALONE_TILE_W - 4,
 			STANDALONE_TILE_H - 4,
 			polyStop ? 0xFF287A83 : (polyStart ? 0xFF2F9D87 : 0xFF35C9D0));
+	}
+	else if (!loaded)
+	{
+		fillPatternLauncherRect(x + 2, y + 2, STANDALONE_TILE_W - 4,
+			STANDALONE_TILE_H - 4,
+			blendPatternLauncherColor(video.palette[PAL_DSKTOP2],
+				video.palette[PAL_DESKTOP], 55));
 	}
 
 	if (loaded)
@@ -1189,10 +1203,12 @@ static void handleStandalonePatternTile(uint8_t tile, uint8_t mouseButton,
 	}
 	if (mouseButton == SDL_BUTTON_LEFT && keyb.leftAltPressed)
 	{
-		patternLauncherExposedPatterns[patternNum] ^= 1;
+		patternLauncherTogglePatternExposure(patternNum);
 		return;
 	}
-	if (!patternLauncherExposedPatterns[patternNum])
+	if (!patternLauncherPatternIsExposed(patternNum))
+		return;
+	if (!patternLauncherTileIsLaunchable(patternNum))
 		return;
 
 	if (mouseButton == SDL_BUTTON_MIDDLE)

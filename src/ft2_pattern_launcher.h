@@ -21,6 +21,12 @@ typedef enum patternLauncherBoundaryResult_t
 } patternLauncherBoundaryResult_t;
 
 bool patternLauncherIsEnabled(void);
+bool patternLauncherPatternHasMaterial(uint8_t patternNum);
+bool patternLauncherPatternIsExposed(uint8_t patternNum);
+bool patternLauncherTileIsLaunchable(uint8_t patternNum);
+void patternLauncherResetExposure(void);
+void patternLauncherTogglePatternExposure(uint8_t patternNum);
+void patternLauncherValidatePending(void);
 int16_t patternLauncherGetCurrent(void);
 uint8_t patternLauncherGetQueueCount(void);
 int16_t patternLauncherGetQueueItem(uint8_t index);

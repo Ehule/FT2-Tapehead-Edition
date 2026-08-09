@@ -61,7 +61,18 @@ Empty, populated Matrix-only, populated song-used, and masked patterns use
 separate monochrome treatments. Strong colors and queue/slot numbers are
 reserved for transport feedback.
 
+Empty and masked tiles are visibly dimmed and are unavailable for both Q and
+Poly launches. They cannot acquire queue numbers or pending launch colors from
+mouse, APC40/MIDI, or automatic requests. Masking a queued tile cancels that
+pending launch without stopping an instance that is already sounding;
+unmasking populated material restores launch eligibility immediately. Use
+**Performance Mute** when structural silence is wanted during performance.
+
 ## Sample Deck
+
+Empty Sample tiles are likewise dimmed and unavailable in Q and Poly. Assigning
+a valid loaded sample makes the tile launchable immediately; use Performance
+Mute rather than an empty Sample tile to perform silence.
 
 | Gesture | Action |
 |---|---|

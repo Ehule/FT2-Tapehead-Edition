@@ -682,7 +682,7 @@ static bool matrixItemIsAvailable(tapeheadMatrixTarget_t target,
 	if (target == TAPEHEAD_MATRIX_SAMPLE)
 		return sampleLauncherTileIsLoaded(item);
 	return item < MAX_PATTERNS &&
-		patternLauncherPatternIsExposed((uint8_t)item);
+		patternLauncherTileIsLaunchable((uint8_t)item);
 }
 
 static bool queueNextSequenceItem(void)
@@ -863,7 +863,7 @@ bool tapeheadActionMatrixSlotTrigger(uint8_t localSlot)
 	{
 		const uint8_t patternNum =
 			(uint8_t)((patternLauncherGetPage() * 32) + localSlot);
-		if (!patternLauncherPatternIsExposed(patternNum))
+		if (!patternLauncherTileIsLaunchable(patternNum))
 			return false;
 		if (matrixGridPoly)
 			changed = polyMatrixTogglePattern(patternNum, false);

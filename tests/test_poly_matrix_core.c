@@ -17,6 +17,23 @@ static bool fastTrackReversed[MAX_CHANNELS];
 static uint8_t fastTrackNumerator[MAX_CHANNELS];
 static uint8_t fastTrackDenominator[MAX_CHANNELS];
 static bool qOwnedDestination[MAX_CHANNELS];
+static bool patternExposed[MAX_PATTERNS];
+
+bool patternLauncherTileIsLaunchable(uint8_t patternNum)
+{
+	if (!patternExposed[patternNum] || pattern[patternNum] == NULL)
+		return false;
+	for (int32_t row = 0; row < patternNumRows[patternNum]; row++)
+	{
+		for (uint8_t channel = 0; channel < song.numChannels; channel++)
+		{
+			const note_t *event = &pattern[patternNum][row * MAX_CHANNELS + channel];
+			if (event->note || event->instr || event->vol || event->efx || event->efxData)
+				return true;
+		}
+	}
+	return false;
+}
 
 bool patternLauncherOwnsDestination(int32_t destinationChannel)
 {
@@ -69,6 +86,7 @@ static void resetFixture(void)
 	memset(fastTrackClutched, 0, sizeof (fastTrackClutched));
 	memset(fastTrackReversed, 0, sizeof (fastTrackReversed));
 	memset(qOwnedDestination, 0, sizeof (qOwnedDestination));
+	memset(patternExposed, 1, sizeof (patternExposed));
 
 	for (int32_t i = 0; i < MAX_CHANNELS; i++)
 	{
@@ -385,6 +403,29 @@ static void testPolyEventsCannotSteerMainTransport(void)
 	assert(event.efxData == 0x7D);
 }
 
+static void testUnavailablePatternsCannotStartPoly(void)
+{
+	static note_t source[4 * MAX_CHANNELS];
+	resetFixture();
+	memset(source, 0, sizeof (source));
+	pattern[23] = source;
+	patternNumRows[23] = 4;
+	assert(!polyMatrixTogglePattern(23, false));
+	assert(!polyMatrixIsPatternActive(23));
+
+	source[0].note = 48;
+	patternExposed[23] = false;
+	assert(!polyMatrixTogglePattern(23, false));
+	assert(!polyMatrixIsPatternActive(23));
+
+	patternExposed[23] = true;
+	assert(polyMatrixTogglePattern(23, false));
+	assert(polyMatrixIsPatternActive(23));
+	patternExposed[23] = false;
+	assert(polyMatrixTogglePattern(23, true));
+	assert(!polyMatrixIsPatternActive(23));
+}
+
 int main(void)
 {
 	testInitialRowAndOneToOneClock();
@@ -399,6 +440,7 @@ int main(void)
 	testPolyToQHandoffWaitsForWholeBundle();
 	testMoreThanEightThreadsIsRejected();
 	testPolyEventsCannotSteerMainTransport();
-	puts("12 native Poly Matrix core tests passed.");
+	testUnavailablePatternsCannotStartPoly();
+	puts("13 native Poly Matrix core tests passed.");
 	return 0;
 }

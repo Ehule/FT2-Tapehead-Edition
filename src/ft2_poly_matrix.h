@@ -28,6 +28,7 @@ uint8_t polyMatrixGetActiveCount(void);
 void polyMatrixReset(void);
 
 bool polyMatrixRequestQHandoff(uint8_t patternNum);
+void polyMatrixCancelQHandoff(uint8_t patternNum);
 bool polyMatrixClaimReadyQHandoff(uint8_t *patternNum);
 void polyMatrixCompleteQHandoff(uint8_t patternNum);
 void polyMatrixCompleteQHandoffAtBoundary(uint8_t patternNum);

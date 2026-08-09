@@ -26,6 +26,50 @@ static volatile int16_t patternLauncherForcedNext = -1;
 static volatile bool patternLauncherRouteActive;
 static volatile int8_t patternLauncherSourceForDestination[MAX_CHANNELS];
 static volatile bool patternLauncherDestinationReleasePending[MAX_CHANNELS];
+static bool patternLauncherExposedPatterns[MAX_PATTERNS];
+static bool patternLauncherExposureInitialized;
+static bool patternTrackIsPopulated(uint8_t patternNum, uint8_t sourceChannel);
+
+bool patternLauncherPatternHasMaterial(uint8_t patternNum)
+{
+	if (pattern[patternNum] == NULL || patternNumRows[patternNum] <= 0)
+		return false;
+
+	for (uint8_t channel = 0; channel < song.numChannels; channel++)
+	{
+		if (patternTrackIsPopulated(patternNum, channel))
+			return true;
+	}
+	return false;
+}
+
+bool patternLauncherPatternIsExposed(uint8_t patternNum)
+{
+	if (!patternLauncherExposureInitialized)
+		patternLauncherResetExposure();
+	return patternLauncherExposedPatterns[patternNum];
+}
+
+bool patternLauncherTileIsLaunchable(uint8_t patternNum)
+{
+	return patternLauncherPatternIsExposed(patternNum) &&
+		patternLauncherPatternHasMaterial(patternNum);
+}
+
+void patternLauncherResetExposure(void)
+{
+	for (uint16_t i = 0; i < MAX_PATTERNS; i++)
+		patternLauncherExposedPatterns[i] = true;
+	patternLauncherExposureInitialized = true;
+}
+
+void patternLauncherTogglePatternExposure(uint8_t patternNum)
+{
+	if (!patternLauncherExposureInitialized)
+		patternLauncherResetExposure();
+	patternLauncherExposedPatterns[patternNum] ^= 1;
+	patternLauncherValidatePending();
+}
 
 static bool patternTrackIsPopulated(uint8_t patternNum, uint8_t sourceChannel)
 {
@@ -52,10 +96,8 @@ static bool buildPatternLauncherRoute(uint8_t patternNum,
 	for (int32_t i = 0; i < MAX_CHANNELS; i++)
 		sourceForDestination[i] = -1;
 
-	if (patternNumRows[patternNum] <= 0)
+	if (!patternLauncherTileIsLaunchable(patternNum))
 		return false;
-	if (pattern[patternNum] == NULL)
-		return true;
 
 	bool reserved[MAX_CHANNELS] = { false };
 	for (uint8_t sourceChannel = 0; sourceChannel < song.numChannels;
@@ -84,8 +126,6 @@ static bool buildPatternLauncherRoute(uint8_t patternNum,
 		sourceForDestination[destination] = (int8_t)sourceChannel;
 	}
 
-	/* Empty Q patterns remain valid timing/sustain loops. They simply own no
-	** tunnels, leaving the entire station available to Poly. */
 	return true;
 }
 
@@ -160,6 +200,27 @@ static void removePatternFromQueue(int16_t patternNum)
 	patternLauncherQueueCount = writeIndex;
 }
 
+void patternLauncherValidatePending(void)
+{
+	uint8_t writeIndex = 0;
+	for (uint8_t readIndex = 0; readIndex < patternLauncherQueueCount; readIndex++)
+	{
+		const int16_t item = patternLauncherQueue[readIndex];
+		if (item >= 0 && patternLauncherTileIsLaunchable((uint8_t)item))
+			patternLauncherQueue[writeIndex++] = item;
+	}
+	for (uint8_t i = writeIndex; i < patternLauncherQueueCount; i++)
+		patternLauncherQueue[i] = -1;
+	patternLauncherQueueCount = writeIndex;
+
+	if (patternLauncherForcedNext >= 0 &&
+		!patternLauncherTileIsLaunchable((uint8_t)patternLauncherForcedNext))
+		patternLauncherForcedNext = -1;
+	if (patternLauncherPolyHandoffPending >= 0 &&
+		!patternLauncherTileIsLaunchable((uint8_t)patternLauncherPolyHandoffPending))
+		patternLauncherPolyHandoffPending = -1;
+}
+
 bool patternLauncherIsEnabled(void)
 {
 	return patternLauncherEnabled;
@@ -172,6 +233,7 @@ int16_t patternLauncherGetCurrent(void)
 
 uint8_t patternLauncherGetQueueCount(void)
 {
+	patternLauncherValidatePending();
 	return patternLauncherQueueCount;
 }
 
@@ -248,6 +310,9 @@ void patternLauncherSetEnabled(bool enabled)
 
 void patternLauncherRequest(uint8_t patternNum, bool ctrlPressed, bool shiftPressed)
 {
+	patternLauncherValidatePending();
+	if (!patternLauncherTileIsLaunchable(patternNum))
+		return;
 	if (!patternLauncherEnabled)
 	{
 		patternLauncherSavedSongPos =
@@ -388,6 +453,7 @@ patternLauncherBoundaryResult_t patternLauncherHandleBoundary(void)
 {
 	if (!patternLauncherEnabled)
 		return PATTERN_LAUNCHER_BOUNDARY_INACTIVE;
+	patternLauncherValidatePending();
 
 	/*
 	** Middle-clicking the active Q tile transfers it into Poly at Q's own
@@ -552,6 +618,11 @@ void handlePolyMatrixQHandoff(void)
 	uint8_t patternNum;
 	if (!polyMatrixClaimReadyQHandoff(&patternNum))
 		return;
+	if (!patternLauncherTileIsLaunchable(patternNum))
+	{
+		polyMatrixCancelQHandoff(patternNum);
+		return;
+	}
 
 	if (!songPlaying)
 	{

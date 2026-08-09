@@ -192,6 +192,7 @@ instead of repainting the last scheduled transport row over the manual one.
 | Tapehead state | Q-selected feedback | Poly-selected feedback |
 | --- | --- | --- |
 | Available Pattern / loaded Sample | Dim green | Dim blue |
+| Empty or masked/unavailable tile | Off | Off |
 | Q active | Pulsing green | Dim green |
 | Q queued / automatic future item | Blinking yellow | Dim yellow |
 | Return / Continue / Stop | Yellow / orange / blinking red | Dimmed equivalent |
@@ -199,6 +200,10 @@ instead of repainting the last scheduled transport row over the manual one.
 | Poly start / stop pending | Dim pulse / blink | Pulsing teal / blinking dark cyan |
 | Same tile in Q and Poly | Alternating Q and Poly colors | Alternating Poly and Q colors |
 | Upper column launch rail | Dim purple; active column pulses bright purple | Same fixed launch color |
+
+Off grid tiles cannot be launched or queued in Q or Poly. This applies to
+empty tiles and masked Pattern tiles; use Performance Mute when silence is the
+intended performance gesture.
 
 Each physical RGB pad has one authoritative steady/pulse/blink state. Tapehead
 clears obsolete animation channels on every transition and explicitly clears
