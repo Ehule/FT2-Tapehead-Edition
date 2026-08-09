@@ -349,6 +349,7 @@
     <ClCompile Include="..\..\src\ft2_structs.c" />
     <ClCompile Include="..\..\src\ft2_sysreqs.c" />
     <ClCompile Include="..\..\src\ft2_tapehead_actions.c" />
+    <ClCompile Include="..\..\src\ft2_track_trim.c" />
     <ClCompile Include="..\..\src\ft2_tables.c" />
     <ClCompile Include="..\..\src\ft2_textboxes.c" />
     <ClCompile Include="..\..\src\ft2_trim.c" />
@@ -401,6 +402,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\ft2_about.h" />
+    <ClInclude Include="..\..\src\ft2_track_trim.h" />
 	<ClInclude Include="..\..\src\ft2_apc40_mk2.h" />
 	<ClInclude Include="..\..\src\ft2_sample_morph.h" />
     <ClInclude Include="..\..\src\ft2_audio.h" />

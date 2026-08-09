@@ -265,6 +265,8 @@ static void resetFixture(int32_t numChannels)
 	memset(&ui, 0, sizeof (ui));
 	memset(&config, 0, sizeof (config));
 	memset(&tapeheadConfig, 0, sizeof (tapeheadConfig));
+	tapeheadConfig.trackTrimMaxPercent = 200;
+	tapeheadConfig.trackTrimDisplayWidth = 2;
 	tapeheadConfig.patternJogAudition = TAPEHEAD_PATTERN_JOG_AUDITION_LATCHED;
 	memset(&audio, 0, sizeof (audio));
 	config.masterVol = 128;
@@ -376,6 +378,11 @@ static void testTrackTrimClampsAndRefreshesVolume(void)
 	channel[1].status = 0;
 	assert(!tapeheadActionTrackTrimSet(1, TAPEHEAD_TRACK_TRIM_MAX));
 	assert(channel[1].status == 0);
+
+	/* Mouse-wheel and controller paths share this setter and ceiling. */
+	tapeheadConfig.trackTrimMaxPercent = 100;
+	assert(tapeheadActionTrackTrimSet(1, 900));
+	assert(channelVolumeTrim[1] == TAPEHEAD_TRACK_TRIM_UNITY);
 }
 
 static void testRevealHistoryIsDeterministic(void)

@@ -176,7 +176,7 @@ an auditioned or strummed destination is consumed and resumes on the next row.
 
 Note On with velocity zero is treated as Note Off. Button actions run on the
 press edge only, so a release cannot toggle a track a second time. CC values
-map linearly from `0..127` to Tapehead trim `0..512` (`0..200%`). Repeated
+map linearly from `0..127` to the configured Tapehead trim ceiling. Repeated
 pending absolute CC values are coalesced before the main thread applies them.
 Relative Tempo and both Pattern Jog message types are never coalesced, so every
 encoder detent and crossfader position reaches the action queue.
@@ -229,3 +229,17 @@ The checked-in template intentionally uses one stereo bus, disables Mono
 Outputs and HD mode, and contains no machine-specific audio or MIDI device
 selection. Files such as `audiodev.ini` and `mididev.ini` are local runtime
 state and should not be treated as portable project configuration.
+Set `TrackTrimMaxPercent` in `[MIDI]` to an integer from `100` through `200`.
+`100` caps every per-track trim at unity (256), `150` caps it at 384, and
+`200` preserves the full boost range (512). Missing or malformed values use
+`200`; numerical values outside the range are clamped. APC track faders use
+their complete physical travel to reach the configured ceiling, and scope
+mouse-wheel trim uses the same limit. This does not affect the master fader,
+which always stops at unity (256).
+
+Each visible tracker scope includes a fixed 0–200% trim-position strip with a
+unity notch. It displays stored channel trim—not live audio amplitude or a
+clipping measurement. Red denotes above-unity boost/headroom in use.
+`TrackTrimDisplayWidth` accepts `0` through `8` logical pixels, defaults to
+`2` when missing or malformed, and clamps numerical values to that range.
+Setting it to `0` hides the strips without disabling track trim itself.

@@ -719,6 +719,10 @@ static void writeDefaultTapeheadConfig(const UNICHAR *filePathU)
 	fputs("ControlOutput=\n", f);
 	fputs("; Brightness of the APC40 mkII's 40 RGB pads (accepted range: 0-100).\n", f);
 	fputs("APC40RGBBrightness=100\n", f);
+	fputs("; Per-track trim ceiling in percent (accepted range: 100-200).\n", f);
+	fputs("TrackTrimMaxPercent=200\n", f);
+	fputs("; Onscreen track-trim strip width in logical pixels (0 disables it; range: 0-8).\n", f);
+	fputs("TrackTrimDisplayWidth=2\n", f);
 	fputs("; Cue Level/Crossfader strum: Latched, Momentary, ManualPingPong or Off.\n", f);
 	fputs("PatternJogAudition=Latched\n", f);
 	fputs("; FastTracks channels during Cue Level/Crossfader strumming: Ignore or Include.\n", f);
@@ -765,6 +769,8 @@ void loadTapeheadConfig(void)
 	tapeheadConfig.midiPerformanceControl = false;
 	tapeheadConfig.midiProfile = TAPEHEAD_MIDI_PROFILE_NONE;
 	tapeheadConfig.apc40RGBBrightness = 100;
+	tapeheadConfig.trackTrimMaxPercent = 200;
+	tapeheadConfig.trackTrimDisplayWidth = 2;
 	tapeheadConfig.patternJogAudition = TAPEHEAD_PATTERN_JOG_AUDITION_LATCHED;
 	tapeheadConfig.patternJogIncludeFastTracks = false;
 	tapeheadConfig.transportFreezeAudioCut = false;
@@ -972,6 +978,30 @@ void loadTapeheadConfig(void)
 					(errno == ERANGE ? (*value == '-' ? 0 : 100) :
 					brightness < 0 ? 0 : brightness > 100 ? 100 : brightness);
 			}
+		}
+		else if (section == TAPEHEAD_SECTION_MIDI &&
+			!_stricmp(key, "TrackTrimMaxPercent"))
+		{
+			char *end;
+			errno = 0;
+			const long percent = strtol(value, &end, 10);
+			while (isspace((unsigned char)*end)) end++;
+			if (value != end && *end == '\0')
+				tapeheadConfig.trackTrimMaxPercent = (uint8_t)
+					(errno == ERANGE ? (*value == '-' ? 100 : 200) :
+					percent < 100 ? 100 : percent > 200 ? 200 : percent);
+		}
+		else if (section == TAPEHEAD_SECTION_MIDI &&
+			!_stricmp(key, "TrackTrimDisplayWidth"))
+		{
+			char *end;
+			errno = 0;
+			const long width = strtol(value, &end, 10);
+			while (isspace((unsigned char)*end)) end++;
+			if (value != end && *end == '\0')
+				tapeheadConfig.trackTrimDisplayWidth = (uint8_t)
+					(errno == ERANGE ? (*value == '-' ? 0 : 8) :
+					width < 0 ? 0 : width > 8 ? 8 : width);
 		}
 		else if (section == TAPEHEAD_SECTION_MIDI &&
 			!_stricmp(key, "PatternJogAudition"))

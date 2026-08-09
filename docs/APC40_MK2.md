@@ -60,13 +60,29 @@ anything already playing:
 | APC control | Plain press/move | Shift layer | Feedback |
 | --- | --- | --- | --- |
 | Track Control encoder | Set FastTracks ratio | — | 17 distinct ring positions |
-| Track fader | Track trim, 0–200% | — | Hardware position |
+| Track fader | Track trim, 0–configured ceiling | — | Hardware position |
 | Record Arm ○ | Toggle that track's FastTracks clutch | Unassigned | On = track clutch engaged |
 | Solo | Non-destructive Performance Solo; second press restores the previous Performance Mute arrangement | — | Audible solo track |
 | Activator 1–8 | Select Pattern Bank 1–8 | Select Sample Bank 1–8 | Normally shows Pattern bank; while Shift is held shows Sample bank |
 | Track Select | Toggle per-track FastTracks Reverse | Toggle per-track FastTracks Pattern/Song Mode | Normally shows Reverse; while Shift is held shows Song Mode |
 | Clip Stop | Toggle Performance Mute | — | On = red scope X / muted |
 | Crossfader A/B button | Enable/disable FastTracks for that track | — | Dim = selected while master bypassed; bright = active |
+
+Track faders control the complete tracker channel and can boost above unity.
+`TrackTrimMaxPercent=100` makes the top of their physical travel unity;
+`TrackTrimMaxPercent=200` preserves the full 0–200% boost range. The complete
+fader travel is always remapped to the selected ceiling. The narrow green,
+yellow, and red strip in each visible scope is the stored trim position—not a
+live amplitude or clipping meter. Its fixed midpoint notch is unity, and red
+only means above-unity headroom is in use.
+
+`TrackTrimDisplayWidth` controls the strip width in logical interface pixels.
+Values `1` through `8` select the width in both normal and HD modes; `0`
+disables the onscreen strips without changing the stored trims or faders.
+Missing or malformed values retain the default width of `2`.
+
+The master fader remains independent: its complete range is always 0–256
+(silence through unity), and it can never boost above unity.
 
 ## Sample Morph and FastTracks block
 
