@@ -24,6 +24,7 @@
     <ClCompile Include="..\..\src\ft2_midi.c" />
     <ClCompile Include="..\..\src\ft2_midi_map.c" />
     <ClCompile Include="..\..\src\ft2_midi_surface.c" />
+    <ClCompile Include="..\..\src\ft2_microtonal.c" />
     <ClCompile Include="..\..\src\ft2_multichannel.c" />
     <ClCompile Include="..\..\src\ft2_module_loader.c" />
     <ClCompile Include="..\..\src\ft2_module_saver.c" />
@@ -224,6 +225,9 @@
       <Filter>headers</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\ft2_midi_surface.h">
+      <Filter>headers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\ft2_microtonal.h">
       <Filter>headers</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\ft2_multichannel.h">
