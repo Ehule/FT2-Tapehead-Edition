@@ -147,8 +147,9 @@ static void drawOutputBusMarker(uint16_t scopeXOffs, uint16_t scopeYOffs,
 		!monoOutputMode && primaryBus > 0 &&
 		(channelOutputBusMask[channelIndex] & 1);
 
-	/* Reserve the rightmost four pixels for the track-trim strip. */
-	int16_t x = scopeXOffs + scopeLen - 10;
+	/* Keep the marker clear of the configurable right-edge trim strip. */
+	int16_t x = scopeXOffs + scopeLen - 8 -
+		tapeheadConfig.trackTrimDisplayWidth;
 	if (alsoToMain)
 	{
 		x -= 7;
@@ -209,14 +210,18 @@ static void drawPerformanceMuteX(uint16_t scopeX, uint16_t scopeY,
 static void drawTrackTrimIndicator(uint16_t scopeX, uint16_t scopeY,
 	uint16_t scopeLen, int32_t channelIndex)
 {
+	const uint16_t width = tapeheadConfig.trackTrimDisplayWidth;
+	if (width == 0)
+		return;
+
 	const uint16_t height = SCOPE_HEIGHT - 4;
-	const uint16_t x = scopeX + scopeLen - 2;
+	const uint16_t x = scopeX + scopeLen - width;
 	const uint16_t top = scopeY + 2;
 	const uint16_t fill = tapeheadTrackTrimFillHeight(
 		channelVolumeTrim[channelIndex], height);
 	const uint16_t unityY = top + height - (height / 2);
 
-	fillRect(x, top, 2, height, PAL_BCKGRND);
+	fillRect(x, top, width, height, PAL_BCKGRND);
 	for (uint16_t n = 0; n < fill; n++)
 	{
 		const uint16_t representedTrim = (uint16_t)
@@ -224,9 +229,9 @@ static void drawTrackTrimIndicator(uint16_t scopeX, uint16_t scopeY,
 		const tapeheadTrackTrimBand_t band = tapeheadTrackTrimBand(representedTrim);
 		const uint8_t color = band == TAPEHEAD_TRACK_TRIM_BAND_RED ? PAL_PATTEXT :
 			band == TAPEHEAD_TRACK_TRIM_BAND_YELLOW ? PAL_MOUSEPT : PAL_TRACKTRIM_GREEN;
-		hLine(x, top + height - n - 1, 2, color);
+		hLine(x, top + height - n - 1, width, color);
 	}
-	hLine(x - 1, unityY, 4, PAL_FORGRND);
+	hLine(x, unityY, width, PAL_FORGRND);
 }
 
 static void redrawScope(int32_t ch)
