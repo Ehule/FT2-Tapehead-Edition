@@ -338,6 +338,7 @@ typedef struct tapeheadConfig_t
 	uint8_t hdScale;
 	uint8_t hdStyle;
 	uint8_t midiProfile;
+	uint8_t apc40RGBBrightness;
 	uint8_t patternJogAudition;
 	bool patternJogIncludeFastTracks;
 	bool transportFreezeAudioCut;

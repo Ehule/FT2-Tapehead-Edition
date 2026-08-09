@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "ft2_apc40_mk2.h"
+#include "ft2_config.h"
 #include "ft2_fasttracks.h"
 #include "ft2_header.h"
 #include "ft2_midi_map.h"
@@ -42,6 +43,45 @@ enum
 	APC_COLOR_DIM_PURPLE = 48,
 	APC_COLOR_PURPLE = 49
 };
+
+uint8_t tapeheadAPC40Mk2ScaleRGBColor(uint8_t color, uint8_t brightness)
+{
+	/* Mode 2 exposes palette entries rather than continuous RGB intensity.
+	** Each row keeps one logical hue ordered from darkest to brightest. */
+	static const uint8_t shades[][3] =
+	{
+		{ 7, 6, APC_COLOR_RED },
+		{ 11, 10, APC_COLOR_ORANGE },
+		{ 11, 11, APC_COLOR_DIM_ORANGE },
+		{ APC_COLOR_DARK_YELLOW, APC_COLOR_DIM_YELLOW, APC_COLOR_YELLOW },
+		{ APC_COLOR_DARK_YELLOW, APC_COLOR_DIM_YELLOW, APC_COLOR_DIM_YELLOW },
+		{ APC_COLOR_DARK_YELLOW, APC_COLOR_DARK_YELLOW, APC_COLOR_DARK_YELLOW },
+		{ 19, APC_COLOR_DIM_GREEN, APC_COLOR_GREEN },
+		{ 19, APC_COLOR_DIM_GREEN, APC_COLOR_DIM_GREEN },
+		{ 35, 34, APC_COLOR_TEAL },
+		{ 39, APC_COLOR_DARK_CYAN, APC_COLOR_CYAN },
+		{ 39, APC_COLOR_DARK_CYAN, APC_COLOR_DARK_CYAN },
+		{ 43, APC_COLOR_DIM_BLUE, APC_COLOR_BLUE },
+		{ 43, APC_COLOR_DIM_BLUE, APC_COLOR_DIM_BLUE },
+		{ 47, APC_COLOR_DIM_PURPLE, APC_COLOR_PURPLE },
+		{ 47, APC_COLOR_DIM_PURPLE, APC_COLOR_DIM_PURPLE }
+	};
+	static const uint8_t colors[] =
+	{
+		APC_COLOR_RED, APC_COLOR_ORANGE, APC_COLOR_DIM_ORANGE,
+		APC_COLOR_YELLOW, APC_COLOR_DIM_YELLOW, APC_COLOR_DARK_YELLOW,
+		APC_COLOR_GREEN, APC_COLOR_DIM_GREEN, APC_COLOR_TEAL, APC_COLOR_CYAN,
+		APC_COLOR_DARK_CYAN, APC_COLOR_BLUE, APC_COLOR_DIM_BLUE,
+		APC_COLOR_PURPLE, APC_COLOR_DIM_PURPLE
+	};
+
+	if (color == APC_COLOR_OFF || brightness == 0) return APC_COLOR_OFF;
+	if (brightness >= 100) return color;
+	const uint8_t level = brightness <= 33 ? 0 : brightness <= 66 ? 1 : 2;
+	for (size_t i = 0; i < sizeof (colors) / sizeof (colors[0]); i++)
+		if (color == colors[i]) return shades[i][level];
+	return color;
+}
 
 typedef struct apcControl_t
 {
@@ -312,6 +352,10 @@ static void sendRGBState(uint8_t note, uint8_t primary, uint8_t secondary,
 {
 	if (note >= 128)
 		return;
+	primary = tapeheadAPC40Mk2ScaleRGBColor(primary,
+		tapeheadConfig.apc40RGBBrightness);
+	secondary = tapeheadAPC40Mk2ScaleRGBColor(secondary,
+		tapeheadConfig.apc40RGBBrightness);
 	apcRGBState_t *state = &rgbState[note];
 	if (state->valid && state->primary == primary &&
 		state->secondary == secondary && state->animation == animation)

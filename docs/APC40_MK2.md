@@ -185,6 +185,15 @@ clears obsolete animation channels on every transition and explicitly clears
 the complete APC feedback surface before exit or profile close, so old pad
 animations cannot survive after the program closes.
 
+The `[MIDI]` setting `APC40RGBBrightness=0..100` scales all 32 lower Matrix
+pads and the eight upper column-sequence pads through hue-matched hardware
+palette variants. `100` preserves the original colors exactly; `0` turns
+those pads off without disabling their input. Intermediate values progressively
+soften bright queued yellow and the green, cyan/blue, purple, orange, and red
+families where the discrete APC palette permits. The setting does not affect
+fixed-color track, transport, Scene Launch, or global-button LEDs. Missing or
+invalid values default to `100`, and out-of-range integers are clamped.
+
 Ordinary FT2 mute remains separate from Performance Mute. Ordinary mute uses
 the white scope X; Performance Mute uses Tapehead's red scope X.
 

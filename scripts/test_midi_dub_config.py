@@ -28,6 +28,7 @@ TransportFreezeAudio=Cut
 TransportFreezePedalMode=Hold
 TransportFreezeNavigation=Audition
 TransportFreezeResume=Retrigger
+APC40RGBBrightness=57
 
 [MIDI_MAP]
 NoteOn.1.48=TrackPerformanceMuteToggle:1
@@ -69,10 +70,25 @@ Track33=7
             cwd=ROOT,
         )
         subprocess.run(
-            [str(executable), str(tmp_path / "FT2.CFG")],
+            [str(executable), str(tmp_path / "FT2.CFG"), "57"],
             check=True,
             cwd=ROOT,
         )
+
+        # Missing and malformed values retain the safe default; valid signed
+        # integers are clamped to the documented range.
+        baseline = tapehead_ini.read_text(encoding="utf-8")
+        for value, expected in ((None, 100), ("nope", 100), ("-12", 0), ("345", 100)):
+            replacement = "" if value is None else f"APC40RGBBrightness={value}\n"
+            tapehead_ini.write_text(
+                baseline.replace("APC40RGBBrightness=57\n", replacement),
+                encoding="utf-8",
+            )
+            subprocess.run(
+                [str(executable), str(tmp_path / "FT2.CFG"), str(expected)],
+                check=True,
+                cwd=ROOT,
+            )
 
 
 if __name__ == "__main__":

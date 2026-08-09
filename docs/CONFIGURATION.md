@@ -74,6 +74,7 @@ PerformanceControl=false
 Profile=None
 ControlInput=
 ControlOutput=
+APC40RGBBrightness=100
 PatternJogAudition=Latched
 PatternJogFastTracks=Ignore
 
@@ -105,6 +106,13 @@ surface direction.
 built-in Akai layout for any inputs not overridden in `[MIDI_MAP]`, sends the
 official Alternate Ableton/Mode 2 introduction message, and enables state-led
 feedback. See [`APC40_MK2.md`](APC40_MK2.md) for the complete physical map.
+
+`APC40RGBBrightness` controls only the APC40 mkII's 40 RGB Matrix and upper
+column-sequence pads. It accepts integers from `0` (off) through `100` (the
+original palette appearance). Values outside that range are clamped, while a
+missing or malformed value safely uses `100`. Because the controller exposes
+discrete palette variants, adjacent settings can select the same intensity.
+Fixed-color track, transport, Scene Launch, and global LEDs are unaffected.
 
 `PatternJogAudition=Latched` makes a CC mapped to `PatternJogRelative` or
 `PatternJogAbsolute` sustain notes encountered while ordinary playback is
