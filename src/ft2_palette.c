@@ -161,6 +161,10 @@ void setPalette(pal16 *p, bool redrawScreen)
 	b8 = MAX(b8 - LOOP_PIN_COL_SUB, 0);
 
 	video.palette[PAL_LOOPPIN] = (PAL_LOOPPIN << 24) | RGB32(r8, g8, b8);
+	/* A theme-derived green keeps the trim strip inside the configurable
+	** palette rather than baking a display-specific RGB value into scopes. */
+	video.palette[PAL_TRACKTRIM_GREEN] = (PAL_TRACKTRIM_GREEN << 24) |
+		RGB32(b8, r8, g8);
 
 	/* Repaint grayscale custom artwork through the newly selected theme. */
 	refreshFastTracksLogoTheme();

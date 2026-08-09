@@ -51,6 +51,7 @@
     <ClCompile Include="..\..\src\ft2_structs.c" />
     <ClCompile Include="..\..\src\ft2_sysreqs.c" />
     <ClCompile Include="..\..\src\ft2_tapehead_actions.c" />
+    <ClCompile Include="..\..\src\ft2_track_trim.c" />
     <ClCompile Include="..\..\src\ft2_tables.c" />
     <ClCompile Include="..\..\src\ft2_textboxes.c" />
     <ClCompile Include="..\..\src\ft2_trim.c" />

@@ -147,7 +147,8 @@ static void drawOutputBusMarker(uint16_t scopeXOffs, uint16_t scopeYOffs,
 		!monoOutputMode && primaryBus > 0 &&
 		(channelOutputBusMask[channelIndex] & 1);
 
-	int16_t x = scopeXOffs + scopeLen - 6;
+	/* Reserve the rightmost four pixels for the track-trim strip. */
+	int16_t x = scopeXOffs + scopeLen - 10;
 	if (alsoToMain)
 	{
 		x -= 7;
@@ -179,14 +180,14 @@ static void drawPerformanceMuteX(uint16_t scopeX, uint16_t scopeY,
 	uint32_t *dst =
 		&video.frameBuffer[(muteGfxY * SCREEN_W) + muteGfxX];
 
-	const uint32_t solidRed = RGB32(255, 24, 24);
+	const uint32_t solidRed = video.palette[PAL_PATTEXT];
 
 	/*
 	** Palette index 0 is the mute graphic's rectangular background.
 	** The remaining indices form the shaded X.
 	**
 	** Preserve the background through the active FT2 theme, while
-	** rendering every visible part of the X in fixed red.
+	** rendering every visible part of the X in the theme's red text color.
 	*/
 	for (int32_t y = 0; y < muteGfxHeight; y++)
 	{
@@ -205,8 +206,33 @@ static void drawPerformanceMuteX(uint16_t scopeX, uint16_t scopeY,
 	}
 }
 
+static void drawTrackTrimIndicator(uint16_t scopeX, uint16_t scopeY,
+	uint16_t scopeLen, int32_t channelIndex)
+{
+	const uint16_t height = SCOPE_HEIGHT - 4;
+	const uint16_t x = scopeX + scopeLen - 2;
+	const uint16_t top = scopeY + 2;
+	const uint16_t fill = tapeheadTrackTrimFillHeight(
+		channelVolumeTrim[channelIndex], height);
+	const uint16_t unityY = top + height - (height / 2);
+
+	fillRect(x, top, 2, height, PAL_BCKGRND);
+	for (uint16_t n = 0; n < fill; n++)
+	{
+		const uint16_t representedTrim = (uint16_t)
+			(((uint32_t)(n + 1) * TAPEHEAD_TRACK_TRIM_MAX) / height);
+		const tapeheadTrackTrimBand_t band = tapeheadTrackTrimBand(representedTrim);
+		const uint8_t color = band == TAPEHEAD_TRACK_TRIM_BAND_RED ? PAL_PATTEXT :
+			band == TAPEHEAD_TRACK_TRIM_BAND_YELLOW ? PAL_MOUSEPT : PAL_TRACKTRIM_GREEN;
+		hLine(x, top + height - n - 1, 2, color);
+	}
+	hLine(x - 1, unityY, 4, PAL_FORGRND);
+}
+
 static void redrawScope(int32_t ch)
 {
+	if (!ui.scopesShown)
+		return;
 	int32_t i;
 
 	int32_t chansPerRow = (uint32_t)song.numChannels >> 1;
@@ -258,6 +284,7 @@ static void redrawScope(int32_t ch)
 	}
 
 	drawOutputBusMarker(x + 1, y + 1, scopeLen, i);
+	drawTrackTrimIndicator(x + 1, y + 1, scopeLen, i);
 	scope[ch].wasCleared = false;
 }
 
@@ -377,8 +404,6 @@ bool testScopesMouseWheel(bool directionUp)
 	const int32_t trimDelta = directionUp ? 4 : -4;
 	tapeheadActionTrackTrimSet(channelIndex,
 		(int32_t)channelVolumeTrim[channelIndex] + trimDelta);
-
-	redrawScope(channelIndex);
 
 	return true;
 }
@@ -616,6 +641,8 @@ static void updateScopes(void)
 
 void drawScopes(void)
 {
+	if (!ui.scopesShown)
+		return;
 	scopesDisplayingFlag = true;
 	int32_t chansPerRow = (uint32_t)song.numChannels >> 1;
 
@@ -688,6 +715,7 @@ void drawScopes(void)
 			);
 
 		drawOutputBusMarker(scopeXOffs, scopeYOffs, scopeDrawLen, i);
+		drawTrackTrimIndicator(scopeXOffs, scopeYOffs, scopeDrawLen, i);
 
 		// draw rec. symbol (if enabled)
 		if (config.multiRecChn[i])

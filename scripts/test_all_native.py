@@ -10,6 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TEST_SCRIPTS = (
+	"test_track_trim.py",
 	"test_apc40_mk2.py",
     "test_sample_morph.py",
     "test_tapehead_actions.py",

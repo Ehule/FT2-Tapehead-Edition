@@ -28,6 +28,7 @@ def main() -> None:
 				str(ROOT / "tests" / "test_midi_map.c"),
 				str(ROOT / "src" / "ft2_midi_map.c"),
 				str(ROOT / "src" / "ft2_tapehead_actions.c"),
+				str(ROOT / "src" / "ft2_track_trim.c"),
 				str(ROOT / "src" / "ft2_microtonal.c"),
 				"-lm",
 				"-o",

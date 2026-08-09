@@ -3,6 +3,7 @@
 #include <string.h>
 #include <SDL2/SDL_atomic.h>
 #include "ft2_header.h"
+#include "ft2_config.h"
 #include "ft2_fasttracks.h"
 #include "ft2_midi_map.h"
 #include "ft2_sample_morph.h"
@@ -611,8 +612,8 @@ void tapeheadMidiMapProcessPending(void)
 
 			case TAPEHEAD_MIDI_ACTION_TRACK_TRIM:
 			{
-				const int32_t trim =
-					(event.value * TAPEHEAD_TRACK_TRIM_MAX + 63) / 127;
+				const int32_t trim = tapeheadTrackTrimMapMidi(event.value,
+					tapeheadTrackTrimCeiling(tapeheadConfig.trackTrimMaxPercent));
 				tapeheadActionTrackTrimSet(event.argument, trim);
 			}
 			break;

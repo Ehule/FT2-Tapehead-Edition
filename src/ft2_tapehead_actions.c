@@ -49,16 +49,6 @@ static bool channelIndexIsActive(int32_t channelIndex)
 		channelIndex < MAX_CHANNELS;
 }
 
-static int32_t clampTrackTrim(int32_t trim)
-{
-	if (trim < TAPEHEAD_TRACK_TRIM_MIN)
-		return TAPEHEAD_TRACK_TRIM_MIN;
-	if (trim > TAPEHEAD_TRACK_TRIM_MAX)
-		return TAPEHEAD_TRACK_TRIM_MAX;
-
-	return trim;
-}
-
 static void removeRevealHistoryChannel(int32_t channelIndex)
 {
 	for (uint8_t i = 0; i < revealHistoryCount;)
@@ -251,12 +241,15 @@ bool tapeheadActionTrackTrimSet(int32_t channelIndex, int32_t trim)
 	if (!channelIndexIsActive(channelIndex))
 		return false;
 
-	const uint16_t clampedTrim = (uint16_t)clampTrackTrim(trim);
+	const uint16_t ceiling = tapeheadTrackTrimCeiling(
+		tapeheadConfig.trackTrimMaxPercent);
+	const uint16_t clampedTrim = tapeheadTrackTrimClamp(trim, ceiling);
 	if (channelVolumeTrim[channelIndex] == clampedTrim)
 		return false;
 
 	channelVolumeTrim[channelIndex] = clampedTrim;
 	channel[channelIndex].status |= CS_UPDATE_VOL;
+	redrawScopeChannel(channelIndex);
 	return true;
 }
 

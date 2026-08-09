@@ -27,6 +27,7 @@ def main() -> None:
 				str(ROOT / "vs2026_project" / "ft2-clone" / "sdl" / "include"),
 				str(ROOT / "tests" / "test_tapehead_actions.c"),
 				str(ROOT / "src" / "ft2_tapehead_actions.c"),
+				str(ROOT / "src" / "ft2_track_trim.c"),
 				str(ROOT / "src" / "ft2_microtonal.c"),
 				"-lm",
 				"-o",
