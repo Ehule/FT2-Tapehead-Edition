@@ -717,6 +717,8 @@ static void writeDefaultTapeheadConfig(const UNICHAR *filePathU)
 	fputs("; Exact device names are preferred. A unique partial name is also accepted.\n", f);
 	fputs("ControlInput=\n", f);
 	fputs("ControlOutput=\n", f);
+	fputs("; Brightness of the APC40 mkII's 40 RGB pads (accepted range: 0-100).\n", f);
+	fputs("APC40RGBBrightness=100\n", f);
 	fputs("; Cue Level/Crossfader strum: Latched, Momentary, ManualPingPong or Off.\n", f);
 	fputs("PatternJogAudition=Latched\n", f);
 	fputs("; FastTracks channels during Cue Level/Crossfader strumming: Ignore or Include.\n", f);
@@ -762,6 +764,7 @@ void loadTapeheadConfig(void)
 	tapeheadConfig.monoOutputs = false;
 	tapeheadConfig.midiPerformanceControl = false;
 	tapeheadConfig.midiProfile = TAPEHEAD_MIDI_PROFILE_NONE;
+	tapeheadConfig.apc40RGBBrightness = 100;
 	tapeheadConfig.patternJogAudition = TAPEHEAD_PATTERN_JOG_AUDITION_LATCHED;
 	tapeheadConfig.patternJogIncludeFastTracks = false;
 	tapeheadConfig.transportFreezeAudioCut = false;
@@ -955,6 +958,20 @@ void loadTapeheadConfig(void)
 		{
 			snprintf(tapeheadConfig.midiControlOutput,
 				sizeof (tapeheadConfig.midiControlOutput), "%s", value);
+		}
+		else if (section == TAPEHEAD_SECTION_MIDI &&
+			!_stricmp(key, "APC40RGBBrightness"))
+		{
+			char *end;
+			errno = 0;
+			const long brightness = strtol(value, &end, 10);
+			while (isspace((unsigned char)*end)) end++;
+			if (value != end && *end == '\0')
+			{
+				tapeheadConfig.apc40RGBBrightness = (uint8_t)
+					(errno == ERANGE ? (*value == '-' ? 0 : 100) :
+					brightness < 0 ? 0 : brightness > 100 ? 100 : brightness);
+			}
 		}
 		else if (section == TAPEHEAD_SECTION_MIDI &&
 			!_stricmp(key, "PatternJogAudition"))

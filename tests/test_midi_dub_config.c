@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
 #include <SDL2/SDL_atomic.h>
@@ -33,14 +34,20 @@ static int expectChannel(int32_t track, uint8_t expected)
 
 int main(int argc, char **argv)
 {
-	if (argc != 2)
+	if (argc != 3)
 	{
-		fprintf(stderr, "usage: %s /path/to/FT2.CFG\n", argv[0]);
+		fprintf(stderr, "usage: %s /path/to/FT2.CFG expected-brightness\n", argv[0]);
 		return 2;
 	}
 
 	editor.configFileLocationU = argv[1];
 	loadTapeheadConfig();
+	if (tapeheadConfig.apc40RGBBrightness != (uint8_t)atoi(argv[2]))
+	{
+		fprintf(stderr, "expected RGB brightness %s, got %u\n", argv[2],
+			tapeheadConfig.apc40RGBBrightness);
+		return 1;
+	}
 	if (!tapeheadConfig.midiPerformanceControl ||
 		!tapeheadMidiMapIsEnabled() || tapeheadMidiMapGetBindingCount() != 2)
 	{

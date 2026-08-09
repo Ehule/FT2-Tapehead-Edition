@@ -76,6 +76,42 @@ static void testRGBTransitionClearsObsoleteAnimation(void)
 		messages, 8) == 0);
 }
 
+static void testRGBBrightnessPalette(void)
+{
+	/* 100 is byte-for-byte compatible, zero always means off. */
+	static const uint8_t colors[] = { 0, 5, 9, 13, 20, 21, 33, 37, 41, 49 };
+	for (size_t i = 0; i < sizeof (colors); i++)
+	{
+		assert(tapeheadAPC40Mk2ScaleRGBColor(colors[i], 100) == colors[i]);
+		assert(tapeheadAPC40Mk2ScaleRGBColor(colors[i], 0) == 0);
+	}
+
+	/* Queued yellow and the other logical hue families retain their hue while
+	** walking through the APC palette's available intensity variants. */
+	assert(tapeheadAPC40Mk2ScaleRGBColor(13, 80) == 13);
+	assert(tapeheadAPC40Mk2ScaleRGBColor(13, 50) == 14);
+	assert(tapeheadAPC40Mk2ScaleRGBColor(13, 20) == 15);
+	assert(tapeheadAPC40Mk2ScaleRGBColor(21, 50) == 20);
+	assert(tapeheadAPC40Mk2ScaleRGBColor(37, 50) == 38);
+	assert(tapeheadAPC40Mk2ScaleRGBColor(41, 50) == 42);
+	assert(tapeheadAPC40Mk2ScaleRGBColor(49, 50) == 48);
+	assert(tapeheadAPC40Mk2ScaleRGBColor(9, 50) == 10);
+	assert(tapeheadAPC40Mk2ScaleRGBColor(5, 50) == 6);
+	/* Fixed-color buttons do not use this mapper; unrecognized palette values
+	** are nevertheless left untouched as an additional safety property. */
+	assert(tapeheadAPC40Mk2ScaleRGBColor(1, 20) == 1);
+	assert(tapeheadAPC40Mk2ScaleRGBColor(3, 20) == 3);
+
+	/* Brightness changes only color values. Animation channels remain the
+	** established pulse and blink channels in the transition builder. */
+	uint8_t messages[12];
+	const uint8_t dimYellow = tapeheadAPC40Mk2ScaleRGBColor(13, 50);
+	assert(tapeheadAPC40Mk2BuildRGBTransition(4, 0, dimYellow, 13,
+		messages, sizeof (messages)) == 12);
+	assert(messages[0] == 0x98 && messages[3] == 0x9D &&
+		messages[9] == 0x9D && messages[11] == 14);
+}
+
 static void testBuiltInMappings(void)
 {
 	tapeheadMidiMapReset();
@@ -128,6 +164,7 @@ int main(void)
 	testIntroduction();
 	testRatioRing();
 	testRGBTransitionClearsObsoleteAnimation();
+	testRGBBrightnessPalette();
 	testBuiltInMappings();
 	puts("APC40 mkII profile tests passed.");
 	return 0;
