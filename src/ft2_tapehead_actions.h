@@ -3,9 +3,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define TAPEHEAD_TRACK_TRIM_MIN 0
-#define TAPEHEAD_TRACK_TRIM_UNITY 256
-#define TAPEHEAD_TRACK_TRIM_MAX 512
+#include "ft2_track_trim.h"
 
 typedef enum tapeheadMatrixTarget_t
 {
