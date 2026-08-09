@@ -22,11 +22,46 @@ After choosing Fast Bake or Live, choose an output target:
 The completion dialog reports how many microtonal commands were stripped or
 preserved; see [`MICROTONAL_PITCH.md`](MICROTONAL_PITCH.md).
 
+## Performance-capture contract
+
+**What you hear is what you bake, other than fader data.** **The faders remain
+the live mix.** Structural performance is flattened; track trim, the master
+fader, above-unity boost, and their movements never create XM volume commands,
+scaled samples, or automation. Record the audio output when the exact live
+fader mix, boost, or resulting distortion must be preserved.
+
+Ordinary mute and Performance Mute are combined into one effective audible
+state. Performance Solo, mute-all, reveal, and APC40 actions use those same
+states. A transition to silence writes a standard XM note cut; releasing only
+one overlapping mute cause does not reveal the track, resurrect its cut note,
+or replay events missed while muted. Tracker volume cells, sample-launch
+volume, envelopes, and other non-fader musical volume remain ordinary music.
+
+Pattern Matrix Q and Poly streams pass through the resolved replayer path.
+Their launches, queued replacements, handoffs, automatic advances, and stops
+therefore become the notes, instruments, volume cells, effects, and cuts they
+actually produce—not Tapehead tile commands. Independent streams share the
+existing collision/spill allocator.
+
+Sample Matrix launches become standard note/instrument events. The automatic
+bank-to-instrument mapping is reused, including its C-4-up sample note map.
+Q/Poly replacement and stop actions become starts and note cuts, and active
+voices are captured at Live Bake start. Empty tiles do nothing. A populated
+tile whose mapping is unavailable is omitted without interrupting capture;
+the completion accounting distinguishes unavailable positions from launches
+actually skipped. Conversion work that can be represented by the existing
+mapping is not an error.
+
+Sample Morph is resolved after its per-track selection: subsequent notes point
+at the sample actually chosen rather than blindly copying the source cell's
+sample choice. Encoder motion itself is not automation and does not retrigger a
+voice. Track selections remain independent.
+
 ## Before baking
 
-Stop ordinary Song/Pattern playback and all Pattern Q, Pattern Poly, Sample Q,
-and Sample Poly activity. The baker will refuse to start while those transports
-own playback state.
+Stop ordinary Song/Pattern playback before Fast Bake. Deck activity is not a
+blanket veto. Live Bake may be armed while Pattern Q/Poly or Sample Q/Poly is
+already active and records that starting state.
 
 Keep the source XM. The baker writes a separate file and does not turn the
 loaded composition into the baked result.
@@ -152,19 +187,12 @@ No XM is written when:
 The baker reports the relevant collision, sub-row, or size failure instead of
 silently discarding music.
 
-## Current capture boundary
+## Capture boundary
 
-CP04.6 bakes the ordinary Song replayer and FasTracks. It does **not** capture:
-
-- Pattern Matrix Q or Poly performance;
-- Sample Matrix Q or Poly performance;
-- Deck Matrix cross-deck scenes;
-- multichannel bus assignments or performance-mixer automation;
-- live MIDI input as new tracker events unless that material already enters
-  the captured XM event stream.
-
-Those are future inputs to the same resolved-event pipeline, not promises of
-the current checkpoint.
+The Baker captures the resolved Song, FastTracks, Pattern Matrix, Sample
+Matrix, Sample Morph, mute, and solo event stream. It does not bake
+multichannel hardware routing, track/master faders, or mixer gain automation.
+The result remains a standard XM event performance rather than an audio render.
 
 ## Proven CP04.6 validation
 

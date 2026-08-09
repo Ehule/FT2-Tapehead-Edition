@@ -45,6 +45,40 @@ static uint16_t bakeInitialBPM, bakeInitialSpeed;
 static uint64_t bakePerformanceStartCounter;
 static UNICHAR bakeFilenameU[PATH_MAX+1];
 static bakerChannelAllocator_t bakeAllocator;
+static bakerAudibilityState_t bakeAudibility;
+static uint32_t bakeSkippedSampleLaunches;
+static bool bakeInvalidSampleTiles[SAMPLE_LAUNCHER_MAX_TILES];
+static int8_t bakeSampleVoiceChannel[SAMPLE_LAUNCHER_MAX_POLY + 1];
+
+static bool sampleMatrixPreflight(void)
+{
+	char positions[160] = "";
+	uint32_t invalidCount = 0;
+	for (uint16_t tile = 0; tile < SAMPLE_LAUNCHER_MAX_TILES; tile++)
+	{
+		if (!sampleLauncherTileIsPopulated(tile) || sampleLauncherTileIsLoaded(tile))
+			continue;
+		bakeInvalidSampleTiles[tile] = true;
+		invalidCount++;
+		if (strlen(positions) < sizeof (positions) - 12)
+		{
+			char position[12];
+			snprintf(position, sizeof (position), "%sB%u/T%u",
+				positions[0] == '\0' ? "" : ", ",
+				tile / SAMPLE_LAUNCHER_TILES_PER_BANK,
+				tile % SAMPLE_LAUNCHER_TILES_PER_BANK);
+			strncat(positions, position, sizeof (positions) - strlen(positions) - 1);
+		}
+	}
+	if (invalidCount == 0)
+		return true;
+
+	char message[512];
+	snprintf(message, sizeof (message),
+		"Some populated Sample Matrix tiles do not have valid sample mappings and cannot be represented in the baked XM: %s. Their launches will be omitted. All other performance activity will be recorded. Continue?",
+		positions);
+	return okBox(2, "Bake Sample Matrix", message, NULL) == 1;
+}
 
 bool bakerIsRunning(void)
 {
@@ -155,8 +189,10 @@ static bool compositionNeedsTickResolution(const fastTracksRuntimeState_t *fastT
 
 void bakerBeginTick(void)
 {
+	const bool performanceClock = songPlaying || patternLauncherHasRouting() ||
+		polyMatrixHasAudioWork() || sampleLauncherHasTransportWork();
 	if (bakerIsRunning() &&
-		bakerTimelineShouldAdvance(bakeTickResolution, songPlaying, song.tick))
+		bakerTimelineShouldAdvance(bakeTickResolution, performanceClock, song.tick))
 	{
 		if (bakeRow < BAKE_MAX_ROWS)
 			bakeRow++;
@@ -164,6 +200,108 @@ void bakerBeginTick(void)
 		if (bakeRow >= BAKE_MAX_ROWS)
 			bakeOverflow = true;
 	}
+
+	if (bakerIsRunning())
+	{
+		const uint32_t becameMuted = bakerAudibilityUpdate(&bakeAudibility,
+			editor.channelMuted, performanceMute, (uint8_t)song.numChannels);
+		for (int32_t i = 0; i < song.numChannels; i++)
+		{
+			if ((becameMuted & (UINT32_C(1) << i)) != 0)
+			{
+				note_t cut;
+				memset(&cut, 0, sizeof (cut));
+				cut.note = NOTE_OFF;
+				bakerCaptureEvent(i, &cut);
+			}
+		}
+	}
+}
+
+void bakerCaptureResolvedEvent(int32_t channelIndex, const note_t *event,
+	uint8_t resolvedInstrument, uint8_t resolvedSample)
+{
+	if (!bakerChannelIsAudible(&bakeAudibility, channelIndex))
+		return;
+
+	note_t resolved = *event;
+	if (resolved.note >= 1 && resolved.note <= 96 && resolvedInstrument > 0 &&
+		resolvedInstrument <= MAX_INST && instr[resolvedInstrument] != NULL)
+	{
+		/* XM chooses a sample through the instrument note map. Select the nearest
+		** note that addresses the exact sample resolved by Sample Morph. Native
+		** Sample Matrix banks deliberately map C-4 upward, so this also produces
+		** their readable C-4 + instrument representation. */
+		int32_t bestNote = -1, bestDistance = 1000;
+		for (int32_t note = 1; note <= 96; note++)
+		{
+			if ((instr[resolvedInstrument]->note2SampleLUT[note-1] & 0x0F) != resolvedSample)
+				continue;
+			const int32_t distance = ABS(note - resolved.note);
+			if (distance < bestDistance)
+			{
+				bestDistance = distance;
+				bestNote = note;
+			}
+		}
+		if (bestNote >= 0)
+		{
+			resolved.note = (uint8_t)bestNote;
+			resolved.instr = resolvedInstrument;
+		}
+	}
+	bakerCaptureEvent(channelIndex, &resolved);
+}
+
+void bakerCaptureSampleLauncherAction(uint16_t tile, uint8_t voice, bool start)
+{
+	if (!bakerLiveIsCapturing() && !bakerLiveIsArmed())
+		return;
+	if (bakerLiveIsArmed())
+		bakerBeginManualRow();
+
+	int32_t channelIndex = song.numChannels > 0
+		? (tile < SAMPLE_LAUNCHER_MAX_TILES
+			? sampleLauncherGetTileBus(tile) : voice) % song.numChannels : 0;
+	if (!start)
+	{
+		if (voice <= SAMPLE_LAUNCHER_MAX_POLY && bakeSampleVoiceChannel[voice] >= 0)
+			channelIndex = bakeSampleVoiceChannel[voice];
+		note_t cut;
+		memset(&cut, 0, sizeof (cut));
+		cut.note = NOTE_OFF;
+		bakerCaptureResolvedEvent(channelIndex, &cut, 0, 0);
+		if (voice <= SAMPLE_LAUNCHER_MAX_POLY)
+			bakeSampleVoiceChannel[voice] = -1;
+		return;
+	}
+
+	uint8_t instrument, sample;
+	if (!sampleLauncherGetTileReference(tile, &instrument, &sample) ||
+		instrument == 0 || instrument > MAX_INST || instr[instrument] == NULL ||
+		instr[instrument]->smp[sample].dataPtr == NULL ||
+		instr[instrument]->smp[sample].length == 0)
+	{
+		if (tile < SAMPLE_LAUNCHER_MAX_TILES)
+			bakeInvalidSampleTiles[tile] = true;
+		bakeSkippedSampleLaunches++;
+		return;
+	}
+
+	note_t event;
+	memset(&event, 0, sizeof (event));
+	if (start)
+	{
+		event.note = NOTE_C4 + sample + 1;
+		event.instr = instrument;
+	}
+	else
+	{
+		event.note = NOTE_OFF;
+	}
+	bakerCaptureResolvedEvent(channelIndex, &event, instrument, sample);
+	if (voice <= SAMPLE_LAUNCHER_MAX_POLY)
+		bakeSampleVoiceChannel[voice] = (int8_t)channelIndex;
 }
 
 void bakerCaptureEvent(int32_t channelIndex, const note_t *event)
@@ -305,6 +443,7 @@ static void freeBakePatterns(void)
 
 static void resetBakeCapture(bool tickResolution)
 {
+	sampleLauncherSetCaptureCallback(bakerCaptureSampleLauncherAction);
 	freeBakePatterns();
 	bakeRow = -1;
 	bakeCollisions = 0;
@@ -314,10 +453,15 @@ static void resetBakeCapture(bool tickResolution)
 	bakeStrippedMicrotonalCommands = 0;
 	bakePreservedMicrotonalCommands = 0;
 	bakeOverflow = false;
+	bakeSkippedSampleLaunches = 0;
+	memset(bakeInvalidSampleTiles, 0, sizeof (bakeInvalidSampleTiles));
+	memset(bakeSampleVoiceChannel, -1, sizeof (bakeSampleVoiceChannel));
 	bakeTickResolution = tickResolution;
 	bakeInitialBPM = song.BPM;
 	bakeInitialSpeed = song.speed;
 	bakerChannelAllocatorReset(&bakeAllocator, (uint8_t)song.numChannels);
+	bakerAudibilitySnapshot(&bakeAudibility, editor.channelMuted,
+		performanceMute, (uint8_t)song.numChannels);
 }
 
 static bool bakedChannelsIdentical(int32_t channel1, int32_t channel2, int32_t bakedRows)
@@ -576,16 +720,16 @@ static int32_t bakeCompositionThread(void *unused)
 		if (bakeOutputTarget == BAKER_OUTPUT_TAPEHEAD_XM)
 		{
 			snprintf(message, sizeof (message),
-				"Tapehead bake complete: %u relocated, %u duplicates merged, %u microtonal commands preserved.",
+				"Tapehead bake complete: %u relocated, %u duplicates merged, %u microtonal commands preserved, %u Sample Matrix launches skipped.",
 				bakeRelocatedEvents, bakeMergedDuplicateEvents,
-				bakePreservedMicrotonalCommands);
+				bakePreservedMicrotonalCommands, bakeSkippedSampleLaunches);
 		}
 		else
 		{
 			snprintf(message, sizeof (message),
-				"Standard XM bake complete: %u relocated, %u duplicates merged, %u microtonal commands stripped (pitch omitted).",
+				"Standard XM bake complete: %u relocated, %u duplicates merged, %u microtonal commands stripped, %u Sample Matrix launches skipped.",
 				bakeRelocatedEvents, bakeMergedDuplicateEvents,
-				bakeStrippedMicrotonalCommands);
+				bakeStrippedMicrotonalCommands, bakeSkippedSampleLaunches);
 		}
 		okBoxThreadSafe(0, "Bake Module", message, NULL);
 	}
@@ -599,12 +743,14 @@ void bakeComposition(UNICHAR *filenameU, bool mergeExactDuplicates,
 	if (bakeState != BAKE_IDLE)
 		return;
 
-	if (songPlaying || patternLauncherHasRouting() || polyMatrixHasAudioWork() ||
-		sampleLauncherHasTransportWork())
+	if (songPlaying)
 	{
-		okBox(0, "Bake Module", "Stop Song, Q and Poly playback before baking a composition.", NULL);
+		okBox(0, "Bake Module", "Stop Song playback before fast baking a composition.", NULL);
 		return;
 	}
+	memset(bakeInvalidSampleTiles, 0, sizeof (bakeInvalidSampleTiles));
+	if (!sampleMatrixPreflight())
+		return;
 
 	UNICHAR_STRNCPY(bakeFilenameU, filenameU, PATH_MAX);
 	bakeFilenameU[PATH_MAX] = '\0';
@@ -633,18 +779,16 @@ void armLiveCompositionBake(UNICHAR *filenameU, bool mergeExactDuplicates,
 		return;
 	}
 
-	if (songPlaying || patternLauncherHasRouting() || polyMatrixHasAudioWork() ||
-		sampleLauncherHasTransportWork())
-	{
-		okBox(0, "Live Bake", "Stop Song, Q, Poly and Sample Deck playback before arming.", NULL);
-		return;
-	}
-
 	bakeMergeExactDuplicates = mergeExactDuplicates;
 	bakeOutputTarget = outputTarget;
 	/* Live Bake is specifically allowed to change Fast Tracks state after it is
 	** armed, so it always records on the tick-resolution timeline. */
 	resetBakeCapture(true);
+	if (!sampleMatrixPreflight())
+	{
+		freeBakePatterns();
+		return;
+	}
 	if (!allocateLiveBakePatterns())
 	{
 		okBox(0, "Live Bake", "Not enough memory to arm the live baker.", NULL);
@@ -654,6 +798,22 @@ void armLiveCompositionBake(UNICHAR *filenameU, bool mergeExactDuplicates,
 	UNICHAR_STRNCPY(bakeFilenameU, filenameU, PATH_MAX);
 	bakeFilenameU[PATH_MAX] = '\0';
 	bakeState = BAKE_LIVE_ARMED;
+	if (songPlaying)
+		bakerPlaybackStarted(playMode);
+	else if (patternLauncherHasRouting() || polyMatrixHasAudioWork() ||
+		sampleLauncherHasTransportWork())
+	{
+		bakerBeginManualRow();
+		const int16_t qTile = sampleLauncherGetQCurrent();
+		if (qTile >= 0)
+			bakerCaptureSampleLauncherAction((uint16_t)qTile, 0, true);
+		for (uint16_t tile = 0; tile < SAMPLE_LAUNCHER_MAX_TILES; tile++)
+		{
+			const int8_t slot = sampleLauncherGetPolySlot(tile);
+			if (slot >= 0)
+				bakerCaptureSampleLauncherAction(tile, (uint8_t)(slot + 1), true);
+		}
+	}
 	okBox(0, "Live Bake", "Armed. Press Play Song/Pattern, or strum without transport. Press Stop to export.", NULL);
 }
 
@@ -739,16 +899,16 @@ void bakerFinishOrCancelLive(void)
 		if (bakeOutputTarget == BAKER_OUTPUT_TAPEHEAD_XM)
 		{
 			snprintf(message, sizeof (message),
-				"Tapehead live bake complete: %u relocated, %u duplicates merged, %u microtonal commands preserved.",
+				"Tapehead live bake complete: %u relocated, %u duplicates merged, %u microtonal commands preserved, %u Sample Matrix launches skipped.",
 				bakeRelocatedEvents, bakeMergedDuplicateEvents,
-				bakePreservedMicrotonalCommands);
+				bakePreservedMicrotonalCommands, bakeSkippedSampleLaunches);
 		}
 		else
 		{
 			snprintf(message, sizeof (message),
-				"Standard XM live bake complete: %u relocated, %u duplicates merged, %u microtonal commands stripped (pitch omitted).",
+				"Standard XM live bake complete: %u relocated, %u duplicates merged, %u microtonal commands stripped, %u Sample Matrix launches skipped.",
 				bakeRelocatedEvents, bakeMergedDuplicateEvents,
-				bakeStrippedMicrotonalCommands);
+				bakeStrippedMicrotonalCommands, bakeSkippedSampleLaunches);
 		}
 		okBox(0, "Live Bake", message, NULL);
 	}

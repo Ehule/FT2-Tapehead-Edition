@@ -38,7 +38,28 @@ static void testRatioOnTickTimeline(uint8_t numerator, uint8_t denominator,
 int main(void)
 {
 	bakerChannelAllocator_t allocator;
+	bakerAudibilityState_t audibility;
 	bool relocated;
+	bool ordinaryMute[BAKER_ALLOCATOR_CHANNELS] = { false };
+	bool performanceMute[BAKER_ALLOCATOR_CHANNELS] = { false };
+
+	/* Effective state is the union of structural mute causes. Releasing one
+	** cause cannot reveal a channel still held by the other. */
+	ordinaryMute[1] = true;
+	performanceMute[2] = true;
+	bakerAudibilitySnapshot(&audibility, ordinaryMute, performanceMute, 4);
+	assert(bakerChannelIsAudible(&audibility, 0));
+	assert(!bakerChannelIsAudible(&audibility, 1));
+	assert(!bakerChannelIsAudible(&audibility, 2));
+	performanceMute[1] = true;
+	ordinaryMute[1] = false;
+	assert(bakerAudibilityUpdate(&audibility, ordinaryMute, performanceMute, 4) == 0);
+	assert(!bakerChannelIsAudible(&audibility, 1));
+	performanceMute[1] = false;
+	assert(bakerAudibilityUpdate(&audibility, ordinaryMute, performanceMute, 4) == 0);
+	assert(bakerChannelIsAudible(&audibility, 1));
+	ordinaryMute[0] = true;
+	assert(bakerAudibilityUpdate(&audibility, ordinaryMute, performanceMute, 4) == 1);
 
 	bakerChannelAllocatorReset(&allocator, 8);
 	assert(bakerChannelAllocatorRoute(&allocator, 2, 0, &relocated) == 2);

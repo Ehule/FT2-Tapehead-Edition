@@ -105,8 +105,15 @@ XM remains readable by compatible players.
 This separation is deliberate. It lets the native song stop while latched deck
 voices continue, or clears the deck without treating every stop as a panic.
 
-## Baker boundary
+## Composition Baker
 
-The CP04.6 Composition Baker records the Song replayer and FasTracks. It does
-not yet capture Pattern or Sample Deck Q/Poly performance. Stop deck activity
-before arming either bake mode.
+Deck activity no longer prevents baking. Pattern Q/Poly material is flattened
+to the resolved notes and effects; launches, replacements, handoffs, automatic
+steps, pulls, and hard stops are represented at Baker time. Sample Q/Poly
+launches reuse the automatic bank-to-instrument map and become standard XM
+note/instrument starts and note cuts. The baked XM remembers the musical result,
+not which tile was pressed.
+
+**What you hear is what you bake, other than fader data. The faders remain the
+live mix.** Matrix and track/master gain controls are not XM automation; record
+audio to preserve the exact gain, boost, and distortion of the live mix.

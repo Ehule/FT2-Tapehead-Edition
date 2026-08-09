@@ -20,6 +20,9 @@ void bakerPlaybackStarted(int8_t mode);
 void bakerFinishOrCancelLive(void);
 void bakerBeginTick(void);
 void bakerCaptureEvent(int32_t channelIndex, const note_t *event);
+void bakerCaptureResolvedEvent(int32_t channelIndex, const note_t *event,
+	uint8_t resolvedInstrument, uint8_t resolvedSample);
+void bakerCaptureSampleLauncherAction(uint16_t tile, uint8_t voice, bool start);
 void bakerBeginManualRow(void);
 void bakerCaptureManualEvent(int32_t channelIndex, const note_t *event);
 void bakeComposition(UNICHAR *filenameU, bool mergeExactDuplicates,

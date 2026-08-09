@@ -24,3 +24,15 @@ int32_t bakerChannelAllocatorOwner(const bakerChannelAllocator_t *allocator,
 ** between master rows. */
 bool bakerTimelineShouldAdvance(bool tickResolution, bool songPlaying,
 	uint16_t currentTick);
+
+typedef struct bakerAudibilityState_t
+{
+	bool audible[BAKER_ALLOCATOR_CHANNELS];
+} bakerAudibilityState_t;
+
+void bakerAudibilitySnapshot(bakerAudibilityState_t *state,
+	const bool *ordinaryMute, const bool *performanceMute, uint8_t channels);
+uint32_t bakerAudibilityUpdate(bakerAudibilityState_t *state,
+	const bool *ordinaryMute, const bool *performanceMute, uint8_t channels);
+bool bakerChannelIsAudible(const bakerAudibilityState_t *state,
+	int32_t channel);
