@@ -81,6 +81,9 @@ fader travel is always remapped to the selected ceiling. The narrow green,
 yellow, and red strip in each visible scope is the stored trim position—not a
 live amplitude or clipping meter. Its fixed midpoint notch is unity, and red
 only means above-unity headroom is in use.
+Set `[MIDI]` `TrackTrimDisplayWidth=0` to hide this indicator, or use `1`–`8`
+to select its width in logical pixels (default `2`). The output-bus marker
+moves left as needed, and normal and HD displays retain equivalent scaling.
 
 The master fader remains independent: its complete range is always 0–256
 (silence through unity), and it can never boost above unity.

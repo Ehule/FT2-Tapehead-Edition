@@ -721,6 +721,8 @@ static void writeDefaultTapeheadConfig(const UNICHAR *filePathU)
 	fputs("APC40RGBBrightness=100\n", f);
 	fputs("; Per-track trim ceiling in percent (accepted range: 100-200).\n", f);
 	fputs("TrackTrimMaxPercent=200\n", f);
+	fputs("; Scope trim-indicator width in logical pixels (accepted range: 0-8; 0 disables).\n", f);
+	fputs("TrackTrimDisplayWidth=2\n", f);
 	fputs("; Cue Level/Crossfader strum: Latched, Momentary, ManualPingPong or Off.\n", f);
 	fputs("PatternJogAudition=Latched\n", f);
 	fputs("; FastTracks channels during Cue Level/Crossfader strumming: Ignore or Include.\n", f);
@@ -768,6 +770,7 @@ void loadTapeheadConfig(void)
 	tapeheadConfig.midiProfile = TAPEHEAD_MIDI_PROFILE_NONE;
 	tapeheadConfig.apc40RGBBrightness = 100;
 	tapeheadConfig.trackTrimMaxPercent = 200;
+	tapeheadConfig.trackTrimDisplayWidth = 2;
 	tapeheadConfig.patternJogAudition = TAPEHEAD_PATTERN_JOG_AUDITION_LATCHED;
 	tapeheadConfig.patternJogIncludeFastTracks = false;
 	tapeheadConfig.transportFreezeAudioCut = false;
@@ -987,6 +990,18 @@ void loadTapeheadConfig(void)
 				tapeheadConfig.trackTrimMaxPercent = (uint8_t)
 					(errno == ERANGE ? (*value == '-' ? 100 : 200) :
 					percent < 100 ? 100 : percent > 200 ? 200 : percent);
+		}
+		else if (section == TAPEHEAD_SECTION_MIDI &&
+			!_stricmp(key, "TrackTrimDisplayWidth"))
+		{
+			char *end;
+			errno = 0;
+			const long width = strtol(value, &end, 10);
+			while (isspace((unsigned char)*end)) end++;
+			if (value != end && *end == '\0')
+				tapeheadConfig.trackTrimDisplayWidth = (uint8_t)
+					(errno == ERANGE ? (*value == '-' ? 0 : 8) :
+					width < 0 ? 0 : width > 8 ? 8 : width);
 		}
 		else if (section == TAPEHEAD_SECTION_MIDI &&
 			!_stricmp(key, "PatternJogAudition"))

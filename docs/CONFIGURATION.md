@@ -240,3 +240,9 @@ which always stops at unity (256).
 Each visible tracker scope includes a fixed 0–200% trim-position strip with a
 unity notch. It displays stored channel trim—not live audio amplitude or a
 clipping measurement. Red denotes above-unity boost/headroom in use.
+
+Set `TrackTrimDisplayWidth` in `[MIDI]` to choose the strip width in logical
+pixels. Values `1`–`8` resize its background, colored lines, and unity notch;
+`0` hides the indicator. Values outside `0`–`8` are clamped, while a missing
+or malformed value retains the default width of `2`. Logical pixels preserve
+the same proportions under normal and HD scaling.

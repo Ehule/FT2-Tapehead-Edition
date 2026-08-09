@@ -247,6 +247,7 @@ static void resetFixture(void)
 	memset(&config, 0, sizeof (config));
 	memset(&tapeheadConfig, 0, sizeof (tapeheadConfig));
 	tapeheadConfig.trackTrimMaxPercent = 200;
+	tapeheadConfig.trackTrimDisplayWidth = 2;
 	tapeheadConfig.patternJogAudition = TAPEHEAD_PATTERN_JOG_AUDITION_LATCHED;
 	memset(&audio, 0, sizeof (audio));
 	song.BPM = 125;
