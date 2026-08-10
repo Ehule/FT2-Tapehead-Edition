@@ -3,6 +3,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "ft2_replayer.h"
+
 typedef enum bakerAssetError_t
 {
 	BAKER_ASSET_OK = 0,
@@ -13,6 +15,8 @@ typedef enum bakerAssetError_t
 void bakerAssetsReset(void);
 void bakerAssetsFree(void);
 uint8_t bakerAssetsResolveInstrument(uint8_t note, uint8_t sourceInstrument,
+	uint8_t resolvedSample);
+bool bakerAssetsResolveEvent(note_t *event, uint8_t sourceInstrument,
 	uint8_t resolvedSample);
 bool bakerAssetsInstall(void);
 void bakerAssetsUninstall(void);

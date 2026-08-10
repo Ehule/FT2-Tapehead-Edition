@@ -157,6 +157,25 @@ uint8_t bakerAssetsResolveInstrument(uint8_t note, uint8_t sourceInstrument,
 	return destination;
 }
 
+bool bakerAssetsResolveEvent(note_t *event, uint8_t sourceInstrument,
+	uint8_t resolvedSample)
+{
+	if (event == NULL)
+		return false;
+
+	/* The performed note is the pitch contract. Sample Morph may change the
+	** instrument needed to represent the resolved sample, never this field. */
+	const uint8_t playedNote = event->note;
+	const uint8_t destination = bakerAssetsResolveInstrument(playedNote,
+		sourceInstrument, resolvedSample);
+	if (destination == 0)
+		return false;
+
+	event->instr = destination;
+	event->note = playedNote;
+	return true;
+}
+
 bool bakerAssetsInstall(void)
 {
 	if (assetError != BAKER_ASSET_OK || assetsInstalled)

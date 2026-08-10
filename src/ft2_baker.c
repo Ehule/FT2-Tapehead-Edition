@@ -229,11 +229,8 @@ void bakerCaptureResolvedEvent(int32_t channelIndex, const note_t *event,
 	if (resolved.note >= 1 && resolved.note <= 96 && resolvedInstrument > 0 &&
 		resolvedInstrument <= MAX_INST && instr[resolvedInstrument] != NULL)
 	{
-		const uint8_t bakedInstrument = bakerAssetsResolveInstrument(resolved.note,
-			resolvedInstrument, resolvedSample);
-		if (bakedInstrument == 0)
+		if (!bakerAssetsResolveEvent(&resolved, resolvedInstrument, resolvedSample))
 			return; /* A hard asset error prevents saving; never capture the wrong sample. */
-		resolved.instr = bakedInstrument;
 	}
 	bakerCaptureEvent(channelIndex, &resolved);
 }
