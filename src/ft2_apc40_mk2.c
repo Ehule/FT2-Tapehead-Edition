@@ -405,7 +405,13 @@ static void sendCC(uint8_t midiChannel, uint8_t controller, uint8_t value)
 	if (midiChannel >= 16 || controller >= 128 ||
 		ccCache[midiChannel][controller] == value) return;
 	const uint8_t message[3] = { (uint8_t)(0xB0 | midiChannel), controller, value };
-	if (sendMessage(message)) ccCache[midiChannel][controller] = value;
+	if (sendMessage(message))
+	{
+		ccCache[midiChannel][controller] = value;
+		/* Ring output and absolute encoder input share APC controller numbers.
+		** Publish the state so an echoed feedback packet is neutral, not input. */
+		tapeheadMidiMapSetFeedbackValue(midiChannel, controller, value);
+	}
 }
 
 static int8_t patternQueuePos(uint8_t patternNum)

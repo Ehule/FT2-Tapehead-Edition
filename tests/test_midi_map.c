@@ -335,6 +335,105 @@ static void testNoteActionsUsePressEdgeAndMainThreadDrain(void)
 	assert(!performanceMute[1]);
 }
 
+static void testAPCPressReleaseSequencesRemainTwoState(void)
+{
+	resetFixture();
+	assert(tapeheadMidiMapAddBinding("NoteOn.1.48",
+		"TrackPerformanceSoloToggle:1"));
+	assert(tapeheadMidiMapAddBinding("NoteOn.1.49",
+		"FastTrackClutchToggle:1"));
+	assert(tapeheadMidiMapAddBinding("NoteOn.1.50",
+		"FastTrackMasterToggle"));
+	assert(tapeheadMidiMapAddBinding("NoteOn.1.51", "FastTrackResetAll"));
+	tapeheadMidiMapSetEnabled(true);
+	song.numChannels = 3;
+	fastSelected[0] = true;
+	performanceMute[0] = true;
+	performanceMute[1] = false;
+	performanceMute[2] = true;
+
+	/* A press dispatches once; both legal release encodings are consumed and
+	** never enqueue an action. The next press restores the exact solo snapshot. */
+	assert(tapeheadMidiMapHandleMessage(0x90, 48, 127));
+	assert(tapeheadMidiMapHandleMessage(0x80, 48, 64));
+	tapeheadMidiMapProcessPending();
+	assert(!performanceMute[0] && performanceMute[1] && performanceMute[2]);
+	assert(tapeheadMidiMapHandleMessage(0x90, 48, 127));
+	assert(tapeheadMidiMapHandleMessage(0x90, 48, 0));
+	tapeheadMidiMapProcessPending();
+	assert(performanceMute[0] && !performanceMute[1] && performanceMute[2]);
+
+	for (int32_t i = 0; i < 10; i++)
+	{
+		assert(tapeheadMidiMapHandleMessage(0x90, 49, 127));
+		assert(tapeheadMidiMapHandleMessage((i & 1) ? 0x80 : 0x90,
+			49, 0));
+		tapeheadMidiMapProcessPending();
+		assert(fastClutched[0] == ((i & 1) == 0));
+	}
+
+	/* The master toggle remains responsive with the lowest (1:2) ratio. */
+	fastRatio[0] = 0;
+	for (int32_t i = 0; i < 10; i++)
+	{
+		assert(tapeheadMidiMapHandleMessage(0x90, 50, 127));
+		assert(tapeheadMidiMapHandleMessage(0x80, 50, 0));
+		tapeheadMidiMapProcessPending();
+		assert(fastMaster == ((i & 1) == 0));
+	}
+
+	fastRatio[0] = 16;
+	assert(tapeheadMidiMapHandleMessage(0x90, 51, 127));
+	assert(tapeheadMidiMapHandleMessage(0x90, 51, 0));
+	tapeheadMidiMapProcessPending();
+	assert(fastRatio[0] == FAST_TRACKS_ONE_TO_ONE_RATIO_INDEX);
+}
+
+static void testAbsoluteEncoderMovementAndFeedbackEcho(void)
+{
+	resetFixture();
+	assert(tapeheadMidiMapAddBinding("CC.1.48", "FastTrackRatio:1"));
+	assert(tapeheadMidiMapAddBinding("CC.1.16", "SampleMorphSelect:1"));
+	tapeheadMidiMapSetEnabled(true);
+	song.numChannels = 1;
+	fastSelected[0] = true;
+
+	/* Ring feedback establishes state but never enters the action queue. Its
+	** exact echo and unchanged controller reports are consumed as neutral. */
+	tapeheadMidiMapSetFeedbackValue(0, 48, 56); /* centered 1:1 ring value */
+	assert(tapeheadMidiMapGetPendingCount() == 0);
+	assert(tapeheadMidiMapHandleMessage(0xB0, 48, 56));
+	assert(tapeheadMidiMapGetPendingCount() == 0);
+
+	/* Each distinct absolute position selects exactly one of all 17 ratios. */
+	for (uint8_t ratio = 0; ratio < 17; ratio++)
+	{
+		const uint8_t value = (uint8_t)((ratio * 127 + 8) / 16);
+		assert(tapeheadMidiMapHandleMessage(0xB0, 48, value));
+		tapeheadMidiMapProcessPending();
+		assert(fastRatio[0] == ratio);
+		assert(tapeheadMidiMapHandleMessage(0xB0, 48, value));
+		assert(tapeheadMidiMapGetPendingCount() == 0);
+	}
+
+	/* Returning from 1:2 to centered 1:1 takes the first movement. */
+	assert(tapeheadMidiMapHandleMessage(0xB0, 48, 0));
+	tapeheadMidiMapProcessPending();
+	assert(fastRatio[0] == 0);
+	assert(tapeheadMidiMapHandleMessage(0xB0, 48, 56));
+	tapeheadMidiMapProcessPending();
+	assert(fastRatio[0] == FAST_TRACKS_ONE_TO_ONE_RATIO_INDEX);
+
+	/* APC encoder touch is a Note message, not a CC value. With only the CC
+	** movement bound, touch-on/off cannot cycle either selector. */
+	assert(!tapeheadMidiMapHandleMessage(0x90, 53, 127));
+	assert(!tapeheadMidiMapHandleMessage(0x80, 53, 0));
+	assert(tapeheadMidiMapGetPendingCount() == 0);
+	assert(tapeheadMidiMapHandleMessage(0xB0, 16, 64));
+	assert(tapeheadMidiMapGetPendingCount() == 1);
+	tapeheadMidiMapProcessPending();
+}
+
 static void testCCFloodCoalescesToNewestValue(void)
 {
 	resetFixture();
@@ -591,6 +690,8 @@ int main(void)
 	testParserRejectsAmbiguousOrInvalidMappings();
 	testDisabledAndUnmappedMessagesPassThrough();
 	testNoteActionsUsePressEdgeAndMainThreadDrain();
+	testAPCPressReleaseSequencesRemainTwoState();
+	testAbsoluteEncoderMovementAndFeedbackEcho();
 	testCCFloodCoalescesToNewestValue();
 	testQueueIsBoundedAndDropsWithoutLeaking();
 	testDuplicateInputUsesLastBinding();
