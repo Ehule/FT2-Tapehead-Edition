@@ -30,7 +30,7 @@ static instr_t *makeInstrument(uint8_t mappedSample, int8_t pcm0)
 	ins->autoVibSweep = 3;
 	ins->autoVibDepth = 4;
 	ins->autoVibRate = 5;
-	for (int32_t i = 0; i < 2; i++)
+	for (int32_t i = 0; i < 4; i++)
 	{
 		sample_t *s = &ins->smp[i];
 		s->length = 4;
@@ -62,6 +62,38 @@ int main(void)
 	instr[1] = makeInstrument(0, 10);
 	int8_t sourcePcm[8];
 	memcpy(sourcePcm, instr[1]->smp[1].dataPtr, sizeof (sourcePcm));
+
+	/* Reproduce the four-slot D-4 performance through the same event resolver
+	** used by Baker capture: 0, 1, 2, 3, then 1 again. */
+	const uint8_t playedNote = NOTE_C4 + 3; /* D-4 in the stored 1..96 format. */
+	for (uint8_t sample = 0; sample < 4; sample++)
+		instr[1]->note2SampleLUT[playedNote - 1 + sample] = sample;
+	const instr_t originalInstrument = *instr[1];
+	const uint8_t selections[] = { 0, 1, 2, 3, 1 };
+	uint8_t capturedInstruments[5];
+	for (size_t i = 0; i < sizeof (selections); i++)
+	{
+		note_t event = { playedNote, 1, 0, 0, 0 };
+		assert(bakerAssetsResolveEvent(&event, 1, selections[i]));
+		assert(event.note == playedNote);
+		capturedInstruments[i] = event.instr;
+	}
+	assert(capturedInstruments[0] == 1);
+	assert(capturedInstruments[1] != 1);
+	assert(capturedInstruments[2] != 1);
+	assert(capturedInstruments[3] != 1);
+	assert(capturedInstruments[1] == capturedInstruments[4]);
+	assert(bakerAssetsGetPrivateCount() == 3);
+	assert(memcmp(&originalInstrument, instr[1], sizeof (originalInstrument)) == 0);
+	bakerAssetsFree();
+
+	/* A populated sample not present anywhere in the source note map also gets
+	** a private representation without changing D-4. */
+	memset(instr[1]->note2SampleLUT, 0, sizeof (instr[1]->note2SampleLUT));
+	note_t unmapped = { playedNote, 1, 0, 0, 0 };
+	assert(bakerAssetsResolveEvent(&unmapped, 1, 3));
+	assert(unmapped.note == playedNote && unmapped.instr != 1);
+	bakerAssetsFree();
 
 	/* Exact actual-note mapping uses the original instrument. */
 	assert(bakerAssetsResolveInstrument(48, 1, 0) == 1);

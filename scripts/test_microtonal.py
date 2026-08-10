@@ -51,7 +51,7 @@ def main() -> None:
     assert "bakeOutputTarget == BAKER_OUTPUT_STANDARD_XM" in baker
     assert "bakePreservedMicrotonalCommands++" in baker
     assert "saveXM(bakeFilenameU) : saveStandardXM(bakeFilenameU)" in baker
-    assert "pitch omitted" in baker
+    assert "Strip the extension deliberately" in baker
     assert "SYSREQ_TYPE_BAKE_OUTPUT" in diskop
     assert '"-BAKED-TAPEHEAD" : "-BAKED"' in diskop
     assert "standardXMSave && microtonalEffectIsPitchExtension(bytes[3])" in saver
