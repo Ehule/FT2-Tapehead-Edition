@@ -36,8 +36,6 @@ bool tapeheadMidiMapHandleMessage(uint8_t status, uint8_t data1, uint8_t data2);
 /* Record an authoritative absolute-controller value emitted as surface
 ** feedback. A matching input echo (or an unchanged hardware report) is
 ** consumed without being dispatched as a fresh movement. */
-void tapeheadMidiMapSetFeedbackValue(uint8_t midiChannel, uint8_t controller,
-	uint8_t value);
 
 /* Must be called from the main/UI thread. */
 void tapeheadMidiMapProcessPending(void);

@@ -122,10 +122,9 @@ void myLoaderMsgBox(const char *fmt, ...)
 	okBox(0, "System message", strBuf, NULL);
 }
 
-static void drawWindow(uint16_t w, uint16_t h)
+static void drawWindowAt(uint16_t w, uint16_t h, uint16_t y)
 {
 	const uint16_t x = (SCREEN_W - w) / 2;
-	const uint16_t y = ui.extendedPatternEditor ? 91 : SYSTEM_REQUEST_Y;
 
 	// main fill
 	fillRect(x + 1, y + 1, w - 2, h - 2, PAL_BUTTONS);
@@ -145,6 +144,21 @@ static void drawWindow(uint16_t w, uint16_t h)
 	// title bottom line
 	hLine(x + 3, y + 16, w - 6, PAL_BUTTON2);
 	hLine(x + 3, y + 17, w - 6, PAL_BUTTON1);
+}
+
+static void drawWindow(uint16_t w, uint16_t h)
+{
+	drawWindowAt(w, h, ui.extendedPatternEditor ? SYSTEM_REQUEST_Y_EXT : SYSTEM_REQUEST_Y);
+}
+
+static void cycleBakerPatternRows(uint16_t *patternRows, bool backwards)
+{
+	static const uint16_t rows[] = { 16, 32, 64, 128, 256 };
+	uint8_t index = 4;
+	for (uint8_t i = 0; i < 5; i++)
+		if (rows[i] == *patternRows) index = i;
+
+	*patternRows = rows[backwards ? (index + 4) % 5 : (index + 1) % 5];
 }
 
 static bool mouseButtonDownLogic(uint8_t mouseButton)
@@ -264,9 +278,9 @@ static int16_t okBoxInternal(int16_t type, const char *headline, const char *tex
 
 	// the dialog's y position differs in extended pattern editor mode
 	const bool bakerOptions = patternRows != NULL;
-	const uint16_t dialogHeight = bakerOptions ? 101 : SYSTEM_REQUEST_H;
+	const uint16_t dialogHeight = bakerOptions ? 119 : SYSTEM_REQUEST_H;
 	const uint16_t y = ui.extendedPatternEditor ? SYSTEM_REQUEST_Y_EXT :
-		(bakerOptions ? SYSTEM_REQUEST_Y - 34 : SYSTEM_REQUEST_Y);
+		(bakerOptions ? SYSTEM_REQUEST_Y - 52 : SYSTEM_REQUEST_Y);
 
 	// find widest button size
 	uint16_t buttonWidthHi = DEFAULT_PUSHBUTTON_WIDTH;
@@ -283,8 +297,21 @@ static int16_t okBoxInternal(int16_t type, const char *headline, const char *tex
 	{
 		p->caption = buttonText[type][i];
 		p->x = ((SCREEN_W - tx) / 2) + (i * 100);
-		p->y = y + (bakerOptions ? 82 : (checkBoxState != NULL ? 48 : 42));
+		p->y = y + (bakerOptions ? 101 : (checkBoxState != NULL ? 48 : 42));
 		p->w = buttonWidthHi;
+		p->h = 16;
+		p->visible = true;
+	}
+
+	char patternRowsCaption[16];
+	const uint16_t patternRowsButtonID = numButtons;
+	if (bakerOptions)
+	{
+		p = &pushButtons[patternRowsButtonID];
+		p->caption = patternRowsCaption;
+		p->x = x + 5 + textWidth("Pattern Rows:") + 8;
+		p->y = y + 36;
+		p->w = 54;
 		p->h = 16;
 		p->visible = true;
 	}
@@ -295,7 +322,7 @@ static int16_t okBoxInternal(int16_t type, const char *headline, const char *tex
 	{
 		checkBox_t *c = &checkBoxes[0];
 		c->x = x + 5;
-		c->y = y + (bakerOptions ? 68 : (checkBoxState != NULL ? 34 : 50));
+		c->y = y + (bakerOptions ? 84 : (checkBoxState != NULL ? 34 : 50));
 		c->clickAreaWidth = 116;
 		c->clickAreaHeight = 12;
 		c->checked = checkBoxState != NULL ? *checkBoxState : false;
@@ -333,11 +360,8 @@ static int16_t okBoxInternal(int16_t type, const char *headline, const char *tex
 				if (bakerOptions && (inputEvent.key.keysym.sym == SDLK_LEFT ||
 					inputEvent.key.keysym.sym == SDLK_RIGHT || inputEvent.key.keysym.sym == SDLK_SPACE))
 				{
-					static const uint16_t rows[] = { 16, 32, 64, 128, 256 };
-					uint8_t index = 4;
-					for (uint8_t i = 0; i < 5; i++) if (rows[i] == *patternRows) index = i;
-					index = inputEvent.key.keysym.sym == SDLK_LEFT ? (index + 4) % 5 : (index + 1) % 5;
-					*patternRows = rows[index];
+					cycleBakerPatternRows(patternRows,
+						inputEvent.key.keysym.sym == SDLK_LEFT);
 					continue;
 				}
 				if (inputEvent.key.keysym.sym == SDLK_ESCAPE)
@@ -374,9 +398,17 @@ static int16_t okBoxInternal(int16_t type, const char *headline, const char *tex
 					if (hasCheckbox)
 						testCheckBoxMouseRelease();
 
-					returnVal = testPushButtonMouseRelease(false) + 1;
-					if (returnVal > 0)
+					const int16_t releasedButton = testPushButtonMouseRelease(false);
+					if (bakerOptions && releasedButton == patternRowsButtonID)
+					{
+						cycleBakerPatternRows(patternRows, false);
+						returnVal = 0;
+					}
+					else if (releasedButton >= 0)
+					{
+						returnVal = releasedButton + 1;
 						ui.sysReqShown = false;
+					}
 
 					mouse.lastUsedObjectID = OBJECT_ID_NONE;
 					mouse.lastUsedObjectType = OBJECT_NONE;
@@ -384,15 +416,6 @@ static int16_t okBoxInternal(int16_t type, const char *headline, const char *tex
 			}
 			else if (inputEvent.type == SDL_MOUSEBUTTONDOWN)
 			{
-				if (bakerOptions && inputEvent.button.button == SDL_BUTTON_LEFT &&
-					mouse.x >= x + 94 && mouse.x < x + 142 && mouse.y >= y + 34 && mouse.y < y + 49)
-				{
-					static const uint16_t rows[] = { 16, 32, 64, 128, 256 };
-					uint8_t index = 4;
-					for (uint8_t i = 0; i < 5; i++) if (rows[i] == *patternRows) index = i;
-					*patternRows = rows[(index + 1) % 5];
-					continue;
-				}
 				if (mouseButtonDownLogic(inputEvent.button.button))
 				{
 					if (testPushButtonMouseDown()) continue;
@@ -415,25 +438,25 @@ static int16_t okBoxInternal(int16_t type, const char *headline, const char *tex
 		handleRedrawing();
 
 		// draw OK box
-		drawWindow(wlen, dialogHeight);
+		drawWindowAt(wlen, dialogHeight, y);
 		textOutShadow(headlineX, y +  4, PAL_FORGRND, PAL_BUTTON2, headline);
 		textOutShadow(textX,     y + 24, PAL_FORGRND, PAL_BUTTON2, text);
 		if (bakerOptions)
 		{
-			char rowsText[16], patternEstimate[40], maximumEstimate[48];
-			snprintf(rowsText, sizeof rowsText, "[ %u ]", *patternRows);
+			char patternEstimate[40], maximumEstimate[48];
+			snprintf(patternRowsCaption, sizeof patternRowsCaption, "%u", *patternRows);
 			bakerFormatTimingEstimates(*patternRows, bpm, patternEstimate,
 				sizeof patternEstimate, maximumEstimate, sizeof maximumEstimate);
-			textOutShadow(x + 5, y + 38, PAL_FORGRND, PAL_BUTTON2, "Pattern Rows:");
-			textOutShadow(x + 94, y + 38, PAL_FORGRND, PAL_BUTTON2, rowsText);
-			textOutShadow(x + 155, y + 38, PAL_FORGRND, PAL_BUTTON2, patternEstimate);
-			textOutShadow(x + 5, y + 53, PAL_FORGRND, PAL_BUTTON2, maximumEstimate);
+			textOutShadow(x + 5, y + 40, PAL_FORGRND, PAL_BUTTON2, "Pattern Rows:");
+			textOutShadow(x + 5, y + 59, PAL_FORGRND, PAL_BUTTON2, patternEstimate);
+			textOutShadow(x + 5, y + 72, PAL_FORGRND, PAL_BUTTON2, maximumEstimate);
+			drawPushButton(patternRowsButtonID);
 		}
 		for (uint16_t i = 0; i < numButtons; i++) drawPushButton(i);
 		if (hasCheckbox)
 		{
 			drawCheckBox(0);
-			textOutShadow(x + 21, y + (checkBoxState != NULL ? 36 : 52), PAL_FORGRND, PAL_BUTTON2,
+			textOutShadow(x + 21, y + (bakerOptions ? 86 : (checkBoxState != NULL ? 36 : 52)), PAL_FORGRND, PAL_BUTTON2,
 				checkBoxText != NULL ? checkBoxText : "Don't show again");
 		}
 
@@ -443,6 +466,8 @@ static int16_t okBoxInternal(int16_t type, const char *headline, const char *tex
 
 	for (uint16_t i = 0; i < numButtons; i++)
 		hidePushButton(i);
+	if (bakerOptions)
+		hidePushButton(patternRowsButtonID);
 
 	if (hasCheckbox)
 	{

@@ -389,7 +389,7 @@ static void testAPCPressReleaseSequencesRemainTwoState(void)
 	assert(fastRatio[0] == FAST_TRACKS_ONE_TO_ONE_RATIO_INDEX);
 }
 
-static void testAbsoluteEncoderMovementAndFeedbackEcho(void)
+static void testAbsoluteEncoderMovement(void)
 {
 	resetFixture();
 	assert(tapeheadMidiMapAddBinding("CC.1.48", "FastTrackRatio:1"));
@@ -398,12 +398,13 @@ static void testAbsoluteEncoderMovementAndFeedbackEcho(void)
 	song.numChannels = 1;
 	fastSelected[0] = true;
 
-	/* Ring feedback establishes state but never enters the action queue. Its
-	** exact echo and unchanged controller reports are consumed as neutral. */
-	tapeheadMidiMapSetFeedbackValue(0, 48, 56); /* centered 1:1 ring value */
-	assert(tapeheadMidiMapGetPendingCount() == 0);
+	/* The first physical message after a ring refresh, including a value equal
+	** to the displayed value, remains valid input. Output itself is tested at
+	** the APC surface boundary and never calls this input handler. */
 	assert(tapeheadMidiMapHandleMessage(0xB0, 48, 56));
-	assert(tapeheadMidiMapGetPendingCount() == 0);
+	assert(tapeheadMidiMapGetPendingCount() == 1);
+	tapeheadMidiMapProcessPending();
+	assert(fastRatio[0] == FAST_TRACKS_ONE_TO_ONE_RATIO_INDEX);
 
 	/* Each distinct absolute position selects exactly one of all 17 ratios. */
 	for (uint8_t ratio = 0; ratio < 17; ratio++)
@@ -412,8 +413,33 @@ static void testAbsoluteEncoderMovementAndFeedbackEcho(void)
 		assert(tapeheadMidiMapHandleMessage(0xB0, 48, value));
 		tapeheadMidiMapProcessPending();
 		assert(fastRatio[0] == ratio);
+	}
+
+	/* Descending one-message-at-a-time input is equally responsive. */
+	for (int32_t ratio = 16; ratio >= 0; ratio--)
+	{
+		const uint8_t value = (uint8_t)((ratio * 127 + 8) / 16);
 		assert(tapeheadMidiMapHandleMessage(0xB0, 48, value));
-		assert(tapeheadMidiMapGetPendingCount() == 0);
+		tapeheadMidiMapProcessPending();
+		assert(fastRatio[0] == ratio);
+	}
+
+	/* Playback state must not alter dispatch: all ratios remain reachable in
+	** both directions while the transport is running. */
+	songPlaying = true;
+	for (uint8_t ratio = 0; ratio < 17; ratio++)
+	{
+		const uint8_t value = (uint8_t)((ratio * 127 + 8) / 16);
+		assert(tapeheadMidiMapHandleMessage(0xB0, 48, value));
+		tapeheadMidiMapProcessPending();
+		assert(fastRatio[0] == ratio);
+	}
+	for (int32_t ratio = 16; ratio >= 0; ratio--)
+	{
+		const uint8_t value = (uint8_t)((ratio * 127 + 8) / 16);
+		assert(tapeheadMidiMapHandleMessage(0xB0, 48, value));
+		tapeheadMidiMapProcessPending();
+		assert(fastRatio[0] == ratio);
 	}
 
 	/* Returning from 1:2 to centered 1:1 takes the first movement. */
@@ -691,7 +717,7 @@ int main(void)
 	testDisabledAndUnmappedMessagesPassThrough();
 	testNoteActionsUsePressEdgeAndMainThreadDrain();
 	testAPCPressReleaseSequencesRemainTwoState();
-	testAbsoluteEncoderMovementAndFeedbackEcho();
+	testAbsoluteEncoderMovement();
 	testCCFloodCoalescesToNewestValue();
 	testQueueIsBoundedAndDropsWithoutLeaking();
 	testDuplicateInputUsesLastBinding();
