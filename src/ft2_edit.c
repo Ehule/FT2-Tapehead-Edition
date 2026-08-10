@@ -147,7 +147,7 @@ static bool testEditKeys(SDL_Scancode scancode, SDL_Keycode keycode)
 				i = -1; // invalid key for slot
 		}
 	}
-	else if (cursor.object == CURSOR_EFX0)
+	else if (cursor.object == CURSOR_EFX0 || cursor.object == CURSOR_TUNE0)
 	{
 		// effect type (mixed keys)
 
@@ -157,7 +157,8 @@ static bool testEditKeys(SDL_Scancode scancode, SDL_Keycode keycode)
 				break;
 		}
 
-		if (i == KEY2EFX_ENTRIES)
+		if (i == KEY2EFX_ENTRIES || (cursor.object == CURSOR_TUNE0 &&
+			i != TAPEHEAD_EFX_MICROTUNE && i != TAPEHEAD_EFX_MICRODRIFT))
 			i = -1; // invalid key for slot
 	}
 	else
@@ -185,6 +186,7 @@ static bool testEditKeys(SDL_Scancode scancode, SDL_Keycode keycode)
 	const char *undoDescription = "Enter pattern data";
 	if (cursor.object == CURSOR_INST1 || cursor.object == CURSOR_INST2) undoDescription = "Enter instrument";
 	else if (cursor.object == CURSOR_VOL1 || cursor.object == CURSOR_VOL2) undoDescription = "Enter volume";
+	else if (cursor.object == CURSOR_TUNE0 || cursor.object == CURSOR_TUNE1 || cursor.object == CURSOR_TUNE2) undoDescription = "Enter tuning/drift";
 	else if (cursor.object == CURSOR_EFX0 || cursor.object == CURSOR_EFX1 || cursor.object == CURSOR_EFX2) undoDescription = "Enter effect";
 	if (!undoPatternBegin(curPattern, undoDescription))
 		return true;
@@ -246,6 +248,19 @@ static bool testEditKeys(SDL_Scancode scancode, SDL_Keycode keycode)
 
 			p->efx = i;
 		}
+		break;
+
+		case CURSOR_TUNE0:
+			p->tuneType = (uint8_t)i;
+			if (i == 0) p->tuneData = 0;
+		break;
+
+		case CURSOR_TUNE1:
+			p->tuneData = (p->tuneData & 0x0F) | (i << 4);
+		break;
+
+		case CURSOR_TUNE2:
+			p->tuneData = (p->tuneData & 0xF0) | i;
 		break;
 
 		case CURSOR_EFX1:
@@ -624,7 +639,7 @@ bool handleEditKeys(SDL_Keycode keycode, SDL_Scancode scancode)
 		if (keyb.leftShiftPressed)
 		{
 			// delete all
-			p->note = p->instr = p->vol = p->efx = p->efxData = 0;
+			memset(p, 0, sizeof (*p));
 		}
 		else if (keyb.leftCtrlPressed)
 		{
@@ -645,6 +660,14 @@ bool handleEditKeys(SDL_Keycode keycode, SDL_Scancode scancode)
 			{
 				// delete volume column
 				p->vol = 0;
+			}
+			else if (cursor.object == CURSOR_TUNE0 || cursor.object == CURSOR_TUNE1 || cursor.object == CURSOR_TUNE2)
+			{
+				p->tuneType = p->tuneData = 0;
+			}
+			else if (cursor.object == CURSOR_EFX0 || cursor.object == CURSOR_EFX1 || cursor.object == CURSOR_EFX2)
+			{
+				p->efx = p->efxData = 0;
 			}
 			else
 			{
@@ -1595,7 +1618,11 @@ static void copyNote(note_t *src, note_t *dst)
 			dst->vol = src->vol;
 
 		if (editor.copyMask[3])
+		{
+			dst->tuneType = src->tuneType;
+			dst->tuneData = src->tuneData;
 			dst->efx = src->efx;
+		}
 
 		if (editor.copyMask[4])
 			dst->efxData = src->efxData;
@@ -1620,7 +1647,14 @@ static void pasteNote(note_t *src, note_t *dst)
 			dst->vol = src->vol;
 
 		if (editor.copyMask[3] && (src->efx != 0 || !editor.transpMask[3]))
+		{
+			if (src->tuneType != 0 || !editor.transpMask[3])
+			{
+				dst->tuneType = src->tuneType;
+				dst->tuneData = src->tuneData;
+			}
 			dst->efx = src->efx;
+		}
 
 		if (editor.copyMask[4] && (src->efxData != 0 || !editor.transpMask[4]))
 			dst->efxData = src->efxData;

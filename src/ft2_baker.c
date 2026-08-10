@@ -149,7 +149,8 @@ void bakerCaptureManualEvent(int32_t channelIndex, const note_t *event)
 static bool eventIsEmpty(const note_t *event)
 {
 	return event->note == 0 && event->instr == 0 && event->vol == 0 &&
-		event->efx == 0 && event->efxData == 0;
+		event->efx == 0 && event->efxData == 0 && event->tuneType == 0 &&
+		event->tuneData == 0;
 }
 
 static bool compositionNeedsTickResolution(const fastTracksRuntimeState_t *fastTracksState)
@@ -296,6 +297,18 @@ void bakerCaptureEvent(int32_t channelIndex, const note_t *event)
 	}
 
 	note_t flattened = *event;
+	if (microtonalEffectIsPitchExtension(flattened.tuneType))
+	{
+		if (bakeOutputTarget == BAKER_OUTPUT_STANDARD_XM)
+		{
+			flattened.tuneType = flattened.tuneData = 0;
+			bakeStrippedMicrotonalCommands++;
+		}
+		else
+		{
+			bakePreservedMicrotonalCommands++;
+		}
+	}
 
 	/* These commands have already done their work in the source replayer. A
 	** conventional XM must receive their outcome, not repeat the Tapehead or
@@ -313,8 +326,7 @@ void bakerCaptureEvent(int32_t channelIndex, const note_t *event)
 		}
 		else
 		{
-			/* Tapehead XM uses the same XM pattern cells and keeps Mxx/Nxx as
-			** compositional instructions for a later Tapehead playback. */
+			/* Legacy general-column commands remain supported during capture. */
 			bakePreservedMicrotonalCommands++;
 		}
 	}

@@ -738,6 +738,14 @@ static void microDrift(channel_t *ch, uint8_t param)
 	ch->status |= CF_UPDATE_PERIOD;
 }
 
+static void applyTuningLane(channel_t *ch, uint8_t type, uint8_t data)
+{
+	if (type == TAPEHEAD_EFX_MICROTUNE)
+		microTune(ch, data);
+	else if (type == TAPEHEAD_EFX_MICRODRIFT)
+		microDrift(ch, data);
+}
+
 void applyChannelMicrotonalEffect(uint8_t channelIndex, uint8_t effect, uint8_t parameter)
 {
 	if (channelIndex >= MAX_CHANNELS || !microtonalEffectIsPitchExtension(effect))
@@ -1647,6 +1655,21 @@ static void getNewNote(channel_t *ch, const note_t *p)
 	ch->efx = p->efx;
 	ch->efxData = p->efxData;
 	ch->copyOfInstrAndNote = (p->instr << 8) | p->note;
+	ch->pendingTuneType = ch->pendingTuneData = 0;
+
+	/* A tuning instruction accompanying a real note belongs to its trigger.
+	** ED1..EDF defer both; state-only and instrument-only rows apply now. */
+	const bool delayedNote = p->note != 0 && p->efx == 0x0E &&
+		p->efxData >= 0xD1 && p->efxData <= 0xDF;
+	if (delayedNote)
+	{
+		ch->pendingTuneType = p->tuneType;
+		ch->pendingTuneData = p->tuneData;
+	}
+	else
+	{
+		applyTuningLane(ch, p->tuneType, p->tuneData);
+	}
 
 	if (ch->channelOff) // channel is muted, only handle certain effects
 	{
@@ -2486,6 +2509,8 @@ static void noteDelay(channel_t *ch, uint8_t param)
 {
 	if ((uint8_t)(song.speed-song.tick) == param)
 	{
+		applyTuningLane(ch, ch->pendingTuneType, ch->pendingTuneData);
+		ch->pendingTuneType = ch->pendingTuneData = 0;
 		const uint8_t note = ch->copyOfInstrAndNote & 0x00FF;
 		triggerNote(note, 0, 0, ch);
 

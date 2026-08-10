@@ -38,9 +38,12 @@ enum
 	CURSOR_INST2 = 2,
 	CURSOR_VOL1 = 3,
 	CURSOR_VOL2 = 4,
-	CURSOR_EFX0 = 5,
-	CURSOR_EFX1 = 6,
-	CURSOR_EFX2 = 7
+	CURSOR_TUNE0 = 5,
+	CURSOR_TUNE1 = 6,
+	CURSOR_TUNE2 = 7,
+	CURSOR_EFX0 = 8,
+	CURSOR_EFX1 = 9,
+	CURSOR_EFX2 = 10
 };
 
 #define FT2_REF_AUDIO_RATE 44000
@@ -50,7 +53,7 @@ enum
 #define MAX_BPM 255
 #define MAX_SPEED 31
 #define MAX_CHANNELS 32
-#define TRACK_WIDTH (5 * MAX_CHANNELS)
+#define TRACK_WIDTH ((int32_t)sizeof (note_t) * MAX_CHANNELS)
 #define C4_FREQ 8363
 #define NOTE_C4 (4*12)
 #define NOTE_OFF 97
@@ -192,7 +195,10 @@ xmInsHdr_t;
 
 typedef struct pattNote_t // must be packed!
 {
+	/* The first five members are deliberately kept in XM order, but note_t is
+	** an in-memory Tapehead cell and must never be serialized by casting it. */
 	uint8_t note, instr, vol, efx, efxData;
+	uint8_t tuneType, tuneData;
 }
 #ifdef __GNUC__
 __attribute__ ((packed))
@@ -258,6 +264,7 @@ typedef struct channel_t
 	uint8_t tapeheadOneShotDirection;
 	int8_t relativeNote, finetune;
 	uint8_t smpNum, instrNum, efxData, efx, sampleOffset, tremorParam, tremorPos;
+	uint8_t pendingTuneType, pendingTuneData;
 	uint8_t globVolSlideSpeed, panningSlideSpeed, vibTremCtrl, portamentoDirection;
 	uint8_t vibratoPos, tremoloPos, vibratoSpeed, vibratoDepth, tremoloSpeed, tremoloDepth;
 	uint8_t patternLoopStartRow, patternLoopCounter, volSlideSpeed, fVolSlideUpSpeed, fVolSlideDownSpeed;

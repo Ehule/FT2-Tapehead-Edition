@@ -3,7 +3,7 @@
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
-#include "ft2_microtonal.h"
+#include "ft2_replayer.h"
 
 static void test_tune_byte_mapping_and_persistence(void)
 {
@@ -122,6 +122,19 @@ static void test_effect_namespace(void)
 	assert(!microtonalEffectIsPitchExtension(0x0D));
 	assert(!microtonalEffectIsPitchExtension(0x1D)); /* Txx tremor */
 	assert(!microtonalEffectIsPitchExtension(0x23)); /* Zxx FastTracks */
+	assert(microtonalLaneTypeIsValid(0));
+	assert(microtonalLaneTypeIsValid(TAPEHEAD_EFX_MICROTUNE));
+	assert(!microtonalLaneTypeIsValid(0x0E));
+
+	note_t legacy = { 48, 1, 0, TAPEHEAD_EFX_MICROTUNE, 0x8C, 0, 0 };
+	assert(microtonalPromoteLegacyEffect(&legacy));
+	assert(legacy.tuneType == TAPEHEAD_EFX_MICROTUNE && legacy.tuneData == 0x8C);
+	assert(legacy.efx == 0 && legacy.efxData == 0);
+
+	note_t conflict = { 48, 1, 0, TAPEHEAD_EFX_MICRODRIFT, 3,
+		TAPEHEAD_EFX_MICROTUNE, 0x80 };
+	assert(!microtonalPromoteLegacyEffect(&conflict));
+	assert(conflict.efx == TAPEHEAD_EFX_MICRODRIFT);
 }
 
 int main(void)

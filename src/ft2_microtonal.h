@@ -3,6 +3,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+typedef struct pattNote_t note_t;
+
 enum
 {
 	TAPEHEAD_EFX_MICROTUNE = 0x16, /* Mxx */
@@ -25,5 +27,7 @@ void microtonalSetTune(microtonalState_t *state, uint8_t parameter);
 void microtonalSetDriftDepth(microtonalState_t *state, uint8_t depthCents);
 bool microtonalAdvance(microtonalState_t *state, uint16_t bpm);
 bool microtonalEffectIsPitchExtension(uint8_t effect);
+bool microtonalLaneTypeIsValid(uint8_t type);
+bool microtonalPromoteLegacyEffect(note_t *event);
 int32_t microtonalCurrentCents16(const microtonalState_t *state);
 int64_t microtonalScaleDelta(int64_t baseDelta, int32_t cents16);

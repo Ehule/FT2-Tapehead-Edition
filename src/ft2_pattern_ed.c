@@ -201,10 +201,9 @@ void killPatternIfUnused(uint16_t pattNum) // for tracker use only, not in loade
 uint8_t getMaxVisibleChannels(void)
 {
 	ASSERT(config.ptnMaxChannels >= 0 && config.ptnMaxChannels <= 3);
-	if (config.ptnShowVolColumn)
-		return maxVisibleChans1[config.ptnMaxChannels];
-	else
-		return maxVisibleChans2[config.ptnMaxChannels];
+	const uint8_t configured = config.ptnShowVolColumn ?
+		maxVisibleChans1[config.ptnMaxChannels] : maxVisibleChans2[config.ptnMaxChannels];
+	return MIN(configured, 8); /* seven-field compact cells need at least 69px */
 }
 
 void updatePatternWidth(void)
@@ -559,7 +558,7 @@ void cursorRight(void)
 			cursor.object++;
 	}
 
-	if (cursor.object == 8)
+	if (cursor.object == 11)
 	{
 		cursor.object = CURSOR_NOTE;
 		cursorChannelRight();
