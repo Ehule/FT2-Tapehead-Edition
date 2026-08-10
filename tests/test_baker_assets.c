@@ -10,6 +10,7 @@
 #define TEST_SAMPLE_PAD_LENGTH (TEST_SMP_DATA_OFFSET + (MAX_RIGHT_TAPS * 2))
 
 instr_t *instr[128+4];
+song_t song;
 
 static instr_t *makeInstrument(uint8_t mappedSample, int8_t pcm0)
 {
@@ -60,6 +61,8 @@ static void destroyInstrument(instr_t *ins)
 int main(void)
 {
 	instr[1] = makeInstrument(0, 10);
+	memcpy(song.instrName[1], "SOURCE INSTRUMENT", 18);
+	memcpy(instr[1]->smp[1].name, "MORPH_7", 8);
 	int8_t sourcePcm[8];
 	memcpy(sourcePcm, instr[1]->smp[1].dataPtr, sizeof (sourcePcm));
 
@@ -102,6 +105,10 @@ int main(void)
 	/* Mapping the sample only at another note must not transpose the event. */
 	instr[1]->note2SampleLUT[59] = 1;
 	const instr_t sourceBefore = *instr[1];
+	memcpy(song.instrName[2], "RESERVED LABEL", 15);
+	char sourceInstrumentName[22+1], sourceSampleName[22+1];
+	memcpy(sourceInstrumentName, song.instrName[1], sizeof (sourceInstrumentName));
+	memcpy(sourceSampleName, instr[1]->smp[1].name, sizeof (sourceSampleName));
 	const uint8_t privateInstrument = bakerAssetsResolveInstrument(48, 1, 1);
 	assert(privateInstrument > 1);
 	assert(bakerAssetsGetPrivateCount() == 1);
@@ -117,6 +124,8 @@ int main(void)
 	assert(bakerAssetsResolveInstrument(48, 1, 1) == privateInstrument);
 	assert(bakerAssetsGetPrivateCount() == 2);
 	assert(bakerAssetsInstall());
+	assert(strcmp(song.instrName[privateInstrument], "MORPH_7") == 0);
+	assert(song.instrName[privateInstrument][22] == '\0');
 
 	const instr_t *copy = instr[privateInstrument];
 	assert(copy != NULL);
@@ -136,11 +145,48 @@ int main(void)
 	assert(copy->smp[0].dataPtr != instr[1]->smp[1].dataPtr);
 	assert(memcmp(copy->smp[0].dataPtr, instr[1]->smp[1].dataPtr,
 		SAMPLE_LENGTH_BYTES((&copy->smp[0]))) == 0);
+	assert(strcmp(copy->smp[0].name, "MORPH_7") == 0);
+	assert(memcmp(song.instrName[1], sourceInstrumentName,
+		sizeof (sourceInstrumentName)) == 0);
+	assert(memcmp(instr[1]->smp[1].name, sourceSampleName,
+		sizeof (sourceSampleName)) == 0);
+
+	/* Exercise the fixed-width name representation used by XM save/load. */
+	char xmName[22], reloadedName[22+1] = { 0 };
+	memcpy(xmName, song.instrName[privateInstrument], sizeof (xmName));
+	FILE *xmFile = tmpfile();
+	assert(xmFile != NULL);
+	assert(fwrite(xmName, sizeof (xmName), 1, xmFile) == 1);
+	rewind(xmFile);
+	assert(fread(reloadedName, sizeof (xmName), 1, xmFile) == 1);
+	fclose(xmFile);
+	assert(strcmp(reloadedName, "MORPH_7") == 0);
 
 	bakerAssetsUninstall();
 	assert(instr[privateInstrument] == NULL);
 	assert(memcmp(&sourceBefore, instr[1], offsetof(instr_t, smp)) == 0);
 	assert(memcmp(sourcePcm, instr[1]->smp[1].dataPtr, sizeof (sourcePcm)) == 0);
+	bakerAssetsFree();
+	assert(memcmp(song.instrName[1], sourceInstrumentName,
+		sizeof (sourceInstrumentName)) == 0);
+	assert(strcmp(song.instrName[2], "RESERVED LABEL") == 0);
+
+	/* Unnamed samples get a stable one-based origin; long names fill exactly
+	** the XM field while the runtime string remains terminated. */
+	memset(instr[1]->smp[1].name, 0, sizeof (instr[1]->smp[1].name));
+	const uint8_t unnamedInstrument = bakerAssetsResolveInstrument(48, 1, 1);
+	assert(unnamedInstrument > 1 && bakerAssetsInstall());
+	assert(strcmp(song.instrName[unnamedInstrument], "MORPH I01 S02") == 0);
+	bakerAssetsFree();
+
+	memcpy(instr[1]->smp[1].name, "1234567890123456789012", 22);
+	instr[1]->smp[1].name[22] = '\0';
+	const uint8_t longNameInstrument = bakerAssetsResolveInstrument(48, 1, 1);
+	assert(longNameInstrument > 1 && bakerAssetsInstall());
+	assert(memcmp(song.instrName[longNameInstrument],
+		"1234567890123456789012", 22) == 0);
+	assert(song.instrName[longNameInstrument][22] == '\0');
+	assert(memcmp(instr[1]->smp[1].name, "1234567890123456789012", 23) == 0);
 	bakerAssetsFree();
 
 	/* All destination slots occupied is a clear hard failure, not fallback. */
