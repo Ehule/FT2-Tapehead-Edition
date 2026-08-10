@@ -19,6 +19,7 @@ TEST_SCRIPTS = (
     "test_undo_transactions.py",
 	"test_baker_allocator.py",
 	"test_baker_assets.py",
+	"test_baker_dialog_layout.py",
 	"test_sample_launcher_native.py",
 	"test_sample_launcher_banks.py",
 	"test_sample_matrix_browser.py",
