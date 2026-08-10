@@ -1,6 +1,28 @@
 #include <string.h>
 #include "ft2_baker_core.h"
 
+bool bakerTimelinePosition(uint64_t absoluteTick, bakerTimelinePosition_t *position)
+{
+	if (position == NULL || absoluteTick >= BAKE_MAX_TICKS)
+		return false;
+
+	position->order = (uint16_t)(absoluteTick / BAKE_PATTERN_ROWS);
+	position->pattern = position->order; /* baked patterns are unique and linear */
+	position->row = (uint16_t)(absoluteTick % BAKE_PATTERN_ROWS);
+	return position->order < BAKE_MAX_PATTERNS &&
+		position->pattern < BAKE_MAX_PATTERNS && position->row < BAKE_PATTERN_ROWS;
+}
+
+bool bakerEffectIsSourceSpeed(uint8_t effect, uint8_t parameter)
+{
+	return effect == 0x0F && parameter > 0 && parameter < 0x20;
+}
+
+bool bakerEffectIsTempo(uint8_t effect, uint8_t parameter)
+{
+	return effect == 0x0F && parameter >= 0x20;
+}
+
 void bakerChannelAllocatorReset(bakerChannelAllocator_t *allocator,
 	uint8_t sourceChannelCount)
 {

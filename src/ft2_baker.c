@@ -19,8 +19,6 @@
 #include "ft2_sample_launcher.h"
 #include "ft2_video.h"
 
-#define BAKE_PATTERN_ROWS 64
-#define BAKE_MAX_ROWS (MAX_PATTERNS * BAKE_PATTERN_ROWS)
 #define BAKE_TICK_SAFETY_LIMIT 10000000U
 
 enum
@@ -116,7 +114,7 @@ static int32_t performanceElapsedRow(void)
 	const uint64_t numerator = elapsed * bakeInitialBPM * 2;
 	const uint64_t denominator = frequency * 5;
 	const uint64_t row = numerator / denominator;
-	return row >= BAKE_MAX_ROWS ? BAKE_MAX_ROWS : (int32_t)row;
+	return row >= BAKE_MAX_TICKS ? BAKE_MAX_TICKS : (int32_t)row;
 }
 
 void bakerBeginManualRow(void)
@@ -136,7 +134,7 @@ void bakerBeginManualRow(void)
 		/* An absolute fader message may cross many source rows at one instant.
 		** Preserve their order instead of collapsing them into one XM cell. */
 		bakeRow = MAX(elapsedRow, bakeRow + 1);
-		if (bakeRow >= BAKE_MAX_ROWS)
+		if (bakeRow >= (int32_t)BAKE_MAX_TICKS)
 			bakeOverflow = true;
 	}
 }
@@ -153,42 +151,6 @@ static bool eventIsEmpty(const note_t *event)
 		event->tuneData == 0;
 }
 
-static bool compositionNeedsTickResolution(const fastTracksRuntimeState_t *fastTracksState)
-{
-	if (fastTracksState != NULL)
-	{
-		for (int32_t i = 0; i < FAST_TRACKS_CHANNEL_COUNT; i++)
-		{
-			if (fastTracksState->tracks[i].mode != FAST_TRACKS_MODE_STANDARD)
-				return true;
-		}
-	}
-
-	/* A composition may deliberately begin with the Fast Tracks master off and
-	** enable or configure it later through Zxx. Detect that source language up
-	** front so the offline baker does not choose the coarse row clock before
-	** the command is encountered. */
-	for (int32_t orderIndex = 0; orderIndex < song.songLength; orderIndex++)
-	{
-		const int32_t patternIndex = song.orders[orderIndex];
-		if (pattern[patternIndex] == NULL)
-			continue;
-
-		const int32_t rows = CLAMP(patternNumRows[patternIndex], 1, 256);
-		for (int32_t row = 0; row < rows; row++)
-		{
-			const note_t *rowData = &pattern[patternIndex][row * MAX_CHANNELS];
-			for (int32_t channelIndex = 0; channelIndex < song.numChannels; channelIndex++)
-			{
-				if (rowData[channelIndex].efx == 0x23)
-					return true;
-			}
-		}
-	}
-
-	return false;
-}
-
 void bakerBeginTick(void)
 {
 	const bool performanceClock = songPlaying || patternLauncherHasRouting() ||
@@ -196,10 +158,10 @@ void bakerBeginTick(void)
 	if (bakerIsRunning() &&
 		bakerTimelineShouldAdvance(bakeTickResolution, performanceClock, song.tick))
 	{
-		if (bakeRow < BAKE_MAX_ROWS)
+		if (bakeRow < (int32_t)BAKE_MAX_TICKS)
 			bakeRow++;
 
-		if (bakeRow >= BAKE_MAX_ROWS)
+		if (bakeRow >= (int32_t)BAKE_MAX_TICKS)
 			bakeOverflow = true;
 	}
 
@@ -291,7 +253,7 @@ void bakerCaptureEvent(int32_t channelIndex, const note_t *event)
 {
 	if (!bakerIsRunning() || event == NULL || eventIsEmpty(event) ||
 		channelIndex < 0 || channelIndex >= song.numChannels ||
-		bakeRow < 0 || bakeRow >= BAKE_MAX_ROWS)
+		bakeRow < 0 || bakeRow >= (int32_t)BAKE_MAX_TICKS || bakeOverflow)
 	{
 		return;
 	}
@@ -350,7 +312,7 @@ void bakerCaptureEvent(int32_t channelIndex, const note_t *event)
 	** finished XM runs these rows at TPL 1, so source F01..F1F speed commands
 	** have already done their work and must not override that baked clock. BPM
 	** commands (F20..FFF) remain meaningful and are preserved. */
-	if (bakeTickResolution && flattened.efx == 0x0F && flattened.efxData < 0x20)
+	if (bakeTickResolution && bakerEffectIsSourceSpeed(flattened.efx, flattened.efxData))
 	{
 		flattened.efx = 0;
 		flattened.efxData = 0;
@@ -373,8 +335,15 @@ void bakerCaptureEvent(int32_t channelIndex, const note_t *event)
 		flattened.efxData = 0xD0 | (uint8_t)elapsedTick;
 	}
 
-	const int32_t patternIndex = bakeRow / BAKE_PATTERN_ROWS;
-	const int32_t patternRow = bakeRow % BAKE_PATTERN_ROWS;
+	bakerTimelinePosition_t position;
+	if (!bakerTimelinePosition((uint64_t)bakeRow, &position) ||
+		position.pattern >= MAX_PATTERNS || channelIndex >= MAX_CHANNELS)
+	{
+		bakeOverflow = true;
+		return;
+	}
+	const int32_t patternIndex = position.pattern;
+	const int32_t patternRow = position.row;
 	if (bakePatterns[patternIndex] == NULL)
 	{
 		bakePatterns[patternIndex] = (note_t *)calloc(BAKE_PATTERN_ROWS * MAX_CHANNELS,
@@ -387,6 +356,17 @@ void bakerCaptureEvent(int32_t channelIndex, const note_t *event)
 	}
 
 	note_t *destinationRow = &bakePatterns[patternIndex][patternRow * MAX_CHANNELS];
+	/* F20..FF is one global tempo transition. Some replay paths can report the
+	** same resolved command through more than one source channel; emit it once. */
+	if (bakerEffectIsTempo(flattened.efx, flattened.efxData))
+	{
+		for (int32_t i = 0; i < MAX_CHANNELS; i++)
+		{
+			if (destinationRow[i].efx == flattened.efx &&
+				destinationRow[i].efxData == flattened.efxData)
+				return;
+		}
+	}
 	uint32_t occupiedMask = 0;
 	for (int32_t i = 0; i < MAX_CHANNELS; i++)
 	{
@@ -597,7 +577,8 @@ static bool allocateLiveBakePatterns(void)
 
 static bool saveBakeResult(int32_t bakedRows)
 {
-	if (bakedRows <= 0 || bakeCollisions != 0 || bakeUnsupportedSubTicks != 0 || bakeOverflow)
+	if (bakedRows <= 0 || bakedRows > (int32_t)BAKE_MAX_TICKS ||
+		bakeCollisions != 0 || bakeUnsupportedSubTicks != 0 || bakeOverflow)
 		return false;
 	if (!bakerAssetsInstall())
 		return false;
@@ -616,7 +597,7 @@ static bool saveBakeResult(int32_t bakedRows)
 	song.songLoopStart = 0;
 	song.numChannels = outputChannels;
 	song.BPM = bakeInitialBPM;
-	song.speed = bakeTickResolution ? 1 : bakeInitialSpeed;
+	song.speed = bakeTickResolution ? BAKE_OUTPUT_TPL : bakeInitialSpeed;
 	for (int32_t i = 0; i < MAX_PATTERNS; i++)
 	{
 		pattern[i] = i < patternCount ? bakePatterns[i] : NULL;
@@ -624,7 +605,8 @@ static bool saveBakeResult(int32_t bakedRows)
 		if (i < patternCount)
 			song.orders[i] = (uint8_t)i;
 	}
-	patternNumRows[patternCount-1] = (int16_t)(((bakedRows - 1) % BAKE_PATTERN_ROWS) + 1);
+	/* Every baked pattern deliberately has the same 256-row timeline geometry,
+	** including the last one. Empty trailing rows are harmless and deterministic. */
 
 	const bool saved = bakeOutputTarget == BAKER_OUTPUT_TAPEHEAD_XM ?
 		saveXM(bakeFilenameU) : saveStandardXM(bakeFilenameU);
@@ -656,10 +638,10 @@ static int32_t bakeCompositionThread(void *unused)
 	const int8_t sourcePlayMode = playMode;
 	const bool sourceSongPlaying = songPlaying;
 
-	/* Preserve the proven row-resolution path for an ordinary composition.
-	** Once any Fast Track is active, capture every replayer tick so private
-	** crossings at ratios other than synchronized 1:1 become writable rows. */
-	resetBakeCapture(compositionNeedsTickResolution(&sourceFastTracks));
+	/* Composition Baker always flattens the actual replayer tick stream to TPL 1.
+	** The source TPL, including mid-song F01..F1F changes, controls how many
+	** replayer ticks occur; it never becomes the baked module speed. */
+	resetBakeCapture(true);
 	bakeState = BAKE_OFFLINE;
 
 	editor.songPos = 0;
@@ -668,7 +650,7 @@ static int32_t bakeCompositionThread(void *unused)
 	startPlaying(PLAYMODE_SONG, 0);
 
 	uint32_t ticks = 0;
-	while (!editor.wavReachedEndFlag && bakeRow < BAKE_MAX_ROWS &&
+	while (!editor.wavReachedEndFlag && bakeRow < (int32_t)BAKE_MAX_TICKS &&
 		ticks++ < BAKE_TICK_SAFETY_LIMIT)
 	{
 		tickReplayer();
@@ -678,7 +660,8 @@ static int32_t bakeCompositionThread(void *unused)
 	playMode = PLAYMODE_IDLE;
 	songPlaying = false;
 
-	const bool hitSafetyLimit = ticks >= BAKE_TICK_SAFETY_LIMIT || bakeRow >= BAKE_MAX_ROWS;
+	const bool hitSafetyLimit = ticks >= BAKE_TICK_SAFETY_LIMIT || bakeOverflow ||
+		bakeRow >= (int32_t)BAKE_MAX_TICKS;
 	const int32_t bakedRows = bakeRow + 1;
 
 	/* Restore every mutable performance state before exposing or saving the
@@ -703,7 +686,7 @@ static int32_t bakeCompositionThread(void *unused)
 	if (hitSafetyLimit)
 	{
 		okBoxThreadSafe(0, "Bake Module",
-			"Bake stopped: the song did not reach its end or exceeded XM's 256-pattern limit.", NULL);
+			"No file was written.\nThe performance exceeded XM's 256-pattern limit.", NULL);
 	}
 	else if (assetError != BAKER_ASSET_OK)
 	{
@@ -864,7 +847,7 @@ void bakerFinishOrCancelLive(void)
 		const int32_t elapsedRow = performanceElapsedRow();
 		if (elapsedRow > bakeRow)
 			bakeRow = elapsedRow;
-		if (bakeRow >= BAKE_MAX_ROWS)
+		if (bakeRow >= (int32_t)BAKE_MAX_TICKS)
 			bakeOverflow = true;
 	}
 
@@ -886,7 +869,7 @@ void bakerFinishOrCancelLive(void)
 
 	if (overflow)
 	{
-		okBox(0, "Live Bake", "No file was written. The performance exceeded XM's 256-pattern limit.", NULL);
+		okBox(0, "Live Bake", "No file was written.\nThe performance exceeded XM's 256-pattern limit.", NULL);
 	}
 	else if (assetError != BAKER_ASSET_OK)
 	{
