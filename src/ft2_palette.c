@@ -23,6 +23,16 @@ static bool patternColorsInitialized;
 
 static uint8_t cfg_Red, cfg_Green, cfg_Blue, cfg_Contrast;
 
+#define PAL_LIST_FRAME_X 396
+#define PAL_LIST_FRAME_Y 2
+#define PAL_LIST_FRAME_W 106
+#define PAL_LIST_FRAME_H 82
+#define PAL_LIST_X 398
+#define PAL_LIST_Y 4
+#define PAL_LIST_TEXT_W 86
+#define PAL_LIST_ROW_H 13
+#define PAL_LIST_VISIBLE_ROWS 6
+
 static const uint8_t FTC_EditOrder[12] = { PAL_PATTEXT, PAL_BLCKMRK, PAL_BLCKTXT, PAL_MOUSEPT, PAL_DESKTOP, PAL_BUTTONS,
 	PAL_PATTERN_NOTE, PAL_PATTERN_INSTRUMENT, PAL_PATTERN_VOLUME, PAL_PATTERN_TUNING, PAL_PATTERN_EFFECT, PAL_PATTERN_EMPTY };
 static const uint8_t scaleOrder[3] = { 8, 4, 9 };
@@ -629,11 +639,12 @@ void configPalExport(void)
 
 void showPaletteEditor(void)
 {
-	clearRect(398, 0, 86, 86);
-	for (int32_t slot = 0; slot < 6; slot++)
+	drawFramework(PAL_LIST_FRAME_X, PAL_LIST_FRAME_Y, PAL_LIST_FRAME_W, PAL_LIST_FRAME_H, FRAMEWORK_TYPE2);
+	clearRect(PAL_LIST_X, PAL_LIST_Y, PAL_LIST_TEXT_W, PAL_LIST_ROW_H * PAL_LIST_VISIBLE_ROWS);
+	for (int32_t slot = 0; slot < PAL_LIST_VISIBLE_ROWS; slot++)
 	{
 		const uint8_t entry = paletteListOffset + slot;
-		const uint16_t y = (uint16_t)(3 + slot * 14);
+		const uint16_t y = (uint16_t)(PAL_LIST_Y + 2 + slot * PAL_LIST_ROW_H);
 		if (entry == cfg_ColorNum) fillRect(398, y - 1, 86, 11, PAL_BOXSLCT);
 		textOutClipX(400, y, PAL_FORGRND, paletteEntryNames[entry], 482);
 	}
@@ -836,7 +847,7 @@ uint32_t patternFieldColor(uint8_t field, bool populated)
 bool paletteListMouseWheel(bool directionUp, int32_t x, int32_t y)
 {
 	if (!ui.configScreenShown || editor.currConfigScreen != CONFIG_SCREEN_LAYOUT ||
-		x < 398 || x >= 501 || y < 0 || y >= 86)
+		x < PAL_LIST_X || x >= 501 || y < PAL_LIST_Y || y >= PAL_LIST_Y + (PAL_LIST_ROW_H * PAL_LIST_VISIBLE_ROWS))
 		return false;
 
 	if (directionUp && paletteListOffset > 0) paletteListOffset--;
@@ -850,9 +861,9 @@ bool paletteListMouseDown(int32_t x, int32_t y)
 {
 	if (!ui.configScreenShown || editor.currConfigScreen != CONFIG_SCREEN_LAYOUT)
 		return false;
-	if (x >= 398 && x < 484 && y >= 0 && y < 86)
+	if (x >= PAL_LIST_X && x < 484 && y >= PAL_LIST_Y && y < PAL_LIST_Y + (PAL_LIST_ROW_H * PAL_LIST_VISIBLE_ROWS))
 	{
-		const uint8_t row = (uint8_t)(y / 14);
+		const uint8_t row = (uint8_t)((y - PAL_LIST_Y) / PAL_LIST_ROW_H);
 		cfg_ColorNum = (uint8_t)MIN(paletteListOffset + row, 11);
 		updatePaletteEditor();
 		showPaletteEditor();
