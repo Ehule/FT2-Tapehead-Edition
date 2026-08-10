@@ -96,6 +96,7 @@ scrollBar_t scrollBars[NUM_SCROLLBARS] =
 	{ 536, 29, 70, 13, SCROLLBAR_HORIZONTAL, SCROLLBAR_FIXED_THUMB_SIZE, sbPalGPos },
 	{ 536, 43, 70, 13, SCROLLBAR_HORIZONTAL, SCROLLBAR_FIXED_THUMB_SIZE, sbPalBPos },
 	{ 536, 71, 70, 13, SCROLLBAR_HORIZONTAL, SCROLLBAR_FIXED_THUMB_SIZE, sbPalContrastPos },
+	{ 484,  2, 17, 82, SCROLLBAR_VERTICAL, SCROLLBAR_DYNAMIC_THUMB_SIZE, sbPalListPos },
 
 	// ------ CONFIG MISCELLANEOUS SCROLLBARS ------
 	//x,   y,   w,  h,  type,                 style                       funcOnDown
@@ -696,6 +697,8 @@ void initializeScrollBars(void)
 	setScrollBarEnd(SB_PAL_B, 63);
 	setScrollBarPageLength(SB_PAL_CONTRAST, 1);
 	setScrollBarEnd(SB_PAL_CONTRAST, 100);
+	setScrollBarPageLength(SB_PAL_LIST, 6);
+	setScrollBarEnd(SB_PAL_LIST, 12);
 	setScrollBarPageLength(SB_MIDI_SENS, 1);
 	setScrollBarEnd(SB_MIDI_SENS, 200);
 	setScrollBarPageLength(SB_AUDIO_OUTPUT_SCROLL, 6);

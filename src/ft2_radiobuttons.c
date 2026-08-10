@@ -144,12 +144,14 @@ radioButton_t radioButtons[NUM_RADIOBUTTONS] =
 
 	// palette entries
 	//x,   y,  w,  group,                       funcOnUp
-	{ 399, 2,  88, RB_GROUP_CONFIG_PAL_ENTRIES, rbConfigPalPatternText },
-	{ 399, 16, 79, RB_GROUP_CONFIG_PAL_ENTRIES, rbConfigPalBlockMark },
-	{ 399, 30, 97, RB_GROUP_CONFIG_PAL_ENTRIES, rbConfigPalTextOnBlock },
-	{ 399, 44, 52, RB_GROUP_CONFIG_PAL_ENTRIES, rbConfigPalMouse },
-	{ 399, 58, 63, RB_GROUP_CONFIG_PAL_ENTRIES, rbConfigPalDesktop },
-	{ 399, 72, 61, RB_GROUP_CONFIG_PAL_ENTRIES, rbConfigPalButttons },
+	/* Retired palette-entry IDs are inert placeholders kept only to avoid
+	** renumbering the legacy radio-button table. The list owns all hit tests. */
+	{ 0, 0, 0, RB_GROUP_CONFIG_PAL_ENTRIES, NULL },
+	{ 0, 0, 0, RB_GROUP_CONFIG_PAL_ENTRIES, NULL },
+	{ 0, 0, 0, RB_GROUP_CONFIG_PAL_ENTRIES, NULL },
+	{ 0, 0, 0, RB_GROUP_CONFIG_PAL_ENTRIES, NULL },
+	{ 0, 0, 0, RB_GROUP_CONFIG_PAL_ENTRIES, NULL },
+	{ 0, 0, 0, RB_GROUP_CONFIG_PAL_ENTRIES, NULL },
 
 	// palette presets
 	//x,   y,   w,   group,                      funcOnUp

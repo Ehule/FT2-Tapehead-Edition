@@ -8,6 +8,7 @@ palette = (ROOT / "src/ft2_palette.c").read_text()
 draw = (ROOT / "src/ft2_pattern_draw.c").read_text()
 config = (ROOT / "src/ft2_config.c").read_text()
 header = (ROOT / "src/ft2_palette.h").read_text()
+radios = (ROOT / "src/ft2_radiobuttons.c").read_text()
 
 for name in ("NOTE", "INSTRUMENT", "VOLUME", "TUNING", "EFFECT", "EMPTY"):
     assert f"PAL_PATTERN_{name}" in header
@@ -35,7 +36,17 @@ assert "patternColorMode = PATTERN_COLOR_MONO" in config
 
 assert "paletteListOffset" in palette
 assert "paletteListMouseWheel" in palette
-assert "cfg_ColorNum < paletteListOffset" in palette
+assert "paletteListOffset + row" in palette
+assert "entry == cfg_ColorNum" in palette
+assert "PAL_BOXSLCT" in palette and "textOutClipX(400" in palette
+assert "showScrollBar(SB_PAL_LIST)" in palette
+assert "showRadioButtonGroup(RB_GROUP_CONFIG_PAL_ENTRIES)" not in palette
+assert radios.count("{ 0, 0, 0, RB_GROUP_CONFIG_PAL_ENTRIES, NULL }") == 6
+assert "& 15" not in palette[palette.index("void setPalette"):palette.index("static void showColorErrorMsg")]
+assert "paletteIndex < PAL_NUM" in palette
+assert "PB_CONFIG_PAL_PRESET" in palette and "PB_CONFIG_PAL_COLOR_MODE" in palette
+assert '"PAT Colors:"' in palette
+assert "layout == PAL_USER_DEFINED" in palette and "{0, 0, 0}" in palette
 for preset in ("Arctic", "LiTHe dark", "Aurora Borealis", "Rose", "Blues",
                "Dark mode", "Gold", "Violent", "Heavy Metal", "Why colors?",
                "Jungle", "User defined"):
@@ -44,5 +55,12 @@ for preset in ("Arctic", "LiTHe dark", "Aurora Borealis", "Rose", "Blues",
 assert "i >= 6 && !colorFound[i]" in palette
 assert "colors[i] = colors[0]" in palette
 assert "for (int32_t i = 0; i < 12; i++)" in palette
+
+for key in ("PatternNoteColor", "PatternInstrumentColor", "PatternVolumeColor",
+            "PatternTuningColor", "PatternEffectColor", "PatternEmptyColor"):
+    assert key in config
+assert 'UNICHAR_FOPEN(tempPathU, "w")' in config
+assert 'inPattern = !_stricmp(text, "[Pattern]")' in config
+assert 'retain comments and custom Pattern keys' in config
 
 print("All pattern color modes, fields, palette compatibility, and UI list checks passed.")

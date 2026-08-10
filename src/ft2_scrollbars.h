@@ -41,6 +41,7 @@ enum // SCROLLBARS
 	SB_PAL_G,
 	SB_PAL_B,
 	SB_PAL_CONTRAST,
+	SB_PAL_LIST,
 
 	// Config Miscellaneous
 	SB_MIDI_SENS,

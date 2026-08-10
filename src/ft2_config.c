@@ -42,6 +42,8 @@
 #include "ft2_tables.h"
 #include "ft2_bmp.h"
 #include "ft2_structs.h"
+
+static char *trimText(char *s);
 #include "ft2_multichannel.h"
 #include "scopes/ft2_scopes.h"
 
@@ -447,13 +449,53 @@ void saveTapeheadPatternColorMode(void)
 {
 	UNICHAR *filePathU = getFullTapeheadConfigPathU();
 	if (filePathU == NULL) return;
-	FILE *f = UNICHAR_FOPEN(filePathU, "a");
-	free(filePathU);
-	if (f == NULL) return;
+	const size_t pathLen = UNICHAR_STRLEN(filePathU);
+	UNICHAR *tempPathU = (UNICHAR *)malloc((pathLen + 5) * sizeof (UNICHAR));
+	if (tempPathU == NULL) { free(filePathU); return; }
+	UNICHAR_STRCPY(tempPathU, filePathU);
+#ifdef _WIN32
+	UNICHAR_STRCAT(tempPathU, L".tmp");
+#else
+	UNICHAR_STRCAT(tempPathU, ".tmp");
+#endif
+	FILE *in = UNICHAR_FOPEN(filePathU, "r");
+	FILE *f = UNICHAR_FOPEN(tempPathU, "w");
+	if (f == NULL) { if (in != NULL) fclose(in); free(tempPathU); free(filePathU); return; }
 	static const char *names[3] = { "edit", "always", "mono" };
+	static const char *colorKeys[6] = { "PatternNoteColor", "PatternInstrumentColor", "PatternVolumeColor",
+		"PatternTuningColor", "PatternEffectColor", "PatternEmptyColor" };
+	uint32_t colors[6]; getUserPatternColors(colors);
+	bool inPattern = false;
+	char patternExtras[8192] = { 0 };
+	char line[512];
+	while (in != NULL && fgets(line, sizeof (line), in) != NULL)
+	{
+		char copy[512]; snprintf(copy, sizeof copy, "%s", line);
+		char *text = trimText(copy);
+		if (text[0] == '[')
+		{
+			inPattern = !_stricmp(text, "[Pattern]");
+			if (inPattern) continue;
+		}
+		bool owned = inPattern && !_strnicmp(text, "PatternColorMode=", 17);
+		for (int32_t i = 0; i < 6 && !owned; i++)
+			owned = inPattern && !_strnicmp(text, colorKeys[i], strlen(colorKeys[i])) && text[strlen(colorKeys[i])] == '=';
+		if (inPattern)
+		{
+			if (!owned && strlen(patternExtras) + strlen(line) < sizeof patternExtras - 1)
+				strcat(patternExtras, line); /* retain comments and custom Pattern keys */
+		}
+		else if (!owned) fputs(line, f);
+	}
+	if (in != NULL) fclose(in);
 	fputs("\n[Pattern]\n", f);
 	fprintf(f, "PatternColorMode=%s\n", names[MIN(tapeheadConfig.patternColorMode, 2)]);
-	fclose(f);
+	for (int32_t i = 0; i < 6; i++) fprintf(f, "%s=#%06X\n", colorKeys[i], colors[i] & 0xFFFFFF);
+	fputs(patternExtras, f);
+	const bool ok = fclose(f) == 0;
+	if (ok) { UNICHAR_REMOVE(filePathU); UNICHAR_RENAME(tempPathU, filePathU); }
+	else UNICHAR_REMOVE(tempPathU);
+	free(tempPathU); free(filePathU);
 }
 
 void saveConfig2(void) // called by "Save config" button
@@ -908,15 +950,31 @@ void loadTapeheadConfig(void)
 					tapeheadConfig.hdStyle = TAPEHEAD_HD_STYLE_CRISP;
 			}
 		}
-		else if (section == TAPEHEAD_SECTION_PATTERN &&
-			!_stricmp(key, "PatternColorMode"))
+		else if (section == TAPEHEAD_SECTION_PATTERN)
 		{
-			if (!_stricmp(value, "edit"))
-				tapeheadConfig.patternColorMode = PATTERN_COLOR_EDIT;
-			else if (!_stricmp(value, "always"))
-				tapeheadConfig.patternColorMode = PATTERN_COLOR_ALWAYS;
+			if (!_stricmp(key, "PatternColorMode"))
+			{
+				if (!_stricmp(value, "edit")) tapeheadConfig.patternColorMode = PATTERN_COLOR_EDIT;
+				else if (!_stricmp(value, "always")) tapeheadConfig.patternColorMode = PATTERN_COLOR_ALWAYS;
+				else if (!_stricmp(value, "mono")) tapeheadConfig.patternColorMode = PATTERN_COLOR_MONO;
+			}
 			else
-				tapeheadConfig.patternColorMode = PATTERN_COLOR_MONO;
+			{
+				static const char *colorKeys[6] = { "PatternNoteColor", "PatternInstrumentColor", "PatternVolumeColor",
+					"PatternTuningColor", "PatternEffectColor", "PatternEmptyColor" };
+				for (uint8_t i = 0; i < 6; i++)
+				{
+					if (!_stricmp(key, colorKeys[i]))
+					{
+						const char *hex = value[0] == '#' ? value + 1 : value;
+						char *end;
+						const unsigned long rgb = strtoul(hex, &end, 16);
+						if (strlen(hex) == 6 && *end == '\0' && rgb <= 0xFFFFFF)
+							setUserPatternColor(i, (uint32_t)rgb);
+						break;
+					}
+				}
+			}
 		}
 		else if (section == TAPEHEAD_SECTION_LAUNCHER &&
 			!_stricmp(key, "StartWindow"))
@@ -1670,11 +1728,6 @@ static void setConfigLayoutRadioButtonStates(void)
 	}
 	radioButtons[tmpID].state = RADIOBUTTON_CHECKED;
 
-	// PALETTE ENTRIES
-	uncheckRadioButtonGroup(RB_GROUP_CONFIG_PAL_ENTRIES);
-	radioButtons[RB_CONFIG_PAL_PATTERNTEXT + (cfg_ColorNum % 6)].state = RADIOBUTTON_CHECKED;
-	showRadioButtonGroup(RB_GROUP_CONFIG_PAL_ENTRIES);
-
 	// PALETTE PRESET
 	uncheckRadioButtonGroup(RB_GROUP_CONFIG_PAL_PRESET);
 	switch (config.cfg_StdPalNum)
@@ -2211,10 +2264,13 @@ void hideConfigScreen(void)
 	hidePushButton(PB_CONFIG_PAL_CONT_UP);
 	hidePushButton(PB_CONFIG_PAL_IMPORT);
 	hidePushButton(PB_CONFIG_PAL_EXPORT);
+	hidePushButton(PB_CONFIG_PAL_PRESET);
+	hidePushButton(PB_CONFIG_PAL_COLOR_MODE);
 	hideScrollBar(SB_PAL_R);
 	hideScrollBar(SB_PAL_G);
 	hideScrollBar(SB_PAL_B);
 	hideScrollBar(SB_PAL_CONTRAST);
+	hideScrollBar(SB_PAL_LIST);
 
 	// CONFIG MISCELLANEOUS
 	hideRadioButtonGroup(RB_GROUP_CONFIG_FILESORT);

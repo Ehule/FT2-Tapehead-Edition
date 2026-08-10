@@ -115,3 +115,7 @@ bool patternFieldColorsActive(void);
 bool paletteListMouseDown(int32_t x, int32_t y);
 bool paletteListMouseWheel(bool directionUp, int32_t x, int32_t y);
 void cyclePatternColorMode(void);
+void cyclePalettePreset(void);
+void sbPalListPos(uint32_t pos);
+void getUserPatternColors(uint32_t colors[6]);
+void setUserPatternColor(uint8_t field, uint32_t rgb);
