@@ -1,4 +1,5 @@
 #include <stddef.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "ft2_replayer.h"
@@ -12,6 +13,7 @@ typedef struct bakerPrivateAsset_t
 	uint8_t sourceInstrument, sourceSample, destinationInstrument;
 	uint64_t fingerprint;
 	instr_t *instrument;
+	char instrumentName[22+1], previousInstrumentName[22+1];
 } bakerPrivateAsset_t;
 
 static bakerPrivateAsset_t assets[MAX_INST];
@@ -111,6 +113,24 @@ static instr_t *copyPrivateInstrument(const instr_t *source, uint8_t sourceSampl
 	return copy;
 }
 
+static void makePrivateInstrumentName(char destination[22+1],
+	const sample_t *sourceSample, uint8_t sourceInstrument, uint8_t sourceSampleSlot)
+{
+	memset(destination, 0, 22+1);
+	if (sourceSample->name[0] != '\0')
+	{
+		/* XM names contain at most 22 characters. The runtime field has one
+		** extra byte so that it is always safe to use as a C string. */
+		memcpy(destination, sourceSample->name, 22);
+		destination[22] = '\0';
+	}
+	else
+	{
+		snprintf(destination, 22+1, "MORPH I%02u S%02u",
+			sourceInstrument, sourceSampleSlot + 1);
+	}
+}
+
 uint8_t bakerAssetsResolveInstrument(uint8_t note, uint8_t sourceInstrument,
 	uint8_t resolvedSample)
 {
@@ -150,10 +170,17 @@ uint8_t bakerAssetsResolveInstrument(uint8_t note, uint8_t sourceInstrument,
 		assetError = BAKER_ASSET_MEMORY;
 		return 0;
 	}
-	assets[assetCount++] = (bakerPrivateAsset_t)
+	bakerPrivateAsset_t *asset = &assets[assetCount++];
+	*asset = (bakerPrivateAsset_t)
 	{
-		sourceInstrument, resolvedSample, destination, fingerprint, copy
+		.sourceInstrument = sourceInstrument,
+		.sourceSample = resolvedSample,
+		.destinationInstrument = destination,
+		.fingerprint = fingerprint,
+		.instrument = copy
 	};
+	makePrivateInstrumentName(asset->instrumentName, sample, sourceInstrument,
+		resolvedSample);
 	return destination;
 }
 
@@ -189,7 +216,13 @@ bool bakerAssetsInstall(void)
 		}
 	}
 	for (uint16_t i = 0; i < assetCount; i++)
+	{
+		memcpy(assets[i].previousInstrumentName,
+			song.instrName[assets[i].destinationInstrument], 22+1);
+		memcpy(song.instrName[assets[i].destinationInstrument],
+			assets[i].instrumentName, 22+1);
 		instr[assets[i].destinationInstrument] = assets[i].instrument;
+	}
 	assetsInstalled = true;
 	return true;
 }
@@ -201,7 +234,11 @@ void bakerAssetsUninstall(void)
 	for (uint16_t i = 0; i < assetCount; i++)
 	{
 		if (instr[assets[i].destinationInstrument] == assets[i].instrument)
+		{
 			instr[assets[i].destinationInstrument] = NULL;
+			memcpy(song.instrName[assets[i].destinationInstrument],
+				assets[i].previousInstrumentName, 22+1);
+		}
 	}
 	assetsInstalled = false;
 }

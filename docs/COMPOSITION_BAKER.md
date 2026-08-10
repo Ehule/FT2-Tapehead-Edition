@@ -67,6 +67,8 @@ volume, panning, relative note, finetune, and bit-depth flags. Compatible
 private instruments are deduplicated when a selection recurs. They exist only
 in the destination XM: Baker never changes the source instrument, its note map,
 or its samples, and cancellation or failure discards all private assets.
+Baker-only Sample Morph instruments inherit the selected sample's name, with a
+generated source instrument/sample fallback when that name is empty.
 
 Encoder motion itself is not stored as automation and does not retrigger a
 voice; it changes only later note triggers. Track selections remain independent
