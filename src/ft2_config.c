@@ -53,6 +53,7 @@ tapeheadConfig_t tapeheadConfig;
 #endif
 
 static uint8_t configBuffer[CONFIG_FILE_SIZE];
+static UNICHAR *getFullTapeheadConfigPathU(void);
 
 static void xorConfigBuffer(uint8_t *ptr8)
 {
@@ -438,7 +439,21 @@ bool saveConfig(bool showErrorFlag)
 	}
 
 	fclose(f);
+	saveTapeheadPatternColorMode();
 	return true;
+}
+
+void saveTapeheadPatternColorMode(void)
+{
+	UNICHAR *filePathU = getFullTapeheadConfigPathU();
+	if (filePathU == NULL) return;
+	FILE *f = UNICHAR_FOPEN(filePathU, "a");
+	free(filePathU);
+	if (f == NULL) return;
+	static const char *names[3] = { "edit", "always", "mono" };
+	fputs("\n[Pattern]\n", f);
+	fprintf(f, "PatternColorMode=%s\n", names[MIN(tapeheadConfig.patternColorMode, 2)]);
+	fclose(f);
 }
 
 void saveConfig2(void) // called by "Save config" button
@@ -686,6 +701,9 @@ static void writeDefaultTapeheadConfig(const UNICHAR *filePathU)
 	fputs("; The old sharp name is accepted as an alias for crisp.\n", f);
 	fputs("; Accepted values: crisp, sharp or round.\n", f);
 	fputs("HDStyle=crisp\n\n", f);
+	fputs("[Pattern]\n\n", f);
+	fputs("; Pattern field colors: edit (only while editing), always, or mono.\n", f);
+	fputs("PatternColorMode=edit\n\n", f);
 	fputs("[Launcher]\n\n", f);
 	fputs("; Startup window. Accepted values: tracker or deck_matrix.\n", f);
 	fputs("; Older Enabled/Standalone keys are still accepted when this is absent.\n", f);
@@ -787,6 +805,8 @@ void loadTapeheadConfig(void)
 	tapeheadConfig.outputBuses = 1;
 	tapeheadConfig.hdScale = 3;
 	tapeheadConfig.hdStyle = TAPEHEAD_HD_STYLE_CRISP;
+	/* Compatibility default for an older tapehead.ini without this key. */
+	tapeheadConfig.patternColorMode = PATTERN_COLOR_MONO;
 	tapeheadConfig.undoMemoryMB = 32;
 	for (int32_t i = 0; i < MAX_CHANNELS; i++)
 		tapeheadConfig.midiDubTrackChannels[i] = (uint8_t)(i & 15);
@@ -809,6 +829,7 @@ void loadTapeheadConfig(void)
 	{
 		TAPEHEAD_SECTION_NONE,
 		TAPEHEAD_SECTION_VIDEO,
+		TAPEHEAD_SECTION_PATTERN,
 		TAPEHEAD_SECTION_LAUNCHER,
 		TAPEHEAD_SECTION_DISKOP,
 		TAPEHEAD_SECTION_KEYBOARD,
@@ -832,6 +853,8 @@ void loadTapeheadConfig(void)
 			if (close != NULL) *close = '\0';
 			if (!_stricmp(text + 1, "Video"))
 				section = TAPEHEAD_SECTION_VIDEO;
+			else if (!_stricmp(text + 1, "Pattern"))
+				section = TAPEHEAD_SECTION_PATTERN;
 			else if (!_stricmp(text + 1, "Launcher"))
 				section = TAPEHEAD_SECTION_LAUNCHER;
 			else if (!_stricmp(text + 1, "DiskOp"))
@@ -884,6 +907,16 @@ void loadTapeheadConfig(void)
 				else if (!_stricmp(value, "crisp") || !_stricmp(value, "sharp"))
 					tapeheadConfig.hdStyle = TAPEHEAD_HD_STYLE_CRISP;
 			}
+		}
+		else if (section == TAPEHEAD_SECTION_PATTERN &&
+			!_stricmp(key, "PatternColorMode"))
+		{
+			if (!_stricmp(value, "edit"))
+				tapeheadConfig.patternColorMode = PATTERN_COLOR_EDIT;
+			else if (!_stricmp(value, "always"))
+				tapeheadConfig.patternColorMode = PATTERN_COLOR_ALWAYS;
+			else
+				tapeheadConfig.patternColorMode = PATTERN_COLOR_MONO;
 		}
 		else if (section == TAPEHEAD_SECTION_LAUNCHER &&
 			!_stricmp(key, "StartWindow"))
@@ -1639,7 +1672,7 @@ static void setConfigLayoutRadioButtonStates(void)
 
 	// PALETTE ENTRIES
 	uncheckRadioButtonGroup(RB_GROUP_CONFIG_PAL_ENTRIES);
-	radioButtons[RB_CONFIG_PAL_PATTERNTEXT + cfg_ColorNum].state = RADIOBUTTON_CHECKED;
+	radioButtons[RB_CONFIG_PAL_PATTERNTEXT + (cfg_ColorNum % 6)].state = RADIOBUTTON_CHECKED;
 	showRadioButtonGroup(RB_GROUP_CONFIG_PAL_ENTRIES);
 
 	// PALETTE PRESET
@@ -1669,7 +1702,7 @@ static void setConfigLayoutRadioButtonStates(void)
 	showRadioButtonGroup(RB_GROUP_CONFIG_SCOPE);
 	showRadioButtonGroup(RB_GROUP_CONFIG_PATTERN_CHANS);
 	showRadioButtonGroup(RB_GROUP_CONFIG_FONT);
-	showRadioButtonGroup(RB_GROUP_CONFIG_PAL_PRESET);
+	/* Palette presets are exposed by the compact cycling selector. */
 }
 
 static void setConfigMiscCheckButtonStates(void)
