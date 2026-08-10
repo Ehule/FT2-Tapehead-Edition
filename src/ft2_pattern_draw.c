@@ -370,6 +370,15 @@ static void pattLayoutCharOut(uint32_t x, uint32_t y, uint8_t chr,
 	}
 }
 
+static void pattLayoutPlaceholderOut(uint32_t x, uint32_t y,
+	const pattLayout_t *layout, uint32_t color)
+{
+	/* A placeholder represents one editable character, not the space beside it.
+	** Drawing the font's period glyph filled too much of the tightly packed
+	** layouts and made neighboring empty fields look like one continuous run. */
+	video.frameBuffer[((y + 3) * SCREEN_W) + x + (layout->charW / 2)] = color;
+}
+
 static void drawAdaptiveCell(uint32_t x, uint32_t y, const note_t *n,
 	uint32_t noteColor, uint32_t instrColor, uint32_t volColor,
 	uint32_t tuneColor, uint32_t effectColor)
@@ -402,19 +411,24 @@ static void drawAdaptiveCell(uint32_t x, uint32_t y, const note_t *n,
 
 	if (config.ptnShowVolColumn)
 	{
-		const uint8_t dot = layout->fontType == FONT_TYPE3 ? 42 : 39;
-		const uint8_t vol1 = n->vol < 0x10 ? dot :
-			(layout->fontType == FONT_TYPE3 ? vol2charTab2[n->vol >> 4] : vol2charTab1[n->vol >> 4]);
-		const uint8_t vol2 = n->vol < 0x10 ? dot : n->vol & 15;
-		pattLayoutCharOut(x + px[3], y, vol1, layout, volColor);
-		pattLayoutCharOut(x + px[4], y, vol2, layout, volColor);
+		if (n->vol < 0x10)
+		{
+			pattLayoutPlaceholderOut(x + px[3], y, layout, volColor);
+			pattLayoutPlaceholderOut(x + px[4], y, layout, volColor);
+		}
+		else
+		{
+			const uint8_t vol1 = layout->fontType == FONT_TYPE3 ?
+				vol2charTab2[n->vol >> 4] : vol2charTab1[n->vol >> 4];
+			pattLayoutCharOut(x + px[3], y, vol1, layout, volColor);
+			pattLayoutCharOut(x + px[4], y, n->vol & 15, layout, volColor);
+		}
 	}
 
-	const uint8_t dot = layout->fontType == FONT_TYPE3 ? 42 : 39;
 	if (n->tuneType == 0)
 	{
 		for (int32_t i = 5; i <= 7; i++)
-			pattLayoutCharOut(x + px[i], y, dot, layout, tuneColor);
+			pattLayoutPlaceholderOut(x + px[i], y, layout, tuneColor);
 	}
 	else
 	{
@@ -426,7 +440,7 @@ static void drawAdaptiveCell(uint32_t x, uint32_t y, const note_t *n,
 	if (n->efx == 0 && n->efxData == 0)
 	{
 		for (int32_t i = 8; i <= 10; i++)
-			pattLayoutCharOut(x + px[i], y, dot, layout, effectColor);
+			pattLayoutPlaceholderOut(x + px[i], y, layout, effectColor);
 	}
 	else
 	{
