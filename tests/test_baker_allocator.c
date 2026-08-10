@@ -42,6 +42,37 @@ int main(void)
 	bool relocated;
 	bool ordinaryMute[BAKER_ALLOCATOR_CHANNELS] = { false };
 	bool performanceMute[BAKER_ALLOCATOR_CHANNELS] = { false };
+	bakerTimelinePosition_t position;
+
+	assert(BAKE_PATTERN_ROWS == 256);
+	assert(BAKE_MAX_TICKS == 65536);
+	assert(BAKE_OUTPUT_TPL == 1);
+	assert(bakerEffectIsSourceSpeed(0x0F, 0x01));
+	assert(bakerEffectIsSourceSpeed(0x0F, 0x1F));
+	assert(!bakerEffectIsSourceSpeed(0x0F, 0x20));
+	assert(bakerEffectIsTempo(0x0F, 0x20));
+	assert(bakerEffectIsTempo(0x0F, 0xFF));
+	assert(!bakerEffectIsTempo(0x0F, 0x1F));
+	assert(bakerTimelinePosition(0, &position));
+	assert(position.order == 0 && position.pattern == 0 && position.row == 0);
+	assert(bakerTimelinePosition(63, &position) && position.row == 63);
+	assert(bakerTimelinePosition(64, &position) && position.order == 0 && position.row == 64);
+	assert(bakerTimelinePosition(255, &position) && position.order == 0 && position.row == 255);
+	assert(bakerTimelinePosition(256, &position) && position.order == 1 && position.row == 0);
+	assert(bakerTimelinePosition(65535, &position));
+	assert(position.order == 255 && position.pattern == 255 && position.row == 255);
+	assert(!bakerTimelinePosition(65536, &position));
+	assert(!bakerTimelinePosition(65537, &position));
+
+	/* One call represents one actual playback tick, independent of the source
+	** TPL. This is the accumulated timeline used across mid-row speed changes. */
+	for (uint16_t tpl = 1; tpl <= 12; tpl += tpl == 1 ? 2 : 3)
+	{
+		int32_t rows = 0;
+		for (uint16_t tick = 0; tick < tpl; tick++)
+			rows += bakerTimelineShouldAdvance(true, true, tick);
+		assert(rows == tpl);
+	}
 
 	/* Effective state is the union of structural mute causes. Releasing one
 	** cause cannot reveal a channel still held by the other. */

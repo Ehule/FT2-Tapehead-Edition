@@ -112,18 +112,15 @@ It captures:
 The loaded module's song data, editor position, channel state, and exact
 FasTracks runtime state are restored after the pass.
 
-### Row-resolution and tick-resolution output
+### Tick-resolution output
 
-An ordinary composition with no active FasTracks transport and no `Zxx` source
-language keeps the established row-resolution path and its initial TPL.
-
-If any channel is already in a private FasTracks mode, or a `Zxx` command
-appears in a pattern used by the song order, Fast Bake chooses tick resolution
-before playback begins. Every replayer tick becomes one destination XM row.
+Composition Baker intentionally always uses tick resolution. Every actual
+source replayer tick becomes one destination XM row, regardless of whether the
+source begins at TPL 1, 3, 6, 12, or changes TPL during playback.
 This lets fractional, mixed, and fast ratios—including `5:1`—cross several
 private rows without forcing those events into one master-row cell.
 
-Tick-resolution output uses **TPL 1**. Source `F01`–`F1F` timing commands have
+Output uses **TPL 1**. Source `F01`–`F1F` timing commands have
 already shaped the expanded timeline and are removed. BPM commands remain
 ordinary XM data.
 
@@ -177,8 +174,10 @@ counts.
 ## Output structure
 
 - Linear order list beginning at pattern 0
-- Conventional 64-row destination patterns
-- Short final pattern when capture ends between 64-row boundaries
+- Linear, unique 256-row destination patterns
+- At most 256 order positions and 256 baked patterns: 65,536 captured ticks
+- Maximum wall-clock duration depends on BPM; at a constant 125 BPM the limit
+  is approximately 21:51 (it is not 21:51 at every tempo)
 - Original BPM at the beginning; resolved BPM changes remain in the pattern
 - TPL 1 for tick-resolution bakes
 - Smallest compacted output channel count
@@ -202,7 +201,9 @@ No XM is written when:
 - Live Bake stops without capturing any rows.
 
 The baker reports the relevant collision, sub-row, or size failure instead of
-silently discarding music.
+silently discarding music. Capacity overflow refuses to save: it never truncates,
+wraps, or overwrites an earlier row. Standard XM and Tapehead XM outputs are
+both ordinary `.xm` files.
 
 ## Capture boundary
 
