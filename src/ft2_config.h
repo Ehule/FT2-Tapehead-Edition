@@ -95,6 +95,13 @@ enum
 	START_IN_FULLSCR = 128,
 };
 
+enum
+{
+	PATTERN_COLOR_EDIT = 0,
+	PATTERN_COLOR_ALWAYS,
+	PATTERN_COLOR_MONO
+};
+
 #ifdef _MSC_VER
 #pragma pack(push)
 #pragma pack(1)
@@ -342,6 +349,7 @@ typedef struct tapeheadConfig_t
 	uint8_t trackTrimMaxPercent;
 	uint8_t trackTrimDisplayWidth;
 	uint8_t patternJogAudition;
+	uint8_t patternColorMode;
 	bool patternJogIncludeFastTracks;
 	bool transportFreezeAudioCut;
 	bool transportFreezePedalHold;
@@ -355,5 +363,6 @@ typedef struct tapeheadConfig_t
 
 extern tapeheadConfig_t tapeheadConfig;
 void loadTapeheadConfig(void);
+void saveTapeheadPatternColorMode(void);
 
 extern config_t config;

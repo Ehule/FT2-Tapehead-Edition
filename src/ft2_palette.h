@@ -46,6 +46,12 @@ enum
 	PAL_CURSOR_NAV = 19,
 	PAL_CURSOR_EDIT = 20,
 	PAL_TRACKTRIM_GREEN = 21,
+	PAL_PATTERN_NOTE = 22,
+	PAL_PATTERN_INSTRUMENT = 23,
+	PAL_PATTERN_VOLUME = 24,
+	PAL_PATTERN_TUNING = 25,
+	PAL_PATTERN_EFFECT = 26,
+	PAL_PATTERN_EMPTY = 27,
 
 	PAL_NUM
 };
@@ -104,3 +110,8 @@ void rbConfigPalJungle(void);
 void rbConfigPalUserDefined(void);
 
 extern uint8_t cfg_ColorNum;
+uint32_t patternFieldColor(uint8_t field, bool populated);
+bool patternFieldColorsActive(void);
+bool paletteListMouseDown(int32_t x, int32_t y);
+bool paletteListMouseWheel(bool directionUp, int32_t x, int32_t y);
+void cyclePatternColorMode(void);

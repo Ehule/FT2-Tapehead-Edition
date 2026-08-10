@@ -9,6 +9,7 @@
 #include "ft2_header.h"
 #include "ft2_pattern_ed.h"
 #include "ft2_config.h"
+#include "ft2_palette.h"
 #include "ft2_gui.h"
 #include "ft2_video.h"
 #include "ft2_tables.h"
@@ -1264,11 +1265,15 @@ void writePattern(int32_t currRow, int32_t currPattern)
 				// Theme-safe Fast Tracks coloring: only populated event fields receive
 				// the emphasized-row palette color. Empty dots/dashes retain FT2's
 				// normal row color, making the event data look attached to the moving barrel.
-				uint32_t noteColor = color;
-				uint32_t instColor = color;
-				uint32_t volColor = color;
-				uint32_t efxColor = color;
-				uint32_t tuneColor = color;
+				uint32_t noteColor = patternFieldColor(0, drawPtr->note != 0);
+				uint32_t instColor = patternFieldColor(1, drawPtr->instr != 0);
+				uint32_t volColor = patternFieldColor(2, drawPtr->vol >= 0x10);
+				uint32_t tuneColor = patternFieldColor(3, drawPtr->tuneType != 0);
+				uint32_t efxColor = patternFieldColor(4, drawPtr->efx != 0 || drawPtr->efxData != 0);
+
+				/* Selected-row emphasis remains an established palette feature in MONO. */
+				if (selectedRowFlag && !patternFieldColorsActive())
+					noteColor = instColor = volColor = tuneColor = efxColor = color;
 
 				if (fastTrackVisible)
 				{

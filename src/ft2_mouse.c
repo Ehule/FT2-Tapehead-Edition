@@ -18,6 +18,7 @@
 #include "ft2_mouse.h"
 #include "ft2_undo.h"
 #include "ft2_config.h"
+#include "ft2_palette.h"
 #include "ft2_diskop.h"
 #include "ft2_audioselector.h"
 #include "ft2_midi.h"
@@ -467,6 +468,8 @@ void mouseWheelHandler(bool directionUp)
 		return;
 	if (patternLauncherHandleStandaloneWheel(mouse.x, mouse.y, directionUp))
 		return;
+	if (paletteListMouseWheel(directionUp, mouse.x, mouse.y))
+		return;
 
 	// Ctrl+wheel over a scope adjusts that channel's output trim.
 	if ((SDL_GetModState() & KMOD_CTRL) && testScopesMouseWheel(directionUp))
@@ -759,6 +762,8 @@ static bool handleFastTracksHeaderRightClick(uint8_t mouseButton)
 
 void mouseButtonDownHandler(uint8_t mouseButton)
 {
+	if (mouseButton == SDL_BUTTON_LEFT && paletteListMouseDown(mouse.x, mouse.y))
+		return;
 	if (patternLauncherStandaloneIsShown())
 	{
 		patternLauncherHandleStandaloneClick(mouse.x, mouse.y, mouseButton,

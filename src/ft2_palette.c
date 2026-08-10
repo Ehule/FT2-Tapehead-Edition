@@ -13,17 +13,28 @@
 #include "ft2_tables.h"
 #include "ft2_bmp.h"
 #include "ft2_pattern_ed.h"
+#include "ft2_replayer.h"
 #include "ft2_structs.h"
 
 uint8_t cfg_ColorNum = 0; // globalized
+static uint8_t paletteListOffset;
+static pal16 patternColors[12][6];
+static bool patternColorsInitialized;
 
 static uint8_t cfg_Red, cfg_Green, cfg_Blue, cfg_Contrast;
 
-static const uint8_t FTC_EditOrder[6] = { PAL_PATTEXT, PAL_BLCKMRK, PAL_BLCKTXT, PAL_MOUSEPT, PAL_DESKTOP, PAL_BUTTONS };
+static const uint8_t FTC_EditOrder[12] = { PAL_PATTEXT, PAL_BLCKMRK, PAL_BLCKTXT, PAL_MOUSEPT, PAL_DESKTOP, PAL_BUTTONS,
+	PAL_PATTERN_NOTE, PAL_PATTERN_INSTRUMENT, PAL_PATTERN_VOLUME, PAL_PATTERN_TUNING, PAL_PATTERN_EFFECT, PAL_PATTERN_EMPTY };
 static const uint8_t scaleOrder[3] = { 8, 4, 9 };
-static const char *paletteFileKeys[6] =
+static const char *paletteFileKeys[12] =
 {
-	"PatternText", "BlockMark", "TextOnBlock", "Mouse", "Desktop", "Buttons"
+	"PatternText", "BlockMark", "TextOnBlock", "Mouse", "Desktop", "Buttons",
+	"PatternNote", "PatternInstrument", "PatternVolume", "PatternTuning", "PatternEffect", "PatternEmpty"
+};
+static const char *paletteEntryNames[12] =
+{
+	"Pattern text", "Block mark", "Text on block", "Mouse", "Desktop", "Buttons",
+	"Pattern Note", "Pattern Instrument", "Pattern Volume", "Pattern Tuning", "Pattern Effect", "Pattern Empty"
 };
 
 static uint8_t palContrast[12][2] = // palette desktop/button contrasts
@@ -127,6 +138,30 @@ void setPalette(pal16 *p, bool redrawScreen)
 		video.palette[i] = (i << 24) | RGB32(r8, g8, b8);
 	}
 
+	if (!patternColorsInitialized)
+	{
+		for (int32_t layout = 0; layout < 12; layout++)
+		{
+			const pal16 text = palTable[layout][PAL_PATTEXT];
+			/* Restrained, theme-relative accents: neighboring fields differ mostly
+			** in luminance and warmth instead of forming a rainbow. */
+			const int8_t delta[6][3] = {{3,3,3}, {0,3,5}, {4,2,0}, {1,5,3}, {5,1,2}, {-10,-10,-10}};
+			for (int32_t field = 0; field < 6; field++)
+			{
+				patternColors[layout][field].r = (uint8_t)CLAMP((int32_t)text.r + delta[field][0], 0, 63);
+				patternColors[layout][field].g = (uint8_t)CLAMP((int32_t)text.g + delta[field][1], 0, 63);
+				patternColors[layout][field].b = (uint8_t)CLAMP((int32_t)text.b + delta[field][2], 0, 63);
+			}
+		}
+		patternColorsInitialized = true;
+	}
+	for (int32_t field = 0; field < 6; field++)
+	{
+		const pal16 c = patternColors[config.cfg_StdPalNum][field];
+		video.palette[PAL_PATTERN_NOTE + field] = ((PAL_PATTERN_NOTE + field) << 24) |
+			RGB32(COLOR_6BIT_TO_8BIT(c.r), COLOR_6BIT_TO_8BIT(c.g), COLOR_6BIT_TO_8BIT(c.b));
+	}
+
 	// set custom FT2 clone palette entries
 
 	video.palette[PAL_TEXTMRK] = (PAL_TEXTMRK << 24) | TEXT_MARK_COLOR;
@@ -207,10 +242,9 @@ static void drawCurrentPaletteColor(void)
 static void updatePaletteEditor(void)
 {
 	const uint8_t colorNum = FTC_EditOrder[cfg_ColorNum];
-
-	cfg_Red = palTable[config.cfg_StdPalNum][colorNum].r;
-	cfg_Green = palTable[config.cfg_StdPalNum][colorNum].g;
-	cfg_Blue = palTable[config.cfg_StdPalNum][colorNum].b;
+	const pal16 color = cfg_ColorNum < 6 ? palTable[config.cfg_StdPalNum][colorNum] :
+		patternColors[config.cfg_StdPalNum][cfg_ColorNum - 6];
+	cfg_Red = color.r; cfg_Green = color.g; cfg_Blue = color.b;
 
 	if (cfg_ColorNum == 4 || cfg_ColorNum == 5)
 		cfg_Contrast = palContrast[config.cfg_StdPalNum][cfg_ColorNum-4];
@@ -283,9 +317,9 @@ static void paletteDragMoved(void)
 	const uint8_t colorNum = FTC_EditOrder[cfg_ColorNum];
 	const uint8_t layout = (uint8_t)config.cfg_StdPalNum;
 
-	palTable[layout][colorNum].r = cfg_Red;
-	palTable[layout][colorNum].g = cfg_Green;
-	palTable[layout][colorNum].b = cfg_Blue;
+	pal16 *editedColor = cfg_ColorNum < 6 ? &palTable[layout][colorNum] :
+		&patternColors[layout][cfg_ColorNum - 6];
+	editedColor->r = cfg_Red; editedColor->g = cfg_Green; editedColor->b = cfg_Blue;
 
 	if (cfg_ColorNum == 4 || cfg_ColorNum == 5)
 	{
@@ -439,8 +473,8 @@ void configPalImport(void)
 		return;
 	}
 
-	uint32_t colors[6] = { 0 };
-	bool colorFound[6] = { false };
+	uint32_t colors[12] = { 0 };
+	bool colorFound[12] = { false };
 	uint8_t contrasts[2] =
 	{
 		palContrast[PAL_USER_DEFINED][0], palContrast[PAL_USER_DEFINED][1]
@@ -485,7 +519,7 @@ void configPalImport(void)
 		char *value = trimPaletteText(equals + 1);
 		bool recognized = false;
 
-		for (int32_t i = 0; i < 6; i++)
+		for (int32_t i = 0; i < 12; i++)
 		{
 			if (!_stricmp(key, paletteFileKeys[i]))
 			{
@@ -514,6 +548,8 @@ void configPalImport(void)
 	}
 
 	fclose(f);
+	/* The original six keys remain mandatory. Missing Phase-2 fields inherit
+	** PatternText, making every older tapehead.pal valid and monochrome-safe. */
 	for (int32_t i = 0; i < 6; i++)
 	{
 		if (!colorFound[i])
@@ -526,18 +562,20 @@ void configPalImport(void)
 		return;
 	}
 
-	for (int32_t i = 0; i < 6; i++)
+	for (int32_t i = 0; i < 12; i++)
 	{
-		const uint8_t colorNum = FTC_EditOrder[i];
-		palTable[PAL_USER_DEFINED][colorNum].r = color8To6((uint8_t)(colors[i] >> 16));
-		palTable[PAL_USER_DEFINED][colorNum].g = color8To6((uint8_t)(colors[i] >> 8));
-		palTable[PAL_USER_DEFINED][colorNum].b = color8To6((uint8_t)colors[i]);
+		if (i >= 6 && !colorFound[i]) colors[i] = colors[0];
+		pal16 *dst = i < 6 ? &palTable[PAL_USER_DEFINED][FTC_EditOrder[i]] :
+			&patternColors[PAL_USER_DEFINED][i - 6];
+		dst->r = color8To6((uint8_t)(colors[i] >> 16));
+		dst->g = color8To6((uint8_t)(colors[i] >> 8));
+		dst->b = color8To6((uint8_t)colors[i]);
 	}
 
 	applyPaletteContrast(PAL_USER_DEFINED, 4, contrasts[0]);
 	applyPaletteContrast(PAL_USER_DEFINED, 5, contrasts[1]);
 	rbConfigPalUserDefined();
-	okBox(0, "System message", "Imported six-color palette from tapehead.pal.", NULL);
+	okBox(0, "System message", "Imported Tapehead palette from tapehead.pal.", NULL);
 }
 
 void configPalExport(void)
@@ -558,13 +596,13 @@ void configPalExport(void)
 	}
 
 	const uint8_t layout = (uint8_t)config.cfg_StdPalNum;
-	fputs("; Tapehead Edition six-color palette\n", f);
+	fputs("; Tapehead Edition palette\n", f);
 	fputs("; Copy this file between installations or edit the hex values manually.\n", f);
 	fputs("; Press I in Config > Layout to import it into User defined.\n\n", f);
 	fputs("[TapeheadPalette]\n", f);
-	for (int32_t i = 0; i < 6; i++)
+	for (int32_t i = 0; i < 12; i++)
 	{
-		const pal16 color = palTable[layout][FTC_EditOrder[i]];
+		const pal16 color = i < 6 ? palTable[layout][FTC_EditOrder[i]] : patternColors[layout][i - 6];
 		fprintf(f, "%s=#%02X%02X%02X\n", paletteFileKeys[i],
 			COLOR_6BIT_TO_8BIT(color.r), COLOR_6BIT_TO_8BIT(color.g),
 			COLOR_6BIT_TO_8BIT(color.b));
@@ -578,11 +616,24 @@ void configPalExport(void)
 	if (writeFailed)
 		okBox(0, "System message", "General I/O error while writing tapehead.pal.", NULL);
 	else
-		okBox(0, "System message", "Exported six-color palette to tapehead.pal.", NULL);
+		okBox(0, "System message", "Exported Tapehead palette to tapehead.pal.", NULL);
 }
 
 void showPaletteEditor(void)
 {
+	/* Six fixed radio hit targets form a viewport over all twelve attributes. */
+	clearRect(398, 0, 103, 86);
+	for (int32_t slot = 0; slot < 6; slot++)
+		textOutShadow(414, (uint16_t)(3 + slot * 14), PAL_FORGRND, PAL_DSKTOP2,
+			paletteEntryNames[paletteListOffset + slot]);
+	clearRect(398, 87, 232, 86);
+	static const char *presetNames[12] = { "Arctic", "LiTHe dark", "Aurora Borealis", "Rose", "Blues", "Dark mode", "Gold", "Violent", "Heavy Metal", "Why colors?", "Jungle", "User defined" };
+	static const char *modeNames[3] = { "Edit", "Always", "Mono" };
+	textOutShadow(414, 104, PAL_FORGRND, PAL_DSKTOP2, "Preset:");
+	textOutShadow(468, 104, PAL_FORGRND, PAL_DSKTOP2, presetNames[config.cfg_StdPalNum]);
+	textOutShadow(414, 146, PAL_FORGRND, PAL_DSKTOP2, "Pattern Colors:");
+	textOutShadow(528, 146, PAL_FORGRND, PAL_DSKTOP2,
+		modeNames[MIN(tapeheadConfig.patternColorMode, 2)]);
 	charOutShadow(503, 17, PAL_FORGRND, PAL_DSKTOP2, 'R');
 	charOutShadow(503, 31, PAL_FORGRND, PAL_DSKTOP2, 'G');
 	charOutShadow(503, 45, PAL_FORGRND, PAL_DSKTOP2, 'B');
@@ -611,42 +662,42 @@ void showPaletteEditor(void)
 
 void rbConfigPalPatternText(void)
 {
-	cfg_ColorNum = 0;
+	cfg_ColorNum = paletteListOffset;
 	checkRadioButton(RB_CONFIG_PAL_PATTERNTEXT);
 	updatePaletteEditor();
 }
 
 void rbConfigPalBlockMark(void)
 {
-	cfg_ColorNum = 1;
+	cfg_ColorNum = paletteListOffset + 1;
 	checkRadioButton(RB_CONFIG_PAL_BLOCKMARK);
 	updatePaletteEditor();
 }
 
 void rbConfigPalTextOnBlock(void)
 {
-	cfg_ColorNum = 2;
+	cfg_ColorNum = paletteListOffset + 2;
 	checkRadioButton(RB_CONFIG_PAL_TEXTONBLOCK);
 	updatePaletteEditor();
 }
 
 void rbConfigPalMouse(void)
 {
-	cfg_ColorNum = 3;
+	cfg_ColorNum = paletteListOffset + 3;
 	checkRadioButton(RB_CONFIG_PAL_MOUSE);
 	updatePaletteEditor();
 }
 
 void rbConfigPalDesktop(void)
 {
-	cfg_ColorNum = 4;
+	cfg_ColorNum = paletteListOffset + 4;
 	checkRadioButton(RB_CONFIG_PAL_DESKTOP);
 	updatePaletteEditor();
 }
 
 void rbConfigPalButttons(void)
 {
-	cfg_ColorNum = 5;
+	cfg_ColorNum = paletteListOffset + 5;
 	checkRadioButton(RB_CONFIG_PAL_BUTTONS);
 	updatePaletteEditor();
 }
@@ -745,4 +796,68 @@ void rbConfigPalUserDefined(void)
 	updatePaletteEditor();
 	setPalette(palTable[config.cfg_StdPalNum], REDRAW_SCREEN);
 	checkRadioButton(RB_CONFIG_PAL_USER_DEFINED);
+}
+
+bool patternFieldColorsActive(void)
+{
+	bool colored = tapeheadConfig.patternColorMode == PATTERN_COLOR_ALWAYS;
+	if (tapeheadConfig.patternColorMode == PATTERN_COLOR_EDIT)
+	{
+		/* These are the canonical pattern-writing states. Normal SONG/PATT
+		** transport is deliberately excluded; recording playback is included. */
+		colored = playMode == PLAYMODE_EDIT || playMode == PLAYMODE_RECPATT ||
+			playMode == PLAYMODE_RECSONG;
+	}
+	return colored;
+}
+
+uint32_t patternFieldColor(uint8_t field, bool populated)
+{
+	if (!patternFieldColorsActive())
+		return video.palette[PAL_PATTEXT];
+	if (!populated)
+		return video.palette[PAL_PATTERN_EMPTY];
+	return video.palette[PAL_PATTERN_NOTE + MIN(field, 4)];
+}
+
+bool paletteListMouseWheel(bool directionUp, int32_t x, int32_t y)
+{
+	if (!ui.configScreenShown || editor.currConfigScreen != CONFIG_SCREEN_LAYOUT ||
+		x < 398 || x >= 501 || y < 0 || y >= 86)
+		return false;
+
+	if (directionUp && paletteListOffset > 0) paletteListOffset--;
+	else if (!directionUp && paletteListOffset < 6) paletteListOffset++;
+	if (cfg_ColorNum < paletteListOffset) cfg_ColorNum = paletteListOffset;
+	if (cfg_ColorNum >= paletteListOffset + 6) cfg_ColorNum = paletteListOffset + 5;
+	showPaletteEditor();
+	return true;
+}
+
+bool paletteListMouseDown(int32_t x, int32_t y)
+{
+	if (!ui.configScreenShown || editor.currConfigScreen != CONFIG_SCREEN_LAYOUT)
+		return false;
+	if (x >= 398 && x < 630 && y >= 143 && y < 157)
+	{
+		cyclePatternColorMode();
+		return true;
+	}
+	if (x >= 398 && x < 630 && y >= 99 && y < 117)
+	{
+		config.cfg_StdPalNum = (int16_t)((config.cfg_StdPalNum + 1) % 12);
+		updatePaletteEditor();
+		setPalette(palTable[config.cfg_StdPalNum], REDRAW_SCREEN);
+		showPaletteEditor();
+		return true;
+	}
+	return false; /* Attribute rows retain the established radio hit targets. */
+}
+
+void cyclePatternColorMode(void)
+{
+	tapeheadConfig.patternColorMode = (uint8_t)((tapeheadConfig.patternColorMode + 1) % 3);
+	ui.updatePatternEditor = true;
+	saveTapeheadPatternColorMode();
+	showPaletteEditor();
 }
