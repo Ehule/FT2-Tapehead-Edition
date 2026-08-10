@@ -52,10 +52,25 @@ the completion accounting distinguishes unavailable positions from launches
 actually skipped. Conversion work that can be represented by the existing
 mapping is not an error.
 
-Sample Morph is resolved after its per-track selection: subsequent notes point
-at the sample actually chosen rather than blindly copying the source cell's
-sample choice. Encoder motion itself is not automation and does not retrigger a
-voice. Track selections remain independent.
+Sample Morph is resolved per triggered note, after its independent per-track
+selection, so the baked XM uses the exact sample heard instead of blindly
+copying the source cell's original sample choice. The original instrument is
+reused only when its note map selects that sample at the note that was actually
+played. A mapping at some other note is not used as a reason to transpose the
+baked note.
+
+When the selected sample is not faithfully reachable at that note, Baker adds
+a destination-only private instrument containing an owned copy of the selected
+sample and the source instrument's XM envelopes, fadeout, and vibrato settings.
+The note remains unchanged, and the copied sample retains its PCM, loops,
+volume, panning, relative note, finetune, and bit-depth flags. Compatible
+private instruments are deduplicated when a selection recurs. They exist only
+in the destination XM: Baker never changes the source instrument, its note map,
+or its samples, and cancellation or failure discards all private assets.
+
+Encoder motion itself is not stored as automation and does not retrigger a
+voice; it changes only later note triggers. Track selections remain independent
+and their current state is honored when either Fast or Live Bake begins.
 
 ## Before baking
 

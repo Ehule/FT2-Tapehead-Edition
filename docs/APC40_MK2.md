@@ -106,6 +106,14 @@ uses a new selection. Already-playing voices are untouched. Switching Device
 On/Off off restores the native instrument sample map on the next note without
 rewriting the XM.
 
+Composition Baker resolves Sample Morph at each subsequent note trigger and
+writes the exact encoder-selected sample into the standard XM result. It reuses
+the source instrument only when that note already maps faithfully; otherwise it
+creates and deduplicates a destination-only private instrument with an owned
+sample copy and the source XM playback settings. The played note and pitch are
+not changed, the loaded source instrument is never modified, and encoder
+movement by itself is not written as automation.
+
 ## Pattern jog / bowed audition
 
 `Cue Level=PatternJogRelative` uses the APC's relative encoder as a small jog

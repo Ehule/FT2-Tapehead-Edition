@@ -7,6 +7,7 @@
     <ClCompile Include="..\..\src\ft2_audio.c" />
     <ClCompile Include="..\..\src\ft2_audioselector.c" />
     <ClCompile Include="..\..\src\ft2_baker.c" />
+    <ClCompile Include="..\..\src\ft2_baker_assets.c" />
     <ClCompile Include="..\..\src\ft2_baker_core.c" />
     <ClCompile Include="..\..\src\ft2_bmp.c" />
     <ClCompile Include="..\..\src\ft2_checkboxes.c" />
@@ -260,6 +261,7 @@
       <Filter>headers</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\ft2_baker.h" />
+    <ClInclude Include="..\..\src\ft2_baker_assets.h" />
     <ClInclude Include="..\..\src\ft2_baker_core.h" />
     <ClInclude Include="..\..\src\ft2_fasttracks_core.h">
       <Filter>headers</Filter>
