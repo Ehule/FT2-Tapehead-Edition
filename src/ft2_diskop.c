@@ -939,9 +939,13 @@ static void diskOpSave(bool checkOverwrite, bool bakeCompositionRequested)
 			{
 				diskOpChangeFilenameExt(".xm");
 
-				const int16_t bakeMode = choiceBoxWithCheckBox(SYSREQ_TYPE_BAKE_MODULE,
+				const uint16_t oldPatternRows = tapeheadConfig.bakerPatternRows;
+				const int16_t bakeMode = bakerChoiceBox(SYSREQ_TYPE_BAKE_MODULE,
 					"Bake Module", "Fast: silent pass   Live: perform loops, then Stop",
-					"Merge exact duplicate voices", &bakeMergeExactDuplicates);
+					"Merge exact duplicate voices", &bakeMergeExactDuplicates,
+					&tapeheadConfig.bakerPatternRows, song.BPM);
+				if (tapeheadConfig.bakerPatternRows != oldPatternRows)
+					saveTapeheadBakerPatternRows();
 				if (bakeMode != 1 && bakeMode != 2)
 					return;
 
@@ -970,12 +974,14 @@ static void diskOpSave(bool checkOverwrite, bool bakeCompositionRequested)
 
 				if (bakeMode == 1)
 				{
-					bakeComposition(fileNameU, bakeMergeExactDuplicates, outputTarget);
+					bakeComposition(fileNameU, bakeMergeExactDuplicates, outputTarget,
+						tapeheadConfig.bakerPatternRows);
 				}
 				else
 				{
 					exitDiskOpScreen();
-					armLiveCompositionBake(fileNameU, bakeMergeExactDuplicates, outputTarget);
+					armLiveCompositionBake(fileNameU, bakeMergeExactDuplicates, outputTarget,
+						tapeheadConfig.bakerPatternRows);
 				}
 				free(fileNameU);
 				return;

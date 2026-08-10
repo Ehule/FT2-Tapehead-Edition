@@ -40,7 +40,7 @@ static uint32_t bakeMergedDuplicateEvents, bakeStrippedMicrotonalCommands;
 static uint32_t bakePreservedMicrotonalCommands;
 static bool bakeOverflow, bakeMergeExactDuplicates, bakeTickResolution;
 static bakerOutputTarget_t bakeOutputTarget;
-static uint16_t bakeInitialBPM, bakeInitialSpeed;
+static uint16_t bakeInitialBPM, bakeInitialSpeed, bakePatternRows = BAKE_DEFAULT_PATTERN_ROWS;
 static uint64_t bakePerformanceStartCounter;
 static UNICHAR bakeFilenameU[PATH_MAX+1];
 static bakerChannelAllocator_t bakeAllocator;
@@ -114,7 +114,7 @@ static int32_t performanceElapsedRow(void)
 	const uint64_t numerator = elapsed * bakeInitialBPM * 2;
 	const uint64_t denominator = frequency * 5;
 	const uint64_t row = numerator / denominator;
-	return row >= BAKE_MAX_TICKS ? BAKE_MAX_TICKS : (int32_t)row;
+	return row >= bakerCapacityTicks(bakePatternRows) ? bakerCapacityTicks(bakePatternRows) : (int32_t)row;
 }
 
 void bakerBeginManualRow(void)
@@ -134,7 +134,7 @@ void bakerBeginManualRow(void)
 		/* An absolute fader message may cross many source rows at one instant.
 		** Preserve their order instead of collapsing them into one XM cell. */
 		bakeRow = MAX(elapsedRow, bakeRow + 1);
-		if (bakeRow >= (int32_t)BAKE_MAX_TICKS)
+		if (bakeRow >= (int32_t)bakerCapacityTicks(bakePatternRows))
 			bakeOverflow = true;
 	}
 }
@@ -158,10 +158,10 @@ void bakerBeginTick(void)
 	if (bakerIsRunning() &&
 		bakerTimelineShouldAdvance(bakeTickResolution, performanceClock, song.tick))
 	{
-		if (bakeRow < (int32_t)BAKE_MAX_TICKS)
+		if (bakeRow < (int32_t)bakerCapacityTicks(bakePatternRows))
 			bakeRow++;
 
-		if (bakeRow >= (int32_t)BAKE_MAX_TICKS)
+		if (bakeRow >= (int32_t)bakerCapacityTicks(bakePatternRows))
 			bakeOverflow = true;
 	}
 
@@ -253,7 +253,7 @@ void bakerCaptureEvent(int32_t channelIndex, const note_t *event)
 {
 	if (!bakerIsRunning() || event == NULL || eventIsEmpty(event) ||
 		channelIndex < 0 || channelIndex >= song.numChannels ||
-		bakeRow < 0 || bakeRow >= (int32_t)BAKE_MAX_TICKS || bakeOverflow)
+		bakeRow < 0 || bakeRow >= (int32_t)bakerCapacityTicks(bakePatternRows) || bakeOverflow)
 	{
 		return;
 	}
@@ -336,7 +336,7 @@ void bakerCaptureEvent(int32_t channelIndex, const note_t *event)
 	}
 
 	bakerTimelinePosition_t position;
-	if (!bakerTimelinePosition((uint64_t)bakeRow, &position) ||
+	if (!bakerTimelinePosition((uint64_t)bakeRow, bakePatternRows, &position) ||
 		position.pattern >= MAX_PATTERNS || channelIndex >= MAX_CHANNELS)
 	{
 		bakeOverflow = true;
@@ -346,7 +346,7 @@ void bakerCaptureEvent(int32_t channelIndex, const note_t *event)
 	const int32_t patternRow = position.row;
 	if (bakePatterns[patternIndex] == NULL)
 	{
-		bakePatterns[patternIndex] = (note_t *)calloc(BAKE_PATTERN_ROWS * MAX_CHANNELS,
+		bakePatterns[patternIndex] = (note_t *)calloc(bakePatternRows * MAX_CHANNELS,
 			sizeof (note_t));
 		if (bakePatterns[patternIndex] == NULL)
 		{
@@ -443,8 +443,8 @@ static bool bakedChannelsIdentical(int32_t channel1, int32_t channel2, int32_t b
 {
 	for (int32_t row = 0; row < bakedRows; row++)
 	{
-		const int32_t patternIndex = row / BAKE_PATTERN_ROWS;
-		const int32_t patternRow = row % BAKE_PATTERN_ROWS;
+		const int32_t patternIndex = row / bakePatternRows;
+		const int32_t patternRow = row % bakePatternRows;
 		if (bakePatterns[patternIndex] == NULL)
 			continue;
 
@@ -465,8 +465,8 @@ static uint32_t clearBakedChannel(int32_t channelIndex, int32_t bakedRows)
 	uint32_t clearedEvents = 0;
 	for (int32_t row = 0; row < bakedRows; row++)
 	{
-		const int32_t patternIndex = row / BAKE_PATTERN_ROWS;
-		const int32_t patternRow = row % BAKE_PATTERN_ROWS;
+		const int32_t patternIndex = row / bakePatternRows;
+		const int32_t patternRow = row % bakePatternRows;
 		if (bakePatterns[patternIndex] == NULL)
 			continue;
 
@@ -489,8 +489,8 @@ static int32_t compactBakeChannels(int32_t bakedRows)
 
 	for (int32_t row = 0; row < bakedRows; row++)
 	{
-		const int32_t patternIndex = row / BAKE_PATTERN_ROWS;
-		const int32_t patternRow = row % BAKE_PATTERN_ROWS;
+		const int32_t patternIndex = row / bakePatternRows;
+		const int32_t patternRow = row % bakePatternRows;
 		if (bakePatterns[patternIndex] == NULL)
 			continue;
 
@@ -539,8 +539,8 @@ static int32_t compactBakeChannels(int32_t bakedRows)
 
 	for (int32_t row = 0; row < bakedRows; row++)
 	{
-		const int32_t patternIndex = row / BAKE_PATTERN_ROWS;
-		const int32_t patternRow = row % BAKE_PATTERN_ROWS;
+		const int32_t patternIndex = row / bakePatternRows;
+		const int32_t patternRow = row % bakePatternRows;
 		if (bakePatterns[patternIndex] == NULL)
 			continue;
 
@@ -563,7 +563,7 @@ static bool allocateLiveBakePatterns(void)
 {
 	for (int32_t i = 0; i < MAX_PATTERNS; i++)
 	{
-		bakePatterns[i] = (note_t *)calloc(BAKE_PATTERN_ROWS * MAX_CHANNELS,
+		bakePatterns[i] = (note_t *)calloc(bakePatternRows * MAX_CHANNELS,
 			sizeof (note_t));
 		if (bakePatterns[i] == NULL)
 		{
@@ -577,7 +577,7 @@ static bool allocateLiveBakePatterns(void)
 
 static bool saveBakeResult(int32_t bakedRows)
 {
-	if (bakedRows <= 0 || bakedRows > (int32_t)BAKE_MAX_TICKS ||
+	if (bakedRows <= 0 || bakedRows > (int32_t)bakerCapacityTicks(bakePatternRows) ||
 		bakeCollisions != 0 || bakeUnsupportedSubTicks != 0 || bakeOverflow)
 		return false;
 	if (!bakerAssetsInstall())
@@ -592,7 +592,7 @@ static bool saveBakeResult(int32_t bakedRows)
 	memcpy(savedPatternRows, patternNumRows, sizeof (savedPatternRows));
 
 	const int32_t outputChannels = compactBakeChannels(bakedRows);
-	const int32_t patternCount = (bakedRows + BAKE_PATTERN_ROWS - 1) / BAKE_PATTERN_ROWS;
+	const int32_t patternCount = (bakedRows + bakePatternRows - 1) / bakePatternRows;
 	song.songLength = (uint16_t)patternCount;
 	song.songLoopStart = 0;
 	song.numChannels = outputChannels;
@@ -601,11 +601,11 @@ static bool saveBakeResult(int32_t bakedRows)
 	for (int32_t i = 0; i < MAX_PATTERNS; i++)
 	{
 		pattern[i] = i < patternCount ? bakePatterns[i] : NULL;
-		patternNumRows[i] = BAKE_PATTERN_ROWS;
+		patternNumRows[i] = bakePatternRows;
 		if (i < patternCount)
 			song.orders[i] = (uint8_t)i;
 	}
-	/* Every baked pattern deliberately has the same 256-row timeline geometry,
+	/* Every baked pattern deliberately has the selected timeline geometry,
 	** including the last one. Empty trailing rows are harmless and deterministic. */
 
 	const bool saved = bakeOutputTarget == BAKER_OUTPUT_TAPEHEAD_XM ?
@@ -650,7 +650,7 @@ static int32_t bakeCompositionThread(void *unused)
 	startPlaying(PLAYMODE_SONG, 0);
 
 	uint32_t ticks = 0;
-	while (!editor.wavReachedEndFlag && bakeRow < (int32_t)BAKE_MAX_TICKS &&
+	while (!editor.wavReachedEndFlag && bakeRow < (int32_t)bakerCapacityTicks(bakePatternRows) &&
 		ticks++ < BAKE_TICK_SAFETY_LIMIT)
 	{
 		tickReplayer();
@@ -661,7 +661,7 @@ static int32_t bakeCompositionThread(void *unused)
 	songPlaying = false;
 
 	const bool hitSafetyLimit = ticks >= BAKE_TICK_SAFETY_LIMIT || bakeOverflow ||
-		bakeRow >= (int32_t)BAKE_MAX_TICKS;
+		bakeRow >= (int32_t)bakerCapacityTicks(bakePatternRows);
 	const int32_t bakedRows = bakeRow + 1;
 
 	/* Restore every mutable performance state before exposing or saving the
@@ -727,7 +727,7 @@ static int32_t bakeCompositionThread(void *unused)
 }
 
 void bakeComposition(UNICHAR *filenameU, bool mergeExactDuplicates,
-	bakerOutputTarget_t outputTarget)
+	bakerOutputTarget_t outputTarget, uint16_t patternRows)
 {
 	if (bakeState != BAKE_IDLE)
 		return;
@@ -745,6 +745,7 @@ void bakeComposition(UNICHAR *filenameU, bool mergeExactDuplicates,
 	bakeFilenameU[PATH_MAX] = '\0';
 	bakeMergeExactDuplicates = mergeExactDuplicates;
 	bakeOutputTarget = outputTarget;
+	bakePatternRows = bakerPatternRowsValid(patternRows) ? patternRows : BAKE_DEFAULT_PATTERN_ROWS;
 	bakeState = BAKE_OFFLINE;
 	mouseAnimOn();
 	bakeThread = SDL_CreateThread(bakeCompositionThread, "composition bake thread", NULL);
@@ -760,7 +761,7 @@ void bakeComposition(UNICHAR *filenameU, bool mergeExactDuplicates,
 }
 
 void armLiveCompositionBake(UNICHAR *filenameU, bool mergeExactDuplicates,
-	bakerOutputTarget_t outputTarget)
+	bakerOutputTarget_t outputTarget, uint16_t patternRows)
 {
 	if (bakeState != BAKE_IDLE)
 	{
@@ -770,6 +771,7 @@ void armLiveCompositionBake(UNICHAR *filenameU, bool mergeExactDuplicates,
 
 	bakeMergeExactDuplicates = mergeExactDuplicates;
 	bakeOutputTarget = outputTarget;
+	bakePatternRows = bakerPatternRowsValid(patternRows) ? patternRows : BAKE_DEFAULT_PATTERN_ROWS;
 	/* Live Bake is specifically allowed to change Fast Tracks state after it is
 	** armed, so it always records on the tick-resolution timeline. */
 	resetBakeCapture(true);
@@ -847,7 +849,7 @@ void bakerFinishOrCancelLive(void)
 		const int32_t elapsedRow = performanceElapsedRow();
 		if (elapsedRow > bakeRow)
 			bakeRow = elapsedRow;
-		if (bakeRow >= (int32_t)BAKE_MAX_TICKS)
+		if (bakeRow >= (int32_t)bakerCapacityTicks(bakePatternRows))
 			bakeOverflow = true;
 	}
 

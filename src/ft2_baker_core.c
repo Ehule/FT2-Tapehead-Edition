@@ -1,16 +1,47 @@
+#include <stdio.h>
 #include <string.h>
 #include "ft2_baker_core.h"
 
-bool bakerTimelinePosition(uint64_t absoluteTick, bakerTimelinePosition_t *position)
+bool bakerPatternRowsValid(uint16_t patternRows)
 {
-	if (position == NULL || absoluteTick >= BAKE_MAX_TICKS)
+	return patternRows == 16 || patternRows == 32 || patternRows == 64 ||
+		patternRows == 128 || patternRows == 256;
+}
+
+uint32_t bakerCapacityTicks(uint16_t patternRows)
+{
+	return bakerPatternRowsValid(patternRows) ? patternRows * BAKE_MAX_PATTERNS : 0;
+}
+
+bool bakerTimelinePosition(uint64_t absoluteTick, uint16_t patternRows,
+	bakerTimelinePosition_t *position)
+{
+	const uint32_t capacityTicks = bakerCapacityTicks(patternRows);
+	if (position == NULL || capacityTicks == 0 || absoluteTick >= capacityTicks)
 		return false;
 
-	position->order = (uint16_t)(absoluteTick / BAKE_PATTERN_ROWS);
+	position->order = (uint16_t)(absoluteTick / patternRows);
 	position->pattern = position->order; /* baked patterns are unique and linear */
-	position->row = (uint16_t)(absoluteTick % BAKE_PATTERN_ROWS);
+	position->row = (uint16_t)(absoluteTick % patternRows);
 	return position->order < BAKE_MAX_PATTERNS &&
-		position->pattern < BAKE_MAX_PATTERNS && position->row < BAKE_PATTERN_ROWS;
+		position->pattern < BAKE_MAX_PATTERNS && position->row < patternRows;
+}
+
+void bakerFormatTimingEstimates(uint16_t patternRows, uint16_t bpm,
+	char *patternText, uint32_t patternTextSize,
+	char *maximumText, uint32_t maximumTextSize)
+{
+	if (!bakerPatternRowsValid(patternRows)) patternRows = BAKE_DEFAULT_PATTERN_ROWS;
+	if (bpm == 0) bpm = 1;
+	const double patternSeconds = patternRows * 2.5 / bpm;
+	const uint32_t maximumSeconds = (uint32_t)(patternRows * BAKE_MAX_PATTERNS * 2.5 / bpm + 0.5);
+	if (patternSeconds < 10.0)
+		snprintf(patternText, patternTextSize, "Pattern:  ~%.2g sec", patternSeconds);
+	else
+		snprintf(patternText, patternTextSize, "Pattern:  ~%.0f sec", patternSeconds);
+	const uint32_t minutes = maximumSeconds / 60;
+	snprintf(maximumText, maximumTextSize, "Maximum:  ~%u:%02u at %u BPM",
+		minutes, maximumSeconds % 60, bpm);
 }
 
 bool bakerEffectIsSourceSpeed(uint8_t effect, uint8_t parameter)

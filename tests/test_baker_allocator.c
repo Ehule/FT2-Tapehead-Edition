@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 #include "ft2_baker_core.h"
 #include "ft2_fasttracks_core.h"
 
@@ -44,25 +45,49 @@ int main(void)
 	bool performanceMute[BAKER_ALLOCATOR_CHANNELS] = { false };
 	bakerTimelinePosition_t position;
 
-	assert(BAKE_PATTERN_ROWS == 256);
-	assert(BAKE_MAX_TICKS == 65536);
+	assert(BAKE_DEFAULT_PATTERN_ROWS == 256);
 	assert(BAKE_OUTPUT_TPL == 1);
+	static const uint16_t lengths[] = { 16, 32, 64, 128, 256 };
+	for (uint8_t i = 0; i < 5; i++)
+	{
+		const uint16_t rows = lengths[i];
+		const uint32_t capacity = rows * 256U;
+		assert(bakerPatternRowsValid(rows));
+		assert(bakerCapacityTicks(rows) == capacity);
+		assert(bakerTimelinePosition(0, rows, &position));
+		assert(position.order == 0 && position.pattern == 0 && position.row == 0);
+		assert(bakerTimelinePosition(rows - 1, rows, &position));
+		assert(position.order == 0 && position.row == rows - 1);
+		assert(bakerTimelinePosition(rows, rows, &position));
+		assert(position.order == 1 && position.pattern == 1 && position.row == 0);
+		assert(bakerTimelinePosition(capacity - 1, rows, &position));
+		assert(position.order == 255 && position.pattern == 255 && position.row == rows - 1);
+		assert(!bakerTimelinePosition(capacity, rows, &position));
+		assert(!bakerTimelinePosition(capacity + 1, rows, &position));
+	}
+	assert(!bakerPatternRowsValid(0));
+	assert(!bakerPatternRowsValid(48));
+	assert(bakerCapacityTicks(48) == 0);
+	/* The default reproduces the repaired 256-row/65,536-tick mapping. */
+	assert(bakerCapacityTicks(BAKE_DEFAULT_PATTERN_ROWS) == 65536);
+	assert(bakerTimelinePosition(65535, 256, &position) && position.row == 255);
+	assert(!bakerTimelinePosition(65536, 256, &position));
+	char patternText[40], maximumText[48];
+	bakerFormatTimingEstimates(16, 80, patternText, sizeof patternText, maximumText, sizeof maximumText);
+	assert(strcmp(patternText, "Pattern:  ~0.5 sec") == 0);
+	assert(strcmp(maximumText, "Maximum:  ~2:08 at 80 BPM") == 0);
+	bakerFormatTimingEstimates(256, 80, patternText, sizeof patternText, maximumText, sizeof maximumText);
+	assert(strcmp(patternText, "Pattern:  ~8 sec") == 0);
+	assert(strcmp(maximumText, "Maximum:  ~34:08 at 80 BPM") == 0);
+	bakerFormatTimingEstimates(16, 125, patternText, sizeof patternText, maximumText, sizeof maximumText);
+	assert(strcmp(patternText, "Pattern:  ~0.32 sec") == 0);
+	assert(strcmp(maximumText, "Maximum:  ~1:22 at 125 BPM") == 0);
 	assert(bakerEffectIsSourceSpeed(0x0F, 0x01));
 	assert(bakerEffectIsSourceSpeed(0x0F, 0x1F));
 	assert(!bakerEffectIsSourceSpeed(0x0F, 0x20));
 	assert(bakerEffectIsTempo(0x0F, 0x20));
 	assert(bakerEffectIsTempo(0x0F, 0xFF));
 	assert(!bakerEffectIsTempo(0x0F, 0x1F));
-	assert(bakerTimelinePosition(0, &position));
-	assert(position.order == 0 && position.pattern == 0 && position.row == 0);
-	assert(bakerTimelinePosition(63, &position) && position.row == 63);
-	assert(bakerTimelinePosition(64, &position) && position.order == 0 && position.row == 64);
-	assert(bakerTimelinePosition(255, &position) && position.order == 0 && position.row == 255);
-	assert(bakerTimelinePosition(256, &position) && position.order == 1 && position.row == 0);
-	assert(bakerTimelinePosition(65535, &position));
-	assert(position.order == 255 && position.pattern == 255 && position.row == 255);
-	assert(!bakerTimelinePosition(65536, &position));
-	assert(!bakerTimelinePosition(65537, &position));
 
 	/* One call represents one actual playback tick, independent of the source
 	** TPL. This is the accumulated timeline used across mid-row speed changes. */

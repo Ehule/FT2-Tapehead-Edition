@@ -29,6 +29,8 @@ int16_t okBoxThreadSafe(int16_t type, const char *headline, const char *text, vo
 int16_t okBox(int16_t type, const char *headline, const char *text, void (*checkBoxCallback)(void));
 int16_t choiceBoxWithCheckBox(int16_t type, const char *headline, const char *text,
 	const char *checkBoxText, bool *checkBoxState);
+int16_t bakerChoiceBox(int16_t type, const char *headline, const char *text,
+	const char *checkBoxText, bool *checkBoxState, uint16_t *patternRows, uint16_t bpm);
 // -----------
 
 int16_t quitBox(bool skipQuitMsg);

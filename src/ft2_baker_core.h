@@ -4,9 +4,10 @@
 #include <stdint.h>
 
 #define BAKER_ALLOCATOR_CHANNELS 32
-#define BAKE_PATTERN_ROWS 256U
+#define BAKE_DEFAULT_PATTERN_ROWS 256U
+#define BAKE_MIN_PATTERN_ROWS 16U
 #define BAKE_MAX_PATTERNS 256U
-#define BAKE_MAX_TICKS (BAKE_PATTERN_ROWS * BAKE_MAX_PATTERNS)
+#define BAKE_MAX_TICKS (BAKE_DEFAULT_PATTERN_ROWS * BAKE_MAX_PATTERNS)
 #define BAKE_OUTPUT_TPL 1U
 
 typedef struct bakerTimelinePosition_t
@@ -16,7 +17,13 @@ typedef struct bakerTimelinePosition_t
 	uint16_t row;
 } bakerTimelinePosition_t;
 
-bool bakerTimelinePosition(uint64_t absoluteTick, bakerTimelinePosition_t *position);
+bool bakerPatternRowsValid(uint16_t patternRows);
+uint32_t bakerCapacityTicks(uint16_t patternRows);
+bool bakerTimelinePosition(uint64_t absoluteTick, uint16_t patternRows,
+	bakerTimelinePosition_t *position);
+void bakerFormatTimingEstimates(uint16_t patternRows, uint16_t bpm,
+	char *patternText, uint32_t patternTextSize,
+	char *maximumText, uint32_t maximumTextSize);
 bool bakerEffectIsSourceSpeed(uint8_t effect, uint8_t parameter);
 bool bakerEffectIsTempo(uint8_t effect, uint8_t parameter);
 
