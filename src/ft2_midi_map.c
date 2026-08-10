@@ -108,6 +108,8 @@ typedef struct tapeheadMidiEvent_t
 
 static bool performanceControlEnabled;
 static tapeheadMidiBinding_t bindings[TAPEHEAD_MIDI_MAP_MAX_BINDINGS];
+static uint8_t absoluteCCValue[16][128];
+static bool absoluteCCValueValid[16][128];
 static size_t bindingCount;
 
 static SDL_SpinLock queueLock;
@@ -466,12 +468,25 @@ void tapeheadMidiMapReset(void)
 	/* Configuration is loaded before RtMidi's callback thread starts. */
 	performanceControlEnabled = false;
 	bindingCount = 0;
+	memset(absoluteCCValueValid, 0, sizeof (absoluteCCValueValid));
 
 	SDL_AtomicLock(&queueLock);
 	queueReadPos = 0;
 	queueWritePos = 0;
 	queueCount = 0;
 	droppedEventCount = 0;
+	SDL_AtomicUnlock(&queueLock);
+}
+
+void tapeheadMidiMapSetFeedbackValue(uint8_t midiChannel, uint8_t controller,
+	uint8_t value)
+{
+	if (midiChannel >= 16 || controller >= 128)
+		return;
+
+	SDL_AtomicLock(&queueLock);
+	absoluteCCValue[midiChannel][controller] = value & 0x7F;
+	absoluteCCValueValid[midiChannel][controller] = true;
 	SDL_AtomicUnlock(&queueLock);
 }
 
@@ -585,6 +600,27 @@ bool tapeheadMidiMapHandleMessage(uint8_t status, uint8_t data1, uint8_t data2)
 		findBinding(inputType, midiChannel, data1);
 	if (binding == NULL)
 		return false;
+
+	/* The APC40 track/device encoders are absolute CC controls. Its LED-ring
+	** feedback uses those same controller numbers, so a MIDI loop can return
+	** the authoritative ring value as input. Treat equal reports as neutral:
+	** only a changed physical position is a movement. Relative CC actions are
+	** deliberately excluded because repeated detents are meaningful there. */
+	if (inputType == TAPEHEAD_MIDI_INPUT_CC &&
+		(binding->action == TAPEHEAD_MIDI_ACTION_FAST_TRACK_RATIO ||
+		 binding->action == TAPEHEAD_MIDI_ACTION_SAMPLE_MORPH_SELECT))
+	{
+		SDL_AtomicLock(&queueLock);
+		if (absoluteCCValueValid[midiChannel][data1] &&
+			absoluteCCValue[midiChannel][data1] == data2)
+		{
+			SDL_AtomicUnlock(&queueLock);
+			return true;
+		}
+		absoluteCCValue[midiChannel][data1] = data2;
+		absoluteCCValueValid[midiChannel][data1] = true;
+		SDL_AtomicUnlock(&queueLock);
+	}
 
 	/* A full queue still consumes the configured controller message so it
 	** cannot leak into FT2's musical note-entry path. */
