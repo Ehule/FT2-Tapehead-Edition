@@ -76,7 +76,7 @@ int main(void)
 	uint8_t capturedInstruments[5];
 	for (size_t i = 0; i < sizeof (selections); i++)
 	{
-		note_t event = { playedNote, 1, 0, 0, 0 };
+		note_t event = { playedNote, 1, 0, 0, 0, 0, 0 };
 		assert(bakerAssetsResolveEvent(&event, 1, selections[i]));
 		assert(event.note == playedNote);
 		capturedInstruments[i] = event.instr;
@@ -93,7 +93,7 @@ int main(void)
 	/* A populated sample not present anywhere in the source note map also gets
 	** a private representation without changing D-4. */
 	memset(instr[1]->note2SampleLUT, 0, sizeof (instr[1]->note2SampleLUT));
-	note_t unmapped = { playedNote, 1, 0, 0, 0 };
+	note_t unmapped = { playedNote, 1, 0, 0, 0, 0, 0 };
 	assert(bakerAssetsResolveEvent(&unmapped, 1, 3));
 	assert(unmapped.note == playedNote && unmapped.instr != 1);
 	bakerAssetsFree();

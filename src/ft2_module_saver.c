@@ -17,6 +17,7 @@
 #include "ft2_sample_ed.h"
 #include "ft2_module_loader.h"
 #include "ft2_microtonal.h"
+#include "ft2_tuning_lane_io.h"
 #include "ft2_tables.h"
 #include "ft2_structs.h"
 #include "ft2_sample_launcher.h"
@@ -153,7 +154,7 @@ bool saveCurrentModule(void)
 	return startMusicSave(currentModuleFilenameU, currentModuleSaveMode);
 }
 
-static uint16_t packPatt(uint8_t *writePtr, uint8_t *pattPtr, uint16_t numRows);
+static uint16_t packPatt(uint8_t *writePtr, const note_t *pattPtr, uint16_t numRows);
 
 bool saveXM(UNICHAR *filenameU)
 {
@@ -260,7 +261,7 @@ bool saveXM(UNICHAR *filenameU)
 		}
 		else
 		{
-			ph.dataSize = packPatt(packedPattData, (uint8_t *)pattern[i], patternNumRows[i]);
+			ph.dataSize = packPatt(packedPattData, pattern[i], patternNumRows[i]);
 
 			result = fwrite(&ph, ph.headerSize, 1, f);
 			result += fwrite(packedPattData, ph.dataSize, 1, f);
@@ -403,6 +404,12 @@ bool saveXM(UNICHAR *filenameU)
 	{
 		fclose(f);
 		okBoxThreadSafe(0, "System message", "Error saving Tapehead Sample Matrix metadata!", NULL);
+		return false;
+	}
+	if (!standardXMSave && !tuningLaneWriteXMExtension(f, h.numPatterns))
+	{
+		fclose(f);
+		okBoxThreadSafe(0, "System message", "Error saving Tapehead tuning metadata!", NULL);
 		return false;
 	}
 
@@ -812,7 +819,7 @@ void saveMusic(UNICHAR *filenameU)
 	startMusicSave(filenameU, editor.moduleSaveMode);
 }
 
-static uint16_t packPatt(uint8_t *writePtr, uint8_t *pattPtr, uint16_t numRows)
+static uint16_t packPatt(uint8_t *writePtr, const note_t *pattPtr, uint16_t numRows)
 {
 	uint8_t bytes[5];
 
@@ -821,16 +828,26 @@ static uint16_t packPatt(uint8_t *writePtr, uint8_t *pattPtr, uint16_t numRows)
 
 	uint16_t totalPackLen = 0;
 
-	const int32_t pitch = sizeof (note_t) * (MAX_CHANNELS - song.numChannels);
 	for (int32_t row = 0; row < numRows; row++)
 	{
 		for (int32_t chn = 0; chn < song.numChannels; chn++)
 		{
-			bytes[0] = *pattPtr++;
-			bytes[1] = *pattPtr++;
-			bytes[2] = *pattPtr++;
-			bytes[3] = *pattPtr++;
-			bytes[4] = *pattPtr++;
+			const note_t *event = &pattPtr[(row * MAX_CHANNELS) + chn];
+			bytes[0] = event->note;
+			bytes[1] = event->instr;
+			bytes[2] = event->vol;
+			bytes[3] = event->efx;
+			bytes[4] = event->efxData;
+
+			/* A normal Tapehead XM lowers the restricted lane only when the
+			** sole XM effect slot is free. Compatibility export intentionally
+			** strips it; a standard command (notably EDx) always wins. */
+			if (!standardXMSave && bytes[3] == 0 && bytes[4] == 0 &&
+				microtonalLaneTypeIsValid(event->tuneType))
+			{
+				bytes[3] = event->tuneType;
+				bytes[4] = event->tuneData;
+			}
 
 			/* saveStandardXM() is the final compatibility boundary used by the
 			** baker. Keep it safe even if a future capture path misses a command. */
@@ -871,8 +888,6 @@ static uint16_t packPatt(uint8_t *writePtr, uint8_t *pattPtr, uint16_t numRows)
 			totalPackLen += (uint16_t)(writePtr - firstBytePtr); // bytes writen
 		}
 
-		// skip unused channels (unpacked patterns always have 32 channels)
-		pattPtr += pitch;
 	}
 
 	return totalPackLen;

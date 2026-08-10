@@ -203,8 +203,8 @@ uint8_t getMaxVisibleChannels(void)
 	ASSERT(config.ptnMaxChannels >= 0 && config.ptnMaxChannels <= 3);
 	if (config.ptnShowVolColumn)
 		return maxVisibleChans1[config.ptnMaxChannels];
-	else
-		return maxVisibleChans2[config.ptnMaxChannels];
+
+	return maxVisibleChans2[config.ptnMaxChannels];
 }
 
 void updatePatternWidth(void)
@@ -559,7 +559,7 @@ void cursorRight(void)
 			cursor.object++;
 	}
 
-	if (cursor.object == 8)
+	if (cursor.object == 11)
 	{
 		cursor.object = CURSOR_NOTE;
 		cursorChannelRight();

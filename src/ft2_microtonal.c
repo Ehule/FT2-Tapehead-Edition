@@ -2,6 +2,7 @@
 #include <math.h>
 #include <stddef.h>
 #include "ft2_microtonal.h"
+#include "ft2_replayer.h"
 
 #define DRIFT_MIN_SECONDS 6
 #define DRIFT_EXTRA_SECONDS 8
@@ -114,6 +115,23 @@ bool microtonalEffectIsPitchExtension(uint8_t effect)
 {
 	return effect == TAPEHEAD_EFX_MICROTUNE ||
 		effect == TAPEHEAD_EFX_MICRODRIFT;
+}
+
+bool microtonalLaneTypeIsValid(uint8_t type)
+{
+	return type == 0 || microtonalEffectIsPitchExtension(type);
+}
+
+bool microtonalPromoteLegacyEffect(note_t *event)
+{
+	if (event == NULL || !microtonalEffectIsPitchExtension(event->efx) ||
+		event->tuneType != 0 || event->tuneData != 0)
+		return false;
+
+	event->tuneType = event->efx;
+	event->tuneData = event->efxData;
+	event->efx = event->efxData = 0;
+	return true;
 }
 
 int32_t microtonalCurrentCents16(const microtonalState_t *state)

@@ -1,7 +1,8 @@
 # Microtonal Tune and Microtonal Drift
 
-Tapehead Edition reserves two previously unused XM effect letters for
-per-channel microtonal playback state:
+Tapehead Edition uses a dedicated, restricted Tuning/Drift lane between the
+volume and ordinary effect fields. It accepts only the two commands below;
+tempo, `Zxx`, delay, offset and arbitrary XM effects are rejected:
 
 | Command | Meaning |
 |---|---|
@@ -47,6 +48,12 @@ may lose them.
 
 ## Pitch and state architecture
 
+The internal pattern cell is seven bytes (`note`, `instrument`, `volume`, XM
+effect and parameter, tuning type and parameter). A zero type and zero payload
+is the canonical empty lane. `Mxx` changes only the static center and `Nxx`
+changes only drift, so both states can be active simultaneously. `M80` resets
+static tune and `N00` resets drift independently.
+
 Each of the 32 tracker channels owns independent MicroTune, MicroDrift,
 target, interpolation time, and pseudo-random state. The ordinary FT2 engine
 continues to calculate note periods, pitch slides, tone portamento, vibrato,
@@ -88,15 +95,34 @@ audible strum and Live Bake capture. `Include` applies and captures `Mxx/Nxx`
 on those channels through the same ordinary-row strum path without changing
 their FastTracks assignments.
 
-## Composition Baker and compatibility output
+## Timing, persistence, and compatibility output
+
+For an immediate note, the lane is applied before its pitch is calculated. On
+`ED1` through `EDF`, it is held with the note and applied on the delayed trigger
+tick, so the previous voice is not retuned during the delay. `ED0` is immediate.
+On rows without a note (including instrument-only rows), it is a tick-zero
+track-state change. Key-off follows the same note-associated ordering.
+
+Old Tapehead `Mxx`/`Nxx` effects are promoted into an empty lane while loading,
+freeing the ordinary effect field. Explicit version-1 lane metadata wins a
+conflict; the legacy command is retained in the ordinary field when possible.
 
 Standard XM has no faithful representation for a persistent one-cent offset
 or for continuous sub-semitone wandering. Composition Baker therefore offers
 two explicit targets. **Standard XM** strips `Mxx` and `Nxx` while preserving
 any note, instrument, volume, or volume-column data in the same cell.
-**Tapehead XM** retains the commands in the flattened pattern stream for
-reopening in Tapehead Edition. Both targets remain `.xm` files; Tapehead output
-does not need a separate container merely to preserve pattern effects.
+**Tapehead XM** appends a signed `THTUNE1` version-1 extension after the normal
+XM and existing Sample Matrix metadata. It stores validated pattern/row/channel,
+opcode and payload records. Loading validates the complete record set before
+mutating patterns, so truncated, out-of-range or unknown-version data is safely
+ignored. The ordinary XM stream remains five-field data and is never cast from
+the enlarged cell.
+
+For the standard-XM target, a free effect field may carry the legacy command;
+an occupied standard effect always wins. In particular, `EDx` is never
+overwritten. Commands which cannot be lowered are stripped from that export;
+the native Tapehead file and in-memory song remain lossless. The save/Baker
+completion report is responsible for reporting stripped Tune and Drift counts.
 
 The completion message reports how many microtonal commands were stripped or
 preserved. Standard output never leaves these unknown commands for a different
@@ -107,8 +133,13 @@ standard pitch-slide commands: that would be quantized, tempo-sensitive, and
 unable to share one XM effect column reliably with the source music. A future
 specialized pitch-render pass would be a separate compatibility feature.
 
-## Editor note
+## Editor grammar
 
-The hexadecimal command is the canonical UI. The current pattern editor has
-no lightweight cursor-status line for effect descriptions, so this focused
-patch does not add hover text or rewrite the editor layout.
+The lane has three cursor positions: opcode, high nibble and low nibble. Only
+`M` and `N` are accepted at the opcode position. Hexadecimal entry edits the
+payload; Delete clears the whole restricted field. The lane participates in
+whole-cell, block, resize, clone and undo snapshots through `note_t`.
+
+This architecture separates timing and tuning for a later compact Live Bake
+compiler. It does not implement that compiler, adaptive TPL, or extra general
+effect columns.

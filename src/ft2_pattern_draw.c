@@ -75,6 +75,33 @@ static const uint8_t *font4Ptr, *font5Ptr;
 static const uint8_t vol2charTab1[16] = { 39, 0, 1, 2, 3, 4, 36, 52, 53, 54, 28, 31, 25, 58, 59, 22 };
 static const uint8_t vol2charTab2[16] = { 42, 0, 1, 2, 3, 4, 36, 37, 38, 39, 28, 31, 25, 40, 41, 22 };
 static const uint8_t columnModeTab[12] = { 0, 0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 3 };
+typedef struct pattFieldLayout_t
+{
+	uint8_t tuneX, efxX, tuneFont, efxFont;
+	uint8_t cursorX[11], cursorW[11];
+} pattFieldLayout_t;
+
+/* Separate FT2-style layouts for every channel-density mode. */
+static const pattFieldLayout_t pattFieldLayouts[2][4] =
+{
+	{ // volume hidden
+		{ 91,103,FONT_TYPE3,FONT_TYPE4,{3,59,75,0,0,91,95,99,103,111,119},{48,16,16,0,0,4,4,4,8,8,8} },
+		{ 67, 79,FONT_TYPE3,FONT_TYPE3,{3,51,59,0,0,67,71,75,79,83,87},{48,8,8,0,0,4,4,4,4,4,4} },
+		{ 43, 55,FONT_TYPE3,FONT_TYPE3,{3,27,35,0,0,43,47,51,55,59,63},{24,8,8,0,0,4,4,4,4,4,4} },
+		{ 23, 35,FONT_TYPE3,FONT_TYPE3,{3,15,19,0,0,23,27,31,35,39,43},{12,4,4,0,0,4,4,4,4,4,4} }
+	},
+	{ // volume shown
+		{107,119,FONT_TYPE3,FONT_TYPE4,{3,67,75,91,99,107,111,115,119,127,135},{48,8,8,8,8,4,4,4,8,8,8} },
+		{ 59, 71,FONT_TYPE3,FONT_TYPE4,{3,27,35,43,51,59,63,67,71,79,87},{24,8,8,8,8,4,4,4,8,8,8} },
+		{ 47, 59,FONT_TYPE3,FONT_TYPE3,{3,31,35,39,43,47,51,55,59,63,67},{24,4,4,4,4,4,4,4,4,4,4} },
+		{ 47, 59,FONT_TYPE3,FONT_TYPE3,{3,31,35,39,43,47,51,55,59,63,67},{24,4,4,4,4,4,4,4,4,4,4} }
+	}
+};
+
+static const pattFieldLayout_t *getPattFieldLayout(void)
+{
+	return &pattFieldLayouts[config.ptnShowVolColumn != 0][columnModeTab[ui.numChannelsShown-1]];
+}
 static const uint8_t sharpNote1Char_small[12] = {  8*6,  8*6,  9*6,  9*6, 10*6, 11*6, 11*6, 12*6, 12*6, 13*6, 13*6, 14*6 };
 static const uint8_t sharpNote2Char_small[12] = { 16*6, 15*6, 16*6, 15*6, 16*6, 16*6, 15*6, 16*6, 15*6, 16*6, 15*6, 16*6 };
 static const uint8_t flatNote1Char_small[12] = {  8*6,  9*6,  9*6, 10*6, 10*6, 11*6, 12*6, 12*6, 13*6, 13*6, 14*6, 14*6 };
@@ -255,10 +282,9 @@ void drawPatternBorders(void)
 
 static void writeCursor(void)
 {
-	const int32_t tabOffset = (config.ptnShowVolColumn * 32) + (columnModeTab[ui.numChannelsShown-1] * 8) + cursor.object;
-
-	int32_t xPos = pattCursorXTab[tabOffset];
-	const int32_t width = pattCursorWTab[tabOffset];
+	const pattFieldLayout_t *layout = getPattFieldLayout();
+	int32_t xPos = 29 + layout->cursorX[cursor.object];
+	const int32_t width = layout->cursorW[cursor.object];
 
 	ASSERT(editor.ptnCursorY > 0 && xPos > 0 && width > 0);
 	xPos += ((cursor.ch - ui.channelOffset) * ui.patternChannelWidth);
@@ -290,6 +316,23 @@ static void writeCursor(void)
 		if (width > 1)
 			rowPtr[width-1] = cursorColor;
 	}
+}
+
+static void drawTuningField(uint32_t x, uint32_t y, const note_t *n, uint32_t color)
+{
+	const pattFieldLayout_t *layout = getPattFieldLayout();
+	const uint8_t charW = FONT3_CHAR_W;
+	x += layout->tuneX;
+	if (n->tuneType == 0)
+	{
+		pattCharOut(x, y, 42, layout->tuneFont, color);
+		pattCharOut(x+charW, y, 42, layout->tuneFont, color);
+		pattCharOut(x+(charW*2), y, 42, layout->tuneFont, color);
+		return;
+	}
+	pattCharOut(x, y, n->tuneType, layout->tuneFont, color);
+	pattCharOut(x+charW, y, n->tuneData >> 4, layout->tuneFont, color);
+	pattCharOut(x+(charW*2), y, n->tuneData & 15, layout->tuneFont, color);
 }
 
 static void writePatternBlockMark(int32_t currRow, uint32_t rowHeight, const pattCoord_t *pattCoord)
@@ -581,7 +624,7 @@ static void showVolEfx(uint32_t xPos, uint32_t yPos, uint8_t vol, uint32_t color
 		xStart = 4;
 		xDelta = 8;
 
-		xPos += 51;
+		xPos += 43;
 
 		char1 = vol2charTab1[vol >> 4];
 		if (vol < 0x10)
@@ -596,7 +639,7 @@ static void showVolEfx(uint32_t xPos, uint32_t yPos, uint8_t vol, uint32_t color
 		xStart = 1;
 		xDelta = 4;
 
-		xPos += 43;
+		xPos += 39;
 
 		char1 = vol2charTab2[vol >> 4];
 		if (vol < 0x10)
@@ -622,38 +665,14 @@ static void showVolEfx(uint32_t xPos, uint32_t yPos, uint8_t vol, uint32_t color
 
 static void showEfx(uint32_t xPos, uint32_t yPos, uint8_t efx, uint8_t efxData, uint32_t color)
 {
-	uint8_t fontType, charW;
-	uint32_t xStart, xDelta;
+	const pattFieldLayout_t *layout = getPattFieldLayout();
+	const uint8_t fontType = layout->efxFont;
+	const uint8_t charW = fontType == FONT_TYPE3 ? FONT3_CHAR_W : FONT4_CHAR_W;
+	const uint8_t xStart = fontType == FONT_TYPE3 ? 1 : 4;
+	const uint8_t xDelta = charW;
+	xPos += layout->efxX;
 
-	if (ui.numChannelsShown <= 4)
-	{
-		fontType = FONT_TYPE4;
-		charW = FONT4_CHAR_W;
-		xStart = 4;
-		xDelta = 8;
-
-		xPos += 115;
-	}
-	else if (ui.numChannelsShown <= 6)
-	{
-		fontType = FONT_TYPE4;
-		charW = FONT4_CHAR_W;
-		xStart = 4;
-		xDelta = 8;
-
-		xPos += 67;
-	}
-	else
-	{
-		fontType = FONT_TYPE3;
-		charW = FONT3_CHAR_W;
-		xStart = 1;
-		xDelta = 4;
-
-		xPos += 55;
-	}
-
-	if (config.ptnAlternativeLayout && efx == 0 && efxData == 0)
+	if (efx == 0 && efxData == 0)
 	{
 		yPos += 3;
 		xPos += xStart;
@@ -789,61 +808,7 @@ static void showNoVolEfx(uint32_t xPos, uint32_t yPos, uint8_t vol, uint32_t col
 
 static void showEfxNoVolColumn(uint32_t xPos, uint32_t yPos, uint8_t efx, uint8_t efxData, uint32_t color)
 {
-	uint8_t charW, fontType;
-	uint32_t xStart, xDelta;
-
-	if (ui.numChannelsShown <= 4)
-	{
-		fontType = FONT_TYPE5;
-		charW = FONT5_CHAR_W;
-		xStart = 7;
-		xDelta = 16;
-		xPos += 91;
-	}
-	else if (ui.numChannelsShown <= 6)
-	{
-		fontType = FONT_TYPE4;
-		charW = FONT4_CHAR_W;
-		xStart = 4;
-		xDelta = 8;
-
-		xPos += 67;
-	}
-	else if (ui.numChannelsShown <= 8)
-	{
-		fontType = FONT_TYPE4;
-		charW = FONT4_CHAR_W;
-		xStart = 4;
-		xDelta = 8;
-
-		xPos += 43;
-	}
-	else
-	{
-		fontType = FONT_TYPE3;
-		charW = FONT3_CHAR_W;
-		xStart = 1;
-		xDelta = 4;
-
-		xPos += 31;
-	}
-
-	if (config.ptnAlternativeLayout && efx == 0 && efxData == 0)
-	{
-		yPos += 3;
-		xPos += xStart;
-		video.frameBuffer[(yPos * SCREEN_W) + xPos] = color;
-		xPos += xDelta;
-		video.frameBuffer[(yPos * SCREEN_W) + xPos] = color;
-		xPos += xDelta;
-		video.frameBuffer[(yPos * SCREEN_W) + xPos] = color;
-	}
-	else
-	{
-		pattCharOut(xPos,               yPos, efx,            fontType, color);
-		pattCharOut(xPos +  charW,      yPos, efxData >> 4,   fontType, color);
-		pattCharOut(xPos + (charW * 2), yPos, efxData & 0x0F, fontType, color);
-	}
+	showEfx(xPos, yPos, efx, efxData, color);
 }
 
 static void drawFastTracksPOCLed(uint16_t x, uint16_t y, uint32_t color)
@@ -1012,11 +977,11 @@ static void drawFastTracksPOCArrow(uint32_t xPos, uint32_t yPos)
 void writePattern(int32_t currRow, int32_t currPattern)
 {
 	uint32_t noteTextColors[2];
-
 	void (*drawNote)(uint32_t, uint32_t, int16_t, uint32_t);
 	void (*drawInst)(uint32_t, uint32_t, uint8_t, uint32_t);
-	void (*drawVolEfx)(uint32_t, uint32_t, uint8_t, uint32_t);
-	void (*drawEfx)(uint32_t, uint32_t, uint8_t, uint8_t, uint32_t);
+	void (*drawVol)(uint32_t, uint32_t, uint8_t, uint32_t);
+	void (*drawEfxField)(uint32_t, uint32_t, uint8_t, uint8_t, uint32_t);
+
 
 	/* Draw pattern framework every time (erasing existing content).
 	** FT2 doesn't do this. This is quite lazy and consumes more CPU
@@ -1056,21 +1021,15 @@ void writePattern(int32_t currRow, int32_t currPattern)
 	// increment pattern data pointer by horizontal scrollbar offset/channel
 	if (pattPtr != NULL)
 		pattPtr += ui.channelOffset;
-
-	// set up function pointers for drawing
 	if (config.ptnShowVolColumn)
 	{
-		drawNote = showNoteNum;
-		drawInst = showInstrNum;
-		drawVolEfx = showVolEfx;
-		drawEfx = showEfx;
+		drawNote = showNoteNum; drawInst = showInstrNum;
+		drawVol = showVolEfx; drawEfxField = showEfx;
 	}
 	else
 	{
-		drawNote = showNoteNumNoVolColumn;
-		drawInst = showInstrNumNoVolColumn;
-		drawVolEfx = showNoVolEfx;
-		drawEfx = showEfxNoVolColumn;
+		drawNote = showNoteNumNoVolColumn; drawInst = showInstrNumNoVolColumn;
+		drawVol = showNoVolEfx; drawEfxField = showEfxNoVolColumn;
 	}
 
 	noteTextColors[0] = video.palette[PAL_PATTEXT]; // not selected
@@ -1130,6 +1089,7 @@ void writePattern(int32_t currRow, int32_t currPattern)
 				uint32_t instColor = color;
 				uint32_t volColor = color;
 				uint32_t efxColor = color;
+				uint32_t tuneColor = color;
 
 				if (fastTrackVisible)
 				{
@@ -1146,12 +1106,15 @@ void writePattern(int32_t currRow, int32_t currPattern)
 						volColor = fastTrackColor;
 					if (drawPtr->efx != 0 || drawPtr->efxData != 0)
 						efxColor = fastTrackColor;
+					if (drawPtr->tuneType != 0)
+						tuneColor = fastTrackColor;
 				}
 
 				drawNote(xPos, textY, drawPtr->note, noteColor);
 				drawInst(xPos, textY, drawPtr->instr, instColor);
-				drawVolEfx(xPos, textY, drawPtr->vol, volColor);
-				drawEfx(xPos, textY, drawPtr->efx, drawPtr->efxData, efxColor);
+				drawVol(xPos, textY, drawPtr->vol, volColor);
+				drawTuningField(xPos, textY, drawPtr, tuneColor);
+				drawEfxField(xPos, textY, drawPtr->efx, drawPtr->efxData, efxColor);
 			}
 		}
 
