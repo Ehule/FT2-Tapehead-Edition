@@ -14,6 +14,7 @@
 #include "../ft2_tables.h"
 #include "../ft2_sysreqs.h"
 #include "../ft2_sample_launcher.h"
+#include "../ft2_tuning_lane_io.h"
 
 /* ModPlug Tracker & OpenMPT supports up to 32 samples per instrument for XMs -  we don't.
 ** For such modules, we use a temporary array here to store the extra sample data lengths
@@ -185,6 +186,8 @@ bool loadXM(FILE *f, uint32_t filesize)
 		loaderMsgBox("Warning: Module contains instrument(s) with >16 samples. The extra samples will be discarded!");
 
 	sampleLauncherReadXMMetadata(f, filesize);
+	if (!tuningLaneReadXMExtension(f, filesize))
+		loaderMsgBox("Warning: corrupt or unsupported Tapehead tuning extension ignored.");
 
 	return true;
 }
@@ -510,7 +513,7 @@ static void unpackPattern(note_t *p, uint8_t *src, int32_t numRows, int32_t numC
 	if (channelsToLoad > MAX_CHANNELS)
 		channelsToLoad = MAX_CHANNELS;
 
-	const int32_t unpackedBytes = numRows * (sizeof (note_t) * numChannels);
+	const int32_t unpackedBytes = numRows * (5 * numChannels);
 
 	int32_t bytesWritten = 0;
 	for (int32_t i = 0; i < numRows; i++)
@@ -539,7 +542,11 @@ static void unpackPattern(note_t *p, uint8_t *src, int32_t numRows, int32_t numC
 				p->efxData = *src++;
 			}
 
-			bytesWritten += sizeof (note_t);
+			/* Mxx/Nxx were stored in XM's sole effect column by older
+			** Tapehead versions. Promote only an empty native lane. */
+			microtonalPromoteLegacyEffect(p);
+
+			bytesWritten += 5;
 		}
 
 		// if >32 channels, skip rest of the channels for this row
@@ -562,7 +569,7 @@ static void unpackPattern(note_t *p, uint8_t *src, int32_t numRows, int32_t numC
 				src += 4;
 			}
 
-			bytesWritten += sizeof (note_t);
+			bytesWritten += 5;
 		}
 
 		// skip unused channels if if song has <32 channels (we always allocate 32 channels)

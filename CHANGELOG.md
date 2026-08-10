@@ -9,6 +9,16 @@ milestones and may contain limitations or planned work that later entries
 supersede. See [`docs/README.md`](docs/README.md) for the current documentation
 map.
 
+## Dedicated Tuning/Drift column — 2026-08-10
+
+- Added a restricted `Mxx`/`Nxx` lane to internal pattern cells, independently
+  preserving MicroTune and MicroDrift beside the ordinary XM effect.
+- Delayed `EDx` notes now defer their associated tuning instruction until the
+  actual trigger tick.
+- Added legacy effect promotion and a signed, versioned Tapehead XM extension;
+  stock XM packing remains strictly five fields and standard effects win any
+  lossy export collision.
+
 ## Transport Punch + manual one-shot strumming — 2026-08-09
 
 - Added APC footswitch Transport Punch with configurable Sustain/Cut,

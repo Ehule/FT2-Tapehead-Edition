@@ -74,7 +74,6 @@ static note_t emptyPattern[MAX_CHANNELS * MAX_PATT_LEN];
 static const uint8_t *font4Ptr, *font5Ptr;
 static const uint8_t vol2charTab1[16] = { 39, 0, 1, 2, 3, 4, 36, 52, 53, 54, 28, 31, 25, 58, 59, 22 };
 static const uint8_t vol2charTab2[16] = { 42, 0, 1, 2, 3, 4, 36, 37, 38, 39, 28, 31, 25, 40, 41, 22 };
-static const uint8_t columnModeTab[12] = { 0, 0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 3 };
 static const uint8_t sharpNote1Char_small[12] = {  8*6,  8*6,  9*6,  9*6, 10*6, 11*6, 11*6, 12*6, 12*6, 13*6, 13*6, 14*6 };
 static const uint8_t sharpNote2Char_small[12] = { 16*6, 15*6, 16*6, 15*6, 16*6, 16*6, 15*6, 16*6, 15*6, 16*6, 15*6, 16*6 };
 static const uint8_t flatNote1Char_small[12] = {  8*6,  9*6,  9*6, 10*6, 10*6, 11*6, 12*6, 12*6, 13*6, 13*6, 14*6, 14*6 };
@@ -255,10 +254,9 @@ void drawPatternBorders(void)
 
 static void writeCursor(void)
 {
-	const int32_t tabOffset = (config.ptnShowVolColumn * 32) + (columnModeTab[ui.numChannelsShown-1] * 8) + cursor.object;
-
-	int32_t xPos = pattCursorXTab[tabOffset];
-	const int32_t width = pattCursorWTab[tabOffset];
+	static const uint8_t compactX[11] = { 3, 19, 23, 31, 35, 43, 47, 51, 57, 61, 65 };
+	int32_t xPos = 29 + compactX[cursor.object];
+	const int32_t width = cursor.object == CURSOR_NOTE ? 12 : 4;
 
 	ASSERT(editor.ptnCursorY > 0 && xPos > 0 && width > 0);
 	xPos += ((cursor.ch - ui.channelOffset) * ui.patternChannelWidth);
@@ -290,6 +288,25 @@ static void writeCursor(void)
 		if (width > 1)
 			rowPtr[width-1] = cursorColor;
 	}
+}
+
+static void drawCompactCell(uint32_t x, uint32_t y, const note_t *n,
+	uint32_t noteColor, uint32_t instrColor, uint32_t volColor,
+	uint32_t tuneColor, uint32_t effectColor)
+{
+	if (n->note == NOTE_OFF) drawKeyOffSmall(x + 3, y, noteColor);
+	else if (n->note > 0 && n->note <= 96) drawNoteSmall(x + 3, y, n->note, noteColor);
+	else drawEmptyNoteSmall(x + 3, y, noteColor);
+	pattCharOut(x + 19, y, n->instr >> 4, FONT_TYPE3, instrColor);
+	pattCharOut(x + 23, y, n->instr & 15, FONT_TYPE3, instrColor);
+	pattCharOut(x + 31, y, n->vol >> 4, FONT_TYPE3, volColor);
+	pattCharOut(x + 35, y, n->vol & 15, FONT_TYPE3, volColor);
+	pattCharOut(x + 43, y, n->tuneType ? n->tuneType : 42, FONT_TYPE3, tuneColor);
+	pattCharOut(x + 47, y, n->tuneData >> 4, FONT_TYPE3, tuneColor);
+	pattCharOut(x + 51, y, n->tuneData & 15, FONT_TYPE3, tuneColor);
+	pattCharOut(x + 57, y, n->efx ? n->efx : 42, FONT_TYPE3, effectColor);
+	pattCharOut(x + 61, y, n->efxData >> 4, FONT_TYPE3, effectColor);
+	pattCharOut(x + 65, y, n->efxData & 15, FONT_TYPE3, effectColor);
 }
 
 static void writePatternBlockMark(int32_t currRow, uint32_t rowHeight, const pattCoord_t *pattCoord)
@@ -1013,10 +1030,6 @@ void writePattern(int32_t currRow, int32_t currPattern)
 {
 	uint32_t noteTextColors[2];
 
-	void (*drawNote)(uint32_t, uint32_t, int16_t, uint32_t);
-	void (*drawInst)(uint32_t, uint32_t, uint8_t, uint32_t);
-	void (*drawVolEfx)(uint32_t, uint32_t, uint8_t, uint32_t);
-	void (*drawEfx)(uint32_t, uint32_t, uint8_t, uint8_t, uint32_t);
 
 	/* Draw pattern framework every time (erasing existing content).
 	** FT2 doesn't do this. This is quite lazy and consumes more CPU
@@ -1056,22 +1069,6 @@ void writePattern(int32_t currRow, int32_t currPattern)
 	// increment pattern data pointer by horizontal scrollbar offset/channel
 	if (pattPtr != NULL)
 		pattPtr += ui.channelOffset;
-
-	// set up function pointers for drawing
-	if (config.ptnShowVolColumn)
-	{
-		drawNote = showNoteNum;
-		drawInst = showInstrNum;
-		drawVolEfx = showVolEfx;
-		drawEfx = showEfx;
-	}
-	else
-	{
-		drawNote = showNoteNumNoVolColumn;
-		drawInst = showInstrNumNoVolColumn;
-		drawVolEfx = showNoVolEfx;
-		drawEfx = showEfxNoVolColumn;
-	}
 
 	noteTextColors[0] = video.palette[PAL_PATTEXT]; // not selected
 	noteTextColors[1] = video.palette[PAL_FORGRND]; // selected
@@ -1130,6 +1127,7 @@ void writePattern(int32_t currRow, int32_t currPattern)
 				uint32_t instColor = color;
 				uint32_t volColor = color;
 				uint32_t efxColor = color;
+				uint32_t tuneColor = color;
 
 				if (fastTrackVisible)
 				{
@@ -1146,12 +1144,12 @@ void writePattern(int32_t currRow, int32_t currPattern)
 						volColor = fastTrackColor;
 					if (drawPtr->efx != 0 || drawPtr->efxData != 0)
 						efxColor = fastTrackColor;
+					if (drawPtr->tuneType != 0)
+						tuneColor = fastTrackColor;
 				}
 
-				drawNote(xPos, textY, drawPtr->note, noteColor);
-				drawInst(xPos, textY, drawPtr->instr, instColor);
-				drawVolEfx(xPos, textY, drawPtr->vol, volColor);
-				drawEfx(xPos, textY, drawPtr->efx, drawPtr->efxData, efxColor);
+				drawCompactCell(xPos, textY, drawPtr, noteColor, instColor,
+					volColor, tuneColor, efxColor);
 			}
 		}
 
