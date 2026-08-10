@@ -498,6 +498,21 @@ void saveTapeheadPatternColorMode(void)
 	free(tempPathU); free(filePathU);
 }
 
+void saveTapeheadBakerPatternRows(void)
+{
+	UNICHAR *filePathU = getFullTapeheadConfigPathU();
+	if (filePathU == NULL) return;
+	FILE *f = UNICHAR_FOPEN(filePathU, "a");
+	if (f != NULL)
+	{
+		/* Readers intentionally accept repeated sections and the last value wins,
+		** preserving unknown keys used by newer or older Tapehead builds. */
+		fprintf(f, "\n[Baker]\nPatternRows=%u\n", tapeheadConfig.bakerPatternRows);
+		fclose(f);
+	}
+	free(filePathU);
+}
+
 void saveConfig2(void) // called by "Save config" button
 {
 	saveConfig(CONFIG_SHOW_ERRORS);
@@ -753,6 +768,9 @@ static void writeDefaultTapeheadConfig(const UNICHAR *filePathU)
 	fputs("[DiskOp]\n\n", f);
 	fputs("; Format shown in the middle Sample save slot. Accepted values: EXS or IFF.\n", f);
 	fputs("SampleExportSlot=EXS\n\n", f);
+	fputs("[Baker]\n\n", f);
+	fputs("; Rows per flattened loop pattern: 16, 32, 64, 128 or 256.\n", f);
+	fputs("PatternRows=256\n\n", f);
 	fputs("[Keyboard]\n\n", f);
 	fputs("; Backspace navigates to the parent directory while Disk Op is open.\n", f);
 	fputs("DiskOpBackspaceParent=false\n\n", f);
@@ -849,6 +867,7 @@ void loadTapeheadConfig(void)
 	tapeheadConfig.hdStyle = TAPEHEAD_HD_STYLE_CRISP;
 	/* Compatibility default for an older tapehead.ini without this key. */
 	tapeheadConfig.patternColorMode = PATTERN_COLOR_MONO;
+	tapeheadConfig.bakerPatternRows = 256;
 	tapeheadConfig.undoMemoryMB = 32;
 	for (int32_t i = 0; i < MAX_CHANNELS; i++)
 		tapeheadConfig.midiDubTrackChannels[i] = (uint8_t)(i & 15);
@@ -874,6 +893,7 @@ void loadTapeheadConfig(void)
 		TAPEHEAD_SECTION_PATTERN,
 		TAPEHEAD_SECTION_LAUNCHER,
 		TAPEHEAD_SECTION_DISKOP,
+		TAPEHEAD_SECTION_BAKER,
 		TAPEHEAD_SECTION_KEYBOARD,
 		TAPEHEAD_SECTION_AUDIO,
 		TAPEHEAD_SECTION_MIDI,
@@ -901,6 +921,8 @@ void loadTapeheadConfig(void)
 				section = TAPEHEAD_SECTION_LAUNCHER;
 			else if (!_stricmp(text + 1, "DiskOp"))
 				section = TAPEHEAD_SECTION_DISKOP;
+			else if (!_stricmp(text + 1, "Baker"))
+				section = TAPEHEAD_SECTION_BAKER;
 			else if (!_stricmp(text + 1, "Keyboard"))
 				section = TAPEHEAD_SECTION_KEYBOARD;
 			else if (!_stricmp(text + 1, "Audio"))
@@ -1005,6 +1027,15 @@ void loadTapeheadConfig(void)
 				tapeheadConfig.sampleExportEXS = true;
 			else if (!_stricmp(value, "IFF"))
 				tapeheadConfig.sampleExportEXS = false;
+		}
+		else if (section == TAPEHEAD_SECTION_BAKER && !_stricmp(key, "PatternRows"))
+		{
+			uint32_t rows;
+			if (parseUInt32Value(value, &rows) &&
+				(rows == 16 || rows == 32 || rows == 64 || rows == 128 || rows == 256))
+			{
+				tapeheadConfig.bakerPatternRows = (uint16_t)rows;
+			}
 		}
 		else if (section == TAPEHEAD_SECTION_KEYBOARD)
 		{

@@ -94,6 +94,8 @@ loaded composition into the baked result.
 Standard output receives `-BAKED.xm`. Tapehead output receives
 `-BAKED-TAPEHEAD.xm`. Normal Save behavior is unchanged when Shift is not held.
 
+The window has a compact **Pattern Rows** cycling control with 16, 32, 64, 128, and 256-row choices. Every generated pattern, including the final one, uses that length, making each pattern a predictable Deck Matrix loop unit. The nearby approximate Pattern and Maximum durations use the BPM active when the dialog opens; timing commands encountered later remain part of the baked performance. The selection is retained in `tapehead.ini`, with 256 as the compatibility-safe default.
+
 The window also contains **Merge exact duplicate voices**. It is enabled by
 default and remembers its most recent setting for the current program run.
 
@@ -174,8 +176,8 @@ counts.
 ## Output structure
 
 - Linear order list beginning at pattern 0
-- Linear, unique 256-row destination patterns
-- At most 256 order positions and 256 baked patterns: 65,536 captured ticks
+- Linear, unique destination patterns of the selected 16, 32, 64, 128, or 256 rows
+- At most 256 order positions and baked patterns: selected rows × 256 captured ticks (4,096 through 65,536)
 - Maximum wall-clock duration depends on BPM; at a constant 125 BPM the limit
   is approximately 21:51 (it is not 21:51 at every tempo)
 - Original BPM at the beginning; resolved BPM changes remain in the pattern

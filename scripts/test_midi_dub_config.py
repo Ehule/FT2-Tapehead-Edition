@@ -17,7 +17,10 @@ def main() -> None:
         executable = tmp_path / "test_midi_dub_config"
         tapehead_ini = tmp_path / "tapehead.ini"
         tapehead_ini.write_text(
-            """[MIDI]
+            """[Baker]
+PatternRows=64
+
+[MIDI]
 PerformanceControl=true
 Profile=APC40MK2
 ControlInput=APC40 mkII
@@ -70,7 +73,7 @@ Track33=7
             cwd=ROOT,
         )
         subprocess.run(
-            [str(executable), str(tmp_path / "FT2.CFG"), "57"],
+            [str(executable), str(tmp_path / "FT2.CFG"), "57", "64"],
             check=True,
             cwd=ROOT,
         )
@@ -85,10 +88,18 @@ Track33=7
                 encoding="utf-8",
             )
             subprocess.run(
-                [str(executable), str(tmp_path / "FT2.CFG"), str(expected)],
+                [str(executable), str(tmp_path / "FT2.CFG"), str(expected), "64"],
                 check=True,
                 cwd=ROOT,
             )
+
+        # Saving a dialog selection and reloading uses compatible tapehead.ini storage.
+        tapehead_ini.write_text(baseline, encoding="utf-8")
+        subprocess.run([str(executable), str(tmp_path / "FT2.CFG"), "57", "64", "128"], check=True, cwd=ROOT)
+
+        # Baker accepts only loop-safe powers from the selector.
+        tapehead_ini.write_text(baseline.replace("PatternRows=64", "PatternRows=48"), encoding="utf-8")
+        subprocess.run([str(executable), str(tmp_path / "FT2.CFG"), "57", "256"], check=True, cwd=ROOT)
 
 
 if __name__ == "__main__":

@@ -26,6 +26,6 @@ void bakerCaptureSampleLauncherAction(uint16_t tile, uint8_t voice, bool start);
 void bakerBeginManualRow(void);
 void bakerCaptureManualEvent(int32_t channelIndex, const note_t *event);
 void bakeComposition(UNICHAR *filenameU, bool mergeExactDuplicates,
-	bakerOutputTarget_t outputTarget);
+	bakerOutputTarget_t outputTarget, uint16_t patternRows);
 void armLiveCompositionBake(UNICHAR *filenameU, bool mergeExactDuplicates,
-	bakerOutputTarget_t outputTarget);
+	bakerOutputTarget_t outputTarget, uint16_t patternRows);

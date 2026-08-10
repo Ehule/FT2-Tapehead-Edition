@@ -14,6 +14,7 @@
 #include "ft2_structs.h"
 #include "ft2_events.h"
 #include "ft2_smpfx.h"
+#include "ft2_baker_core.h"
 
 #define SYSTEM_REQUEST_H 67
 #define SYSTEM_REQUEST_Y 249
@@ -121,9 +122,8 @@ void myLoaderMsgBox(const char *fmt, ...)
 	okBox(0, "System message", strBuf, NULL);
 }
 
-static void drawWindow(uint16_t w)
+static void drawWindow(uint16_t w, uint16_t h)
 {
-	const uint16_t h = SYSTEM_REQUEST_H;
 	const uint16_t x = (SCREEN_W - w) / 2;
 	const uint16_t y = ui.extendedPatternEditor ? 91 : SYSTEM_REQUEST_Y;
 
@@ -206,7 +206,8 @@ static bool mouseButtonUpLogic(uint8_t mouseButton)
 // WARNING: This routine must ONLY be called from the main input/video thread!
 // If the checkBoxCallback argument is set, then you get a "Do not show again" checkbox.
 static int16_t okBoxInternal(int16_t type, const char *headline, const char *text,
-	void (*checkBoxCallback)(void), const char *checkBoxText, bool *checkBoxState)
+	void (*checkBoxCallback)(void), const char *checkBoxText, bool *checkBoxState,
+	uint16_t *patternRows, uint16_t bpm)
 {
 #define DEFAULT_PUSHBUTTON_WIDTH 80
 
@@ -262,7 +263,10 @@ static int16_t okBoxInternal(int16_t type, const char *headline, const char *tex
 	const uint16_t x = (SCREEN_W - wlen) / 2;
 
 	// the dialog's y position differs in extended pattern editor mode
-	const uint16_t y = ui.extendedPatternEditor ? SYSTEM_REQUEST_Y_EXT : SYSTEM_REQUEST_Y;
+	const bool bakerOptions = patternRows != NULL;
+	const uint16_t dialogHeight = bakerOptions ? 101 : SYSTEM_REQUEST_H;
+	const uint16_t y = ui.extendedPatternEditor ? SYSTEM_REQUEST_Y_EXT :
+		(bakerOptions ? SYSTEM_REQUEST_Y - 34 : SYSTEM_REQUEST_Y);
 
 	// find widest button size
 	uint16_t buttonWidthHi = DEFAULT_PUSHBUTTON_WIDTH;
@@ -279,7 +283,7 @@ static int16_t okBoxInternal(int16_t type, const char *headline, const char *tex
 	{
 		p->caption = buttonText[type][i];
 		p->x = ((SCREEN_W - tx) / 2) + (i * 100);
-		p->y = y + (checkBoxState != NULL ? 48 : 42);
+		p->y = y + (bakerOptions ? 82 : (checkBoxState != NULL ? 48 : 42));
 		p->w = buttonWidthHi;
 		p->h = 16;
 		p->visible = true;
@@ -291,7 +295,7 @@ static int16_t okBoxInternal(int16_t type, const char *headline, const char *tex
 	{
 		checkBox_t *c = &checkBoxes[0];
 		c->x = x + 5;
-		c->y = y + (checkBoxState != NULL ? 34 : 50);
+		c->y = y + (bakerOptions ? 68 : (checkBoxState != NULL ? 34 : 50));
 		c->clickAreaWidth = 116;
 		c->clickAreaHeight = 12;
 		c->checked = checkBoxState != NULL ? *checkBoxState : false;
@@ -326,6 +330,16 @@ static int16_t okBoxInternal(int16_t type, const char *headline, const char *tex
 
 			if (inputEvent.type == SDL_KEYDOWN)
 			{
+				if (bakerOptions && (inputEvent.key.keysym.sym == SDLK_LEFT ||
+					inputEvent.key.keysym.sym == SDLK_RIGHT || inputEvent.key.keysym.sym == SDLK_SPACE))
+				{
+					static const uint16_t rows[] = { 16, 32, 64, 128, 256 };
+					uint8_t index = 4;
+					for (uint8_t i = 0; i < 5; i++) if (rows[i] == *patternRows) index = i;
+					index = inputEvent.key.keysym.sym == SDLK_LEFT ? (index + 4) % 5 : (index + 1) % 5;
+					*patternRows = rows[index];
+					continue;
+				}
 				if (inputEvent.key.keysym.sym == SDLK_ESCAPE)
 				{
 					if (!inputEvent.key.repeat) // don't let previously held-down ESC immediately close the box
@@ -370,6 +384,15 @@ static int16_t okBoxInternal(int16_t type, const char *headline, const char *tex
 			}
 			else if (inputEvent.type == SDL_MOUSEBUTTONDOWN)
 			{
+				if (bakerOptions && inputEvent.button.button == SDL_BUTTON_LEFT &&
+					mouse.x >= x + 94 && mouse.x < x + 142 && mouse.y >= y + 34 && mouse.y < y + 49)
+				{
+					static const uint16_t rows[] = { 16, 32, 64, 128, 256 };
+					uint8_t index = 4;
+					for (uint8_t i = 0; i < 5; i++) if (rows[i] == *patternRows) index = i;
+					*patternRows = rows[(index + 1) % 5];
+					continue;
+				}
 				if (mouseButtonDownLogic(inputEvent.button.button))
 				{
 					if (testPushButtonMouseDown()) continue;
@@ -392,9 +415,20 @@ static int16_t okBoxInternal(int16_t type, const char *headline, const char *tex
 		handleRedrawing();
 
 		// draw OK box
-		drawWindow(wlen);
+		drawWindow(wlen, dialogHeight);
 		textOutShadow(headlineX, y +  4, PAL_FORGRND, PAL_BUTTON2, headline);
 		textOutShadow(textX,     y + 24, PAL_FORGRND, PAL_BUTTON2, text);
+		if (bakerOptions)
+		{
+			char rowsText[16], patternEstimate[40], maximumEstimate[48];
+			snprintf(rowsText, sizeof rowsText, "[ %u ]", *patternRows);
+			bakerFormatTimingEstimates(*patternRows, bpm, patternEstimate,
+				sizeof patternEstimate, maximumEstimate, sizeof maximumEstimate);
+			textOutShadow(x + 5, y + 38, PAL_FORGRND, PAL_BUTTON2, "Pattern Rows:");
+			textOutShadow(x + 94, y + 38, PAL_FORGRND, PAL_BUTTON2, rowsText);
+			textOutShadow(x + 155, y + 38, PAL_FORGRND, PAL_BUTTON2, patternEstimate);
+			textOutShadow(x + 5, y + 53, PAL_FORGRND, PAL_BUTTON2, maximumEstimate);
+		}
 		for (uint16_t i = 0; i < numButtons; i++) drawPushButton(i);
 		if (hasCheckbox)
 		{
@@ -429,13 +463,21 @@ static int16_t okBoxInternal(int16_t type, const char *headline, const char *tex
 
 int16_t okBox(int16_t type, const char *headline, const char *text, void (*checkBoxCallback)(void))
 {
-	return okBoxInternal(type, headline, text, checkBoxCallback, NULL, NULL);
+	return okBoxInternal(type, headline, text, checkBoxCallback, NULL, NULL, NULL, 0);
 }
 
 int16_t choiceBoxWithCheckBox(int16_t type, const char *headline, const char *text,
 	const char *checkBoxText, bool *checkBoxState)
 {
-	return okBoxInternal(type, headline, text, NULL, checkBoxText, checkBoxState);
+	return okBoxInternal(type, headline, text, NULL, checkBoxText, checkBoxState, NULL, 0);
+}
+
+int16_t bakerChoiceBox(int16_t type, const char *headline, const char *text,
+	const char *checkBoxText, bool *checkBoxState, uint16_t *patternRows, uint16_t bpm)
+{
+	if (!bakerPatternRowsValid(*patternRows)) *patternRows = BAKE_DEFAULT_PATTERN_ROWS;
+	return okBoxInternal(type, headline, text, NULL, checkBoxText, checkBoxState,
+		patternRows, bpm);
 }
 
 /* WARNING:
@@ -676,7 +718,7 @@ int16_t inputBox(int16_t type, const char *headline, char *edText, uint16_t maxS
 		handleRedrawing();
 
 		// draw input box
-		drawWindow(wlen);
+		drawWindow(wlen, SYSTEM_REQUEST_H);
 		textOutShadow(headlineX, y + 4, PAL_FORGRND, PAL_BUTTON2, headline);
 		clearRect(t->x, t->y, t->w, t->h);
 		hLine(t->x - 1,    t->y - 1,    t->w + 2, PAL_BUTTON2);

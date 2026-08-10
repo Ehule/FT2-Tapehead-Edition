@@ -350,6 +350,7 @@ typedef struct tapeheadConfig_t
 	uint8_t trackTrimDisplayWidth;
 	uint8_t patternJogAudition;
 	uint8_t patternColorMode;
+	uint16_t bakerPatternRows;
 	bool patternJogIncludeFastTracks;
 	bool transportFreezeAudioCut;
 	bool transportFreezePedalHold;
@@ -364,5 +365,6 @@ typedef struct tapeheadConfig_t
 extern tapeheadConfig_t tapeheadConfig;
 void loadTapeheadConfig(void);
 void saveTapeheadPatternColorMode(void);
+void saveTapeheadBakerPatternRows(void);
 
 extern config_t config;

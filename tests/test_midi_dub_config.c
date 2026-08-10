@@ -38,14 +38,19 @@ static int expectChannel(int32_t track, uint8_t expected)
 
 int main(int argc, char **argv)
 {
-	if (argc != 3)
+	if (argc != 4 && argc != 5)
 	{
-		fprintf(stderr, "usage: %s /path/to/FT2.CFG expected-brightness\n", argv[0]);
+		fprintf(stderr, "usage: %s /path/to/FT2.CFG expected-brightness expected-baker-rows\n", argv[0]);
 		return 2;
 	}
 
 	editor.configFileLocationU = argv[1];
 	loadTapeheadConfig();
+	if (tapeheadConfig.bakerPatternRows != (uint16_t)atoi(argv[3]))
+	{
+		fprintf(stderr, "expected Baker rows %s, got %u\n", argv[3], tapeheadConfig.bakerPatternRows);
+		return 1;
+	}
 	if (tapeheadConfig.apc40RGBBrightness != (uint8_t)atoi(argv[2]))
 	{
 		fprintf(stderr, "expected RGB brightness %s, got %u\n", argv[2],
@@ -71,6 +76,16 @@ int main(int argc, char **argv)
 	{
 		fprintf(stderr, "control-surface device-name config failed\n");
 		return 1;
+	}
+
+	if (argc == 5)
+	{
+		tapeheadConfig.bakerPatternRows = (uint16_t)atoi(argv[4]);
+		saveTapeheadBakerPatternRows();
+		tapeheadConfig.bakerPatternRows = 0;
+		loadTapeheadConfig();
+		if (tapeheadConfig.bakerPatternRows != (uint16_t)atoi(argv[4]))
+			return 1;
 	}
 
 	int failures = 0;
