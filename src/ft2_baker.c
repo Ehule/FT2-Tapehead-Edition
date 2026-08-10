@@ -5,6 +5,7 @@
 #include "ft2_header.h"
 #include "ft2_audio.h"
 #include "ft2_baker.h"
+#include "ft2_baker_assets.h"
 #include "ft2_baker_core.h"
 #include "ft2_fasttracks.h"
 #include "ft2_gui.h"
@@ -228,27 +229,11 @@ void bakerCaptureResolvedEvent(int32_t channelIndex, const note_t *event,
 	if (resolved.note >= 1 && resolved.note <= 96 && resolvedInstrument > 0 &&
 		resolvedInstrument <= MAX_INST && instr[resolvedInstrument] != NULL)
 	{
-		/* XM chooses a sample through the instrument note map. Select the nearest
-		** note that addresses the exact sample resolved by Sample Morph. Native
-		** Sample Matrix banks deliberately map C-4 upward, so this also produces
-		** their readable C-4 + instrument representation. */
-		int32_t bestNote = -1, bestDistance = 1000;
-		for (int32_t note = 1; note <= 96; note++)
-		{
-			if ((instr[resolvedInstrument]->note2SampleLUT[note-1] & 0x0F) != resolvedSample)
-				continue;
-			const int32_t distance = ABS(note - resolved.note);
-			if (distance < bestDistance)
-			{
-				bestDistance = distance;
-				bestNote = note;
-			}
-		}
-		if (bestNote >= 0)
-		{
-			resolved.note = (uint8_t)bestNote;
-			resolved.instr = resolvedInstrument;
-		}
+		const uint8_t bakedInstrument = bakerAssetsResolveInstrument(resolved.note,
+			resolvedInstrument, resolvedSample);
+		if (bakedInstrument == 0)
+			return; /* A hard asset error prevents saving; never capture the wrong sample. */
+		resolved.instr = bakedInstrument;
 	}
 	bakerCaptureEvent(channelIndex, &resolved);
 }
@@ -439,6 +424,7 @@ static void freeBakePatterns(void)
 		free(bakePatterns[i]);
 		bakePatterns[i] = NULL;
 	}
+	bakerAssetsFree();
 }
 
 static void resetBakeCapture(bool tickResolution)
@@ -604,6 +590,8 @@ static bool saveBakeResult(int32_t bakedRows)
 {
 	if (bakedRows <= 0 || bakeCollisions != 0 || bakeUnsupportedSubTicks != 0 || bakeOverflow)
 		return false;
+	if (!bakerAssetsInstall())
+		return false;
 
 	song_t savedSong = song;
 	note_t *savedPatterns[MAX_PATTERNS];
@@ -637,6 +625,7 @@ static bool saveBakeResult(int32_t bakedRows)
 	memcpy(pattern, savedPatterns, sizeof (savedPatterns));
 	memcpy(patternNumRows, savedPatternRows, sizeof (savedPatternRows));
 	song = savedSong;
+	bakerAssetsUninstall();
 	return saved;
 }
 
@@ -696,6 +685,7 @@ static int32_t bakeCompositionThread(void *unused)
 	songPlaying = sourceSongPlaying;
 
 	const bool saved = !hitSafetyLimit && saveBakeResult(bakedRows);
+	const bakerAssetError_t assetError = bakerAssetsGetError();
 
 	freeBakePatterns();
 	resumeAudio();
@@ -705,6 +695,13 @@ static int32_t bakeCompositionThread(void *unused)
 	{
 		okBoxThreadSafe(0, "Bake Module",
 			"Bake stopped: the song did not reach its end or exceeded XM's 256-pattern limit.", NULL);
+	}
+	else if (assetError != BAKER_ASSET_OK)
+	{
+		const char *message = assetError == BAKER_ASSET_INSTRUMENT_LIMIT
+			? "No file was written. Sample Morph needs another private instrument, but XM's 128-instrument limit is exhausted."
+			: "No file was written. There was not enough memory to copy a Sample Morph instrument and sample.";
+		okBoxThreadSafe(0, "Bake Module", message, NULL);
 	}
 	else if (bakeCollisions > 0 || bakeUnsupportedSubTicks > 0)
 	{
@@ -868,6 +865,7 @@ void bakerFinishOrCancelLive(void)
 
 	const int32_t bakedRows = bakeRow + 1;
 	const bool saved = saveBakeResult(bakedRows);
+	const bakerAssetError_t assetError = bakerAssetsGetError();
 	const bool overflow = bakeOverflow;
 	const uint32_t collisions = bakeCollisions;
 	const uint32_t unsupportedSubTicks = bakeUnsupportedSubTicks;
@@ -880,6 +878,13 @@ void bakerFinishOrCancelLive(void)
 	if (overflow)
 	{
 		okBox(0, "Live Bake", "No file was written. The performance exceeded XM's 256-pattern limit.", NULL);
+	}
+	else if (assetError != BAKER_ASSET_OK)
+	{
+		const char *message = assetError == BAKER_ASSET_INSTRUMENT_LIMIT
+			? "No file was written. Sample Morph needs another private instrument, but XM's 128-instrument limit is exhausted."
+			: "No file was written. There was not enough memory to copy a Sample Morph instrument and sample.";
+		okBox(0, "Live Bake", message, NULL);
 	}
 	else if (collisions > 0 || unsupportedSubTicks > 0)
 	{
