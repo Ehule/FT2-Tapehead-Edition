@@ -5,6 +5,7 @@
 void updatePattFontPtrs(void);
 void updatePatternCursorBlink(void);
 void resetPatternCursorBlink(void);
+uint8_t patternXToCursorObject(int32_t x);
 void drawPatternBorders(void);
 void writePattern(int32_t currRow, int32_t currPattern);
 void pattTwoHexOut(uint32_t xPos, uint32_t yPos, uint8_t val, uint32_t color);

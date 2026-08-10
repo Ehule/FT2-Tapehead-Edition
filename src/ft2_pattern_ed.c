@@ -201,9 +201,8 @@ void killPatternIfUnused(uint16_t pattNum) // for tracker use only, not in loade
 uint8_t getMaxVisibleChannels(void)
 {
 	ASSERT(config.ptnMaxChannels >= 0 && config.ptnMaxChannels <= 3);
-	const uint8_t configured = config.ptnShowVolColumn ?
+	return config.ptnShowVolColumn ?
 		maxVisibleChans1[config.ptnMaxChannels] : maxVisibleChans2[config.ptnMaxChannels];
-	return MIN(configured, 8); /* seven-field compact cells need at least 69px */
 }
 
 void updatePatternWidth(void)
@@ -1018,6 +1017,13 @@ void handlePatternDataMouseDown(bool mouseButtonHeld)
 
 		lastChMark = mouseXToCh();
 		lastRowMark = mouseYToRow();
+
+		/* Keep the edit cursor aligned with the adaptive field geometry while
+		** preserving FT2's click-and-drag block selection behavior. */
+		cursor.ch = lastChMark;
+		const int32_t channelX = mouse.x - 29 -
+			((lastChMark - ui.channelOffset) * ui.patternChannelWidth);
+		cursor.object = patternXToCursorObject(channelX);
 
 		pattMark.markX1 = lastChMark;
 		pattMark.markX2 = lastChMark;
