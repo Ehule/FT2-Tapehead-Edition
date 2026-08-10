@@ -31,8 +31,16 @@ for row_index, (x_text, width_text, _font, _char_width, _note_size) in enumerate
 empty_tuning = draw[draw.index("if (n->tuneType == 0)"):draw.index("if (n->efx == 0", draw.index("if (n->tuneType == 0)"))]
 assert "n->tuneData" not in empty_tuning.split("else", 1)[0]
 assert "for (int32_t i = 5; i <= 7; i++)" in empty_tuning
+assert empty_tuning.split("else", 1)[0].count("pattLayoutPlaceholderOut") == 1
 assert "if (n->efx == 0 && n->efxData == 0)" in draw
 assert "for (int32_t i = 8; i <= 10; i++)" in draw
+empty_volume = draw[draw.index("if (n->vol < 0x10)"):draw.index("const uint8_t vol1", draw.index("if (n->vol < 0x10)"))]
+assert empty_volume.count("pattLayoutPlaceholderOut") == 2, "empty volume must be exactly '..'"
+empty_effect = draw[draw.index("if (n->efx == 0 && n->efxData == 0)"):draw.index("else", draw.index("if (n->efx == 0 && n->efxData == 0)"))]
+assert empty_effect.count("pattLayoutPlaceholderOut") == 1, "empty effect loop must draw exactly three placeholders"
+placeholder = draw[draw.index("static void pattLayoutPlaceholderOut"):draw.index("static void drawAdaptiveCell")]
+assert "layout->charW / 2" in placeholder
+assert "pattLayoutCharOut" not in placeholder, "separator space must not receive a period glyph"
 assert "layout->x[cursor.object]" in draw and "layout->width[cursor.object]" in draw
 assert "object == CURSOR_VOL1 || object == CURSOR_VOL2" in draw
 assert "cursor.object = patternXToCursorObject(channelX)" in editor
