@@ -74,6 +74,30 @@ static note_t emptyPattern[MAX_CHANNELS * MAX_PATT_LEN];
 static const uint8_t *font4Ptr, *font5Ptr;
 static const uint8_t vol2charTab1[16] = { 39, 0, 1, 2, 3, 4, 36, 52, 53, 54, 28, 31, 25, 58, 59, 22 };
 static const uint8_t vol2charTab2[16] = { 42, 0, 1, 2, 3, 4, 36, 37, 38, 39, 28, 31, 25, 40, 41, 22 };
+static const uint8_t columnModeTab[12] = { 0, 0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 3 };
+
+typedef struct pattLayout_t
+{
+	uint8_t x[11], width[11], fontType, charW, noteSize;
+} pattLayout_t;
+
+/* One geometry entry per original adaptive channel-width mode. The tuning lane
+** is deliberately part of each entry instead of being overlaid at fixed x positions. */
+static const pattLayout_t pattLayouts[2][4] =
+{
+	{ // volume hidden: 4, 6, 8 and 12 visible channels
+		{{ 3, 59, 67,  0,  0, 83, 91, 99,115,123,131}, {48,8,8,0,0,8,8,8,8,8,8}, FONT_TYPE4, 8, 2},
+		{{ 3, 31, 35,  0,  0, 43, 47, 51, 59, 63, 67}, {24,4,4,0,0,4,4,4,4,4,4}, FONT_TYPE3, 4, 1},
+		{{ 3, 27, 31,  0,  0, 39, 43, 47, 55, 59, 63}, {24,4,4,0,0,4,4,4,4,4,4}, FONT_TYPE3, 4, 1},
+		{{ 2, 20, 23,  0,  0, 27, 30, 33, 37, 40, 43}, {18,3,3,0,0,3,3,3,3,3,3}, FONT_TYPE3, 3, 0}
+	},
+	{ // volume shown: 4, 6 and 8 visible channels (mode 3 aliases mode 2)
+		{{ 3, 55, 63, 75, 83, 95,103,111,119,127,135}, {48,8,8,8,8,8,8,8,8,8,8}, FONT_TYPE4, 8, 2},
+		{{ 3, 27, 31, 39, 43, 51, 55, 59, 67, 71, 75}, {24,4,4,4,4,4,4,4,4,4,4}, FONT_TYPE3, 4, 1},
+		{{ 3, 27, 31, 35, 39, 43, 47, 51, 55, 59, 63}, {24,4,4,4,4,4,4,4,4,4,4}, FONT_TYPE3, 4, 1},
+		{{ 3, 27, 31, 35, 39, 43, 47, 51, 55, 59, 63}, {24,4,4,4,4,4,4,4,4,4,4}, FONT_TYPE3, 4, 1}
+	}
+};
 static const uint8_t sharpNote1Char_small[12] = {  8*6,  8*6,  9*6,  9*6, 10*6, 11*6, 11*6, 12*6, 12*6, 13*6, 13*6, 14*6 };
 static const uint8_t sharpNote2Char_small[12] = { 16*6, 15*6, 16*6, 15*6, 16*6, 16*6, 15*6, 16*6, 15*6, 16*6, 15*6, 16*6 };
 static const uint8_t flatNote1Char_small[12] = {  8*6,  9*6,  9*6, 10*6, 10*6, 11*6, 12*6, 12*6, 13*6, 13*6, 14*6, 14*6 };
@@ -252,11 +276,40 @@ void drawPatternBorders(void)
 	}
 }
 
+static const pattLayout_t *getPatternLayout(void)
+{
+	const uint8_t mode = columnModeTab[ui.numChannelsShown-1];
+	return &pattLayouts[config.ptnShowVolColumn != 0][mode];
+}
+
+uint8_t patternXToCursorObject(int32_t x)
+{
+	const pattLayout_t *layout = getPatternLayout();
+	uint8_t bestObject = CURSOR_NOTE;
+	int32_t bestDistance = 0x7FFFFFFF;
+
+	for (uint8_t object = CURSOR_NOTE; object <= CURSOR_EFX2; object++)
+	{
+		if (!config.ptnShowVolColumn && (object == CURSOR_VOL1 || object == CURSOR_VOL2))
+			continue;
+
+		const int32_t center = layout->x[object] + (layout->width[object] / 2);
+		const int32_t distance = ABS(x - center);
+		if (distance < bestDistance)
+		{
+			bestDistance = distance;
+			bestObject = object;
+		}
+	}
+
+	return bestObject;
+}
+
 static void writeCursor(void)
 {
-	static const uint8_t compactX[11] = { 3, 19, 23, 31, 35, 43, 47, 51, 57, 61, 65 };
-	int32_t xPos = 29 + compactX[cursor.object];
-	const int32_t width = cursor.object == CURSOR_NOTE ? 12 : 4;
+	const pattLayout_t *layout = getPatternLayout();
+	int32_t xPos = 29 + layout->x[cursor.object];
+	const int32_t width = layout->width[cursor.object];
 
 	ASSERT(editor.ptnCursorY > 0 && xPos > 0 && width > 0);
 	xPos += ((cursor.ch - ui.channelOffset) * ui.patternChannelWidth);
@@ -290,23 +343,97 @@ static void writeCursor(void)
 	}
 }
 
-static void drawCompactCell(uint32_t x, uint32_t y, const note_t *n,
+static void pattLayoutCharOut(uint32_t x, uint32_t y, uint8_t chr,
+	const pattLayout_t *layout, uint32_t color)
+{
+	if (layout->charW != 3)
+	{
+		pattCharOut(x, y, chr, layout->fontType, color);
+		return;
+	}
+
+	/* The twelve-channel mode has 48 pixels per cell. Clip the small glyph to
+	** three columns so adjacent instrument/tuning/effect characters never overlap. */
+	const uint8_t *src = &bmp.font3[chr * FONT3_CHAR_W];
+	uint32_t *dst = &video.frameBuffer[(y * SCREEN_W) + x];
+	for (int32_t row = 0; row < FONT3_CHAR_H; row++)
+	{
+		/* Preserve both outside strokes and merge the two center columns. This
+		** keeps M/N and hexadecimal glyphs recognizable instead of truncating
+		** their right edge. */
+		if (src[0] != 0) dst[0] = color;
+		if (src[1] != 0 || src[2] != 0) dst[1] = color;
+		if (src[3] != 0) dst[2] = color;
+
+		src += FONT3_WIDTH;
+		dst += SCREEN_W;
+	}
+}
+
+static void drawAdaptiveCell(uint32_t x, uint32_t y, const note_t *n,
 	uint32_t noteColor, uint32_t instrColor, uint32_t volColor,
 	uint32_t tuneColor, uint32_t effectColor)
 {
-	if (n->note == NOTE_OFF) drawKeyOffSmall(x + 3, y, noteColor);
-	else if (n->note > 0 && n->note <= 96) drawNoteSmall(x + 3, y, n->note, noteColor);
-	else drawEmptyNoteSmall(x + 3, y, noteColor);
-	pattCharOut(x + 19, y, n->instr >> 4, FONT_TYPE3, instrColor);
-	pattCharOut(x + 23, y, n->instr & 15, FONT_TYPE3, instrColor);
-	pattCharOut(x + 31, y, n->vol >> 4, FONT_TYPE3, volColor);
-	pattCharOut(x + 35, y, n->vol & 15, FONT_TYPE3, volColor);
-	pattCharOut(x + 43, y, n->tuneType ? n->tuneType : 42, FONT_TYPE3, tuneColor);
-	pattCharOut(x + 47, y, n->tuneData >> 4, FONT_TYPE3, tuneColor);
-	pattCharOut(x + 51, y, n->tuneData & 15, FONT_TYPE3, tuneColor);
-	pattCharOut(x + 57, y, n->efx ? n->efx : 42, FONT_TYPE3, effectColor);
-	pattCharOut(x + 61, y, n->efxData >> 4, FONT_TYPE3, effectColor);
-	pattCharOut(x + 65, y, n->efxData & 15, FONT_TYPE3, effectColor);
+	const pattLayout_t *layout = getPatternLayout();
+	const uint8_t *px = layout->x;
+
+	if (layout->noteSize == 2)
+	{
+		if (n->note == NOTE_OFF) drawKeyOffBig(x + px[0], y, noteColor);
+		else if (n->note > 0 && n->note <= 96) drawNoteBig(x + px[0], y, n->note, noteColor);
+		else drawEmptyNoteBig(x + px[0], y, noteColor);
+	}
+	else if (layout->noteSize == 1)
+	{
+		if (n->note == NOTE_OFF) drawKeyOffMedium(x + px[0], y, noteColor);
+		else if (n->note > 0 && n->note <= 96) drawNoteMedium(x + px[0], y, n->note, noteColor);
+		else drawEmptyNoteMedium(x + px[0], y, noteColor);
+	}
+	else
+	{
+		if (n->note == NOTE_OFF) drawKeyOffSmall(x + px[0], y, noteColor);
+		else if (n->note > 0 && n->note <= 96) drawNoteSmall(x + px[0], y, n->note, noteColor);
+		else drawEmptyNoteSmall(x + px[0], y, noteColor);
+	}
+
+	/* Empty instrument numbers intentionally retain FT2's 00 convention. */
+	pattLayoutCharOut(x + px[1], y, n->instr >> 4, layout, instrColor);
+	pattLayoutCharOut(x + px[2], y, n->instr & 15, layout, instrColor);
+
+	if (config.ptnShowVolColumn)
+	{
+		const uint8_t dot = layout->fontType == FONT_TYPE3 ? 42 : 39;
+		const uint8_t vol1 = n->vol < 0x10 ? dot :
+			(layout->fontType == FONT_TYPE3 ? vol2charTab2[n->vol >> 4] : vol2charTab1[n->vol >> 4]);
+		const uint8_t vol2 = n->vol < 0x10 ? dot : n->vol & 15;
+		pattLayoutCharOut(x + px[3], y, vol1, layout, volColor);
+		pattLayoutCharOut(x + px[4], y, vol2, layout, volColor);
+	}
+
+	const uint8_t dot = layout->fontType == FONT_TYPE3 ? 42 : 39;
+	if (n->tuneType == 0)
+	{
+		for (int32_t i = 5; i <= 7; i++)
+			pattLayoutCharOut(x + px[i], y, dot, layout, tuneColor);
+	}
+	else
+	{
+		pattLayoutCharOut(x + px[5], y, n->tuneType, layout, tuneColor);
+		pattLayoutCharOut(x + px[6], y, n->tuneData >> 4, layout, tuneColor);
+		pattLayoutCharOut(x + px[7], y, n->tuneData & 15, layout, tuneColor);
+	}
+
+	if (n->efx == 0 && n->efxData == 0)
+	{
+		for (int32_t i = 8; i <= 10; i++)
+			pattLayoutCharOut(x + px[i], y, dot, layout, effectColor);
+	}
+	else
+	{
+		pattLayoutCharOut(x + px[8], y, n->efx, layout, effectColor);
+		pattLayoutCharOut(x + px[9], y, n->efxData >> 4, layout, effectColor);
+		pattLayoutCharOut(x + px[10], y, n->efxData & 15, layout, effectColor);
+	}
 }
 
 static void writePatternBlockMark(int32_t currRow, uint32_t rowHeight, const pattCoord_t *pattCoord)
@@ -1148,7 +1275,7 @@ void writePattern(int32_t currRow, int32_t currPattern)
 						tuneColor = fastTrackColor;
 				}
 
-				drawCompactCell(xPos, textY, drawPtr, noteColor, instColor,
+				drawAdaptiveCell(xPos, textY, drawPtr, noteColor, instColor,
 					volColor, tuneColor, efxColor);
 			}
 		}
