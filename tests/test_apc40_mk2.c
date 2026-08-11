@@ -22,12 +22,20 @@ static void testIntroduction(void)
 	static const uint8_t expected[12] =
 	{
 		0xF0, 0x47, 0x7F, 0x29, 0x60, 0x00, 0x04,
-		0x42, 0x00, 0x01, 0x00, 0xF7
+		0x42, 0x09, 0x07, 0x01, 0xF7
+	};
+	static const uint8_t expectedGeneric[12] =
+	{
+		0xF0, 0x47, 0x7F, 0x29, 0x60, 0x00, 0x04,
+		0x40, 0x09, 0x07, 0x01, 0xF7
 	};
 
 	assert(tapeheadAPC40Mk2BuildIntroduction(0x42, message,
 		sizeof (message)) == sizeof (message));
 	assert(!memcmp(message, expected, sizeof (expected)));
+	assert(tapeheadAPC40Mk2BuildIntroduction(0x40, message,
+		sizeof (message)) == sizeof (message));
+	assert(!memcmp(message, expectedGeneric, sizeof (expectedGeneric)));
 	assert(tapeheadAPC40Mk2BuildIntroduction(0x43, message,
 		sizeof (message)) == 0);
 	assert(tapeheadAPC40Mk2BuildIntroduction(0x42, message, 11) == 0);
@@ -145,6 +153,8 @@ static void testBuiltInMappings(void)
 
 	/* Releases are consumed without adding a second toggle action. */
 	assert(tapeheadMidiMapHandleMessage(0x80, 31, 127));
+	assert(tapeheadMidiMapGetPendingCount() == 15);
+	assert(tapeheadMidiMapHandleMessage(0x90, 0x30, 0));
 	assert(tapeheadMidiMapGetPendingCount() == 15);
 
 	/* Phase 4.3 maps Tap Tempo to global FastTracks Pattern/Song mode. */
