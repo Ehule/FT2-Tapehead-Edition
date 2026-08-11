@@ -64,12 +64,11 @@ static void apply_mouse_result(SDL_AudioDeviceID device, audio_context *audio,
   {
     ts_app_ensure_rendered(app, (size_t)result.selected_recipe, error,
                            error_capacity);
-    ts_app_request_render(app);
   }
   if (result.note_off >= 0)
     lock_off(device, audio, result.note_off);
   if (result.note_on >= 0)
-    lock_note(device, audio, ts_app_preview_source(app) ? ts_app_preview_source(app) : &app->bank[app->selected].source, result.note_on);
+    lock_note(device, audio, ts_app_preview_source(app), result.note_on);
 }
 
 int main(int argc, char **argv) {
@@ -228,13 +227,11 @@ int main(int argc, char **argv) {
         else if((modifiers&KMOD_CTRL)&&k==SDLK_y&&!e.key.repeat){ts_app_redo(&app);}
         else if((modifiers&KMOD_CTRL)&&k==SDLK_p&&!e.key.repeat){if(modifiers&KMOD_SHIFT){modal=MODAL_PARENT;ts_text_edit_init(&modal_edit,2,"");SDL_StartTextInput();}else ts_app_commit_parent(&app);}
         else if (k == SDLK_F1 && app.selected > 0) {
-          app.selected--;
+          ts_app_select_recipe(&app,app.selected-1);
           ts_app_ensure_rendered(&app, app.selected, error, sizeof error);
-          ts_app_request_render(&app);
         } else if (k == SDLK_F2 && app.selected + 1 < app.bank_count) {
-          app.selected++;
+          ts_app_select_recipe(&app,app.selected+1);
           ts_app_ensure_rendered(&app, app.selected, error, sizeof error);
-          ts_app_request_render(&app);
         } else if (k == SDLK_LEFTBRACKET && app.base_octave > -1)
           app.base_octave--;
         else if (k == SDLK_RIGHTBRACKET && app.base_octave < 9)
@@ -253,12 +250,12 @@ int main(int argc, char **argv) {
           if (device)
             SDL_UnlockAudioDevice(device);
         } else if (k == SDLK_RETURN && !e.key.repeat)
-          lock_note(device, &audio, ts_app_preview_source(&app) ? ts_app_preview_source(&app) : &app.bank[app.selected].source,
+          lock_note(device, &audio, ts_app_preview_source(&app),
                     app.bank[app.selected].recipe.root_midi_note);
         else if ((modifiers & (KMOD_CTRL | KMOD_ALT | KMOD_GUI)) == 0) {
           int note;
           if (ts_app_key_press(&app, ascii_key(k), e.key.repeat != 0, &note))
-            lock_note(device, &audio, ts_app_preview_source(&app) ? ts_app_preview_source(&app) : &app.bank[app.selected].source, note);
+            lock_note(device, &audio, ts_app_preview_source(&app), note);
         }
       } else if(e.type==SDL_TEXTINPUT&&modal!=MODAL_NONE)ts_text_edit_insert(&modal_edit,e.text.text);
       else if (e.type == SDL_KEYUP) {

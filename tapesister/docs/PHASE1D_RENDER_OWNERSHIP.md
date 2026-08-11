@@ -18,6 +18,13 @@ The main thread converts those values to a normalized waveform position. Voice
 slot reuse receives a strictly increasing age, preventing a cursor from
 following a stale slot identity.
 
+Each accepted factory/file session increments a separate session identity and
+clears Undo/Redo only after its candidate render succeeds. A published preview
+is eligible for new notes only when its publication session equals the current
+working session. Old voices keep their retained preview, but note-on is rejected
+while the new session render is pending or failed; this prevents recipe A from
+auditioning as newly triggered recipe B.
+
 The final Phase 1D pass still owns path modals and Save/Load/Bake actions,
 complete saved/baked identities, Parent confirmation, direct UTF-8/numeric
 entry, drag transactions, mouse-wheel polish, action buttons, and expanded SDL

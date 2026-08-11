@@ -38,6 +38,7 @@ typedef struct ts_app_state {
   char baked_recipe_path[TS_PATH_MAX_BYTES + 1U];
   char baked_wav_path[TS_PATH_MAX_BYTES + 1U];
   uint64_t working_generation, published_generation;
+  uint64_t session_identity, preview_session_identity;
   ts_render_worker *render_worker;
   ts_preview_pool previews;
   uint64_t failed_generation;
@@ -94,3 +95,4 @@ bool ts_app_load_recipe(ts_app_state *app, const char *path, ts_io_error *error)
 bool ts_app_bake(ts_app_state *app, const char *recipe_path,
                  const char *wav_path, ts_io_error *error);
 bool ts_app_baked(const ts_app_state *app);
+bool ts_app_select_recipe(ts_app_state *app, size_t index);
