@@ -289,6 +289,7 @@ bool ts_app_set_page(ts_app_state *a, ts_parameter_page page) {
   }
   return false;
 }
+bool ts_app_page_move(ts_app_state *a,int direction){if(!a||direction==0)return false;int page=((int)a->page+(direction>0?1:5))%(int)TS_EDITOR_PAGE_COUNT;return ts_app_set_page(a,(ts_parameter_page)page);}
 bool ts_app_focus_move(ts_app_state *a,int direction) {
   if(!a||direction==0)return false;
   size_t count; const ts_parameter_desc *all=ts_parameter_descriptors(&count);

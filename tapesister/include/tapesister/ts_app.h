@@ -74,6 +74,7 @@ bool ts_app_update_overload(ts_app_state *app, uint32_t generation,
                             uint64_t now_ms);
 void ts_app_dispose(ts_app_state *app);
 bool ts_app_set_page(ts_app_state *app, ts_parameter_page page);
+bool ts_app_page_move(ts_app_state *app, int direction);
 bool ts_app_focus_move(ts_app_state *app, int direction);
 bool ts_app_adjust_parameter(ts_app_state *app, ts_parameter_id id,
                              double steps, bool commit_history);

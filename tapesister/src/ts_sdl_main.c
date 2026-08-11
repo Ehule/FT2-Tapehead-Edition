@@ -220,9 +220,9 @@ int main(int argc, char **argv) {
         else if (k == SDLK_ESCAPE)
           running = false;
         else if((modifiers&KMOD_CTRL)&&(k==SDLK_s||k==SDLK_o||k==SDLK_b)&&!e.key.repeat){if(drag_parameter>=0){if(!ts_recipe_fields_equal(&drag_before.value,&app.bank[app.selected].recipe))ts_recipe_history_commit(&app.history,&drag_before.value);ts_owned_recipe_destroy(&drag_before);drag_parameter=-1;}modal=k==SDLK_o?MODAL_LOAD:(k==SDLK_b?MODAL_BAKE:MODAL_SAVE);overwrite_confirm=false;const char*initial=(k==SDLK_s&&app.has_saved&&!(modifiers&KMOD_SHIFT))?app.saved_path:"";ts_text_edit_init(&modal_edit,TS_PATH_MAX_BYTES+1U,initial);SDL_StartTextInput();}
-        else if(k==SDLK_TAB){ts_app_set_page(&app,(ts_parameter_page)((app.page+((modifiers&KMOD_SHIFT)?5:1))%6));}
-        else if(k==SDLK_PAGEUP&&!e.key.repeat){ts_app_set_page(&app,(ts_parameter_page)((app.page+5)%6));}
-        else if(k==SDLK_PAGEDOWN&&!e.key.repeat){ts_app_set_page(&app,(ts_parameter_page)((app.page+1)%6));}
+        else if(k==SDLK_TAB){ts_app_page_move(&app,(modifiers&KMOD_SHIFT)?-1:1);}
+        else if(k==SDLK_PAGEUP&&!e.key.repeat){ts_app_page_move(&app,-1);}
+        else if(k==SDLK_PAGEDOWN&&!e.key.repeat){ts_app_page_move(&app,1);}
         else if(k==SDLK_UP){ts_app_focus_move(&app,-1);}
         else if(k==SDLK_DOWN){ts_app_focus_move(&app,1);}
         else if(k==SDLK_RETURN&&!e.key.repeat&&app.focused_parameter>=0){const ts_parameter_desc*d=ts_parameter_by_id((ts_parameter_id)app.focused_parameter);if(d->type==TS_PARAM_ENUM||d->type==TS_PARAM_BOOLEAN)ts_app_adjust_parameter(&app,d->id,1,true);else{char initial[128];if(d->id==TS_P_NAME)snprintf(initial,sizeof initial,"%s",app.bank[app.selected].recipe.name);else{double value=0;ts_parameter_get_number(d->id,&app.bank[app.selected].recipe,&value);snprintf(initial,sizeof initial,"%.9g",value);}modal=MODAL_PARAMETER;modal_parameter=d->id;ts_text_edit_init(&modal_edit,d->id==TS_P_NAME?TS_RECIPE_NAME_MAX_BYTES+1U:128U,initial);SDL_StartTextInput();}}
