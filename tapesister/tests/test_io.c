@@ -46,6 +46,96 @@ static int replace_once(char *text, const char *old, const char *replacement)
     memcpy(at, replacement, strlen(old)); return 1;
 }
 
+static char *replace_canonical_name(const char *canonical, size_t length,
+    const char *replacement, size_t *newLength)
+{
+    const char marker[] = "\"name\": \"";
+    const char *markerAt = strstr(canonical, marker);
+    if (markerAt == NULL) return NULL;
+    const char *nameStart = markerAt + sizeof (marker) - 1;
+    const char *nameEnd = strchr(nameStart, '"');
+    if (nameEnd == NULL) return NULL;
+    const size_t prefix = (size_t)(nameStart - canonical);
+    const size_t oldLength = (size_t)(nameEnd - nameStart);
+    const size_t replacementLength = strlen(replacement);
+    *newLength = length - oldLength + replacementLength;
+    char *json = malloc(*newLength + 1);
+    if (json == NULL) return NULL;
+    memcpy(json, canonical, prefix);
+    memcpy(json + prefix, replacement, replacementLength);
+    memcpy(json + prefix + replacementLength, nameEnd,
+        length - prefix - oldLength + 1);
+    return json;
+}
+
+static int recipeNameBoundaryTests(const char *canonical, size_t length)
+{
+    ts_io_error error;
+    char maximum[TS_RECIPE_NAME_MAX_BYTES + 1];
+    memset(maximum, 'a', TS_RECIPE_NAME_MAX_BYTES);
+    maximum[TS_RECIPE_NAME_MAX_BYTES] = '\0';
+    size_t jsonLength;
+    char *json = replace_canonical_name(canonical, length, maximum, &jsonLength);
+    CHECK(json != NULL);
+    ts_recipe loaded;
+    CHECK(ts_recipe_parse(json, jsonLength, &loaded, &error) == TS_IO_OK);
+    CHECK(strlen(loaded.name) == TS_RECIPE_NAME_MAX_BYTES);
+    char *formatted1 = NULL, *formatted2 = NULL;
+    size_t formattedLength1 = 0, formattedLength2 = 0;
+    CHECK(ts_recipe_format(&loaded, &formatted1, &formattedLength1, &error) == TS_IO_OK);
+    ts_recipe loadedAgain;
+    CHECK(ts_recipe_parse(formatted1, formattedLength1, &loadedAgain, &error) == TS_IO_OK);
+    CHECK(ts_recipe_format(&loadedAgain, &formatted2, &formattedLength2, &error) == TS_IO_OK);
+    CHECK(formattedLength1 == formattedLength2 &&
+        memcmp(formatted1, formatted2, formattedLength1) == 0);
+    ts_recipe_loaded_dispose(&loadedAgain);
+    ts_recipe_loaded_dispose(&loaded);
+    free(formatted2); free(formatted1); free(json);
+
+    char oversized[TS_RECIPE_NAME_MAX_BYTES + 2];
+    memset(oversized, 'b', TS_RECIPE_NAME_MAX_BYTES + 1);
+    oversized[TS_RECIPE_NAME_MAX_BYTES + 1] = '\0';
+    json = replace_canonical_name(canonical, length, oversized, &jsonLength);
+    CHECK(json != NULL);
+    ts_recipe destination, original;
+    memset(&destination, 0xA5, sizeof (destination));
+    original = destination;
+    CHECK(ts_recipe_parse(json, jsonLength, &destination, &error) == TS_IO_INVALID_VALUE);
+    CHECK(strstr(error.message, "recipe name exceeds 127") != NULL);
+    CHECK(memcmp(&destination, &original, sizeof (destination)) == 0);
+    free(json);
+
+    char longer[151];
+    memset(longer, 'c', 150); longer[150] = '\0';
+    json = replace_canonical_name(canonical, length, longer, &jsonLength);
+    CHECK(json != NULL);
+    CHECK(ts_recipe_parse(json, jsonLength, &destination, &error) == TS_IO_INVALID_VALUE);
+    CHECK(strstr(error.message, "recipe name exceeds 127") != NULL);
+    CHECK(memcmp(&destination, &original, sizeof (destination)) == 0);
+    free(json);
+
+    char beyondIntermediate[201];
+    memset(beyondIntermediate, 'e', 200); beyondIntermediate[200] = '\0';
+    json = replace_canonical_name(canonical, length, beyondIntermediate, &jsonLength);
+    CHECK(json != NULL);
+    CHECK(ts_recipe_parse(json, jsonLength, &destination, &error) == TS_IO_INVALID_VALUE);
+    CHECK(strstr(error.message, "recipe name exceeds 127") != NULL);
+    CHECK(memcmp(&destination, &original, sizeof (destination)) == 0);
+    free(json);
+
+    char escaped[137];
+    memset(escaped, 'd', 124);
+    memcpy(escaped + 124, "\\u00e9\\u00e9", 12);
+    escaped[136] = '\0';
+    json = replace_canonical_name(canonical, length, escaped, &jsonLength);
+    CHECK(json != NULL);
+    CHECK(ts_recipe_parse(json, jsonLength, &destination, &error) == TS_IO_INVALID_VALUE);
+    CHECK(strstr(error.message, "recipe name exceeds 127") != NULL);
+    CHECK(memcmp(&destination, &original, sizeof (destination)) == 0);
+    free(json);
+    return EXIT_SUCCESS;
+}
+
 static int rejection_tests(const char *canonical, size_t canonical_length)
 {
     ts_recipe recipe; ts_io_error error;
@@ -124,6 +214,7 @@ int main(void)
     char *first_canonical = NULL; size_t first_length = 0;
     CHECK(ts_recipe_format(ts_fixture_recipe(0), &first_canonical, &first_length, &error) == TS_IO_OK);
     CHECK(rejection_tests(first_canonical, first_length) == EXIT_SUCCESS);
+    CHECK(recipeNameBoundaryTests(first_canonical, first_length) == EXIT_SUCCESS);
     CHECK(pcm_boundary_tests() == EXIT_SUCCESS);
 
     for (size_t i = 0; i < TS_FIXTURE_COUNT; i++)

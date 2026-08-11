@@ -1,8 +1,20 @@
+#ifndef _WIN32
+#define _POSIX_C_SOURCE 200809L
+#endif
+
 #include "tapesister/ts_app.h"
 #include "tapesister/ts_presentation.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
 
 #define CHECK(x)                                                               \
   do {                                                                         \
@@ -11,7 +23,53 @@
       return 1;                                                                \
     }                                                                          \
   } while (0)
+
+static char temporaryPaths[2][512];
+static size_t temporaryPathCount;
+
+static void cleanupTemporaryPaths(void)
+{
+  for (size_t i = 0; i < temporaryPathCount; i++) remove(temporaryPaths[i]);
+}
+
+static FILE *createPaletteTemporary(char *path, size_t capacity)
+{
+  if (temporaryPathCount >= 2) return NULL;
+#ifdef _WIN32
+  char directory[MAX_PATH];
+  if (GetTempPathA(MAX_PATH, directory) == 0) return NULL;
+  HANDLE handle = INVALID_HANDLE_VALUE;
+  for (unsigned int attempt = 0; attempt < 64; attempt++)
+  {
+    const int count = snprintf(path, capacity, "%stapesister_palette_%lu_%u.tmp",
+        directory, (unsigned long)GetCurrentProcessId(), attempt);
+    if (count < 0 || (size_t)count >= capacity) return NULL;
+    handle = CreateFileA(path, GENERIC_WRITE, 0, NULL, CREATE_NEW,
+        FILE_ATTRIBUTE_TEMPORARY, NULL);
+    if (handle != INVALID_HANDLE_VALUE) break;
+  }
+  if (handle == INVALID_HANDLE_VALUE) return NULL;
+  const int descriptor = _open_osfhandle((intptr_t)handle, _O_WRONLY | _O_BINARY);
+  if (descriptor < 0) { CloseHandle(handle); remove(path); return NULL; }
+  FILE *file = _fdopen(descriptor, "wb");
+  if (file == NULL) _close(descriptor);
+#else
+  const char pattern[] = "/tmp/tapesister_palette_XXXXXX";
+  if (sizeof (pattern) > capacity) return NULL;
+  memcpy(path, pattern, sizeof (pattern));
+  const int descriptor = mkstemp(path);
+  if (descriptor < 0) return NULL;
+  FILE *file = fdopen(descriptor, "wb");
+  if (file == NULL) close(descriptor);
+#endif
+  if (file == NULL) { remove(path); return NULL; }
+  memcpy(temporaryPaths[temporaryPathCount], path, strlen(path) + 1);
+  temporaryPathCount++;
+  return file;
+}
+
 int main(void) {
+  CHECK(atexit(cleanupTemporaryPaths) == 0);
   ts_present_rect present;
   CHECK(ts_present_fit(1264, 800, &present));
   CHECK(present.x == 0 && present.y == 0 && present.w == 1264 &&
@@ -78,24 +136,22 @@ int main(void) {
   CHECK(!ts_palette_load_file("/no/such/palette", &candidate, error,
                               sizeof error));
   CHECK(memcmp(&candidate, &fallback, sizeof fallback) == 0);
-  const char *pfile = "/tmp/tapesister_palette_test.pal";
-  FILE *f = fopen(pfile, "wb");
+  char validPalettePath[512], invalidPalettePath[512];
+  FILE *f = createPaletteTemporary(validPalettePath, sizeof (validPalettePath));
   CHECK(f);
   fputs(
       "[TapeheadPalette]\nPatternText=#ffffff\nBlockMark=#112233\nTextOnBlock=#"
       "334455\nMouse=#abcdef\nDesktop=#010203\nButtons=#102030\n",
       f);
   fclose(f);
-  CHECK(ts_palette_load_file(pfile, &candidate, error, sizeof error));
-  remove(pfile);
-  f = fopen(pfile, "wb");
+  CHECK(ts_palette_load_file(validPalettePath, &candidate, error, sizeof error));
+  f = createPaletteTemporary(invalidPalettePath, sizeof (invalidPalettePath));
   CHECK(f);
   fputs("PatternText=#ffffff\n", f);
   fclose(f);
   candidate = fallback;
-  CHECK(!ts_palette_load_file(pfile, &candidate, error, sizeof error));
+  CHECK(!ts_palette_load_file(invalidPalettePath, &candidate, error, sizeof error));
   CHECK(memcmp(&candidate, &fallback, sizeof fallback) == 0);
-  remove(pfile);
   char *a0[] = {(char *)"tapesister", (char *)"--recipe",
                 (char *)"x.tsr",      (char *)"--palette",
                 (char *)"dark",       (char *)"--smoke-test"};

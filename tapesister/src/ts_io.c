@@ -149,8 +149,9 @@ static bool append_utf8(char *out, size_t capacity, size_t *used, uint32_t code)
     return true;
 }
 
-static bool parse_string(parser *p, char *out, size_t capacity)
+static bool parse_string(parser *p, char *out, size_t capacity, bool *tooLong)
 {
+    if (tooLong != NULL) *tooLong = false;
     skip_ws(p);
     if (p->at >= p->length || p->text[p->at++] != '"') return false;
     size_t used = 0;
@@ -159,7 +160,11 @@ static bool parse_string(parser *p, char *out, size_t capacity)
         unsigned char c = (unsigned char)p->text[p->at++];
         if (c == '"')
         {
-            if (used >= capacity) return false;
+            if (used >= capacity)
+            {
+                if (tooLong != NULL) *tooLong = true;
+                return false;
+            }
             out[used] = '\0';
             return true;
         }
@@ -187,12 +192,20 @@ static bool parse_string(parser *p, char *out, size_t capacity)
                     code = 0x10000 + ((code - 0xd800) << 10) + (low - 0xdc00);
                 }
                 else if (code >= 0xdc00 && code <= 0xdfff) return false;
-                if (!append_utf8(out, capacity, &used, code)) return false;
+                if (!append_utf8(out, capacity, &used, code))
+                {
+                    if (tooLong != NULL) *tooLong = true;
+                    return false;
+                }
                 continue;
             }
             else return false;
         }
-        if (used + 1 >= capacity) return false;
+        if (used + 1 >= capacity)
+        {
+            if (tooLong != NULL) *tooLong = true;
+            return false;
+        }
         out[used++] = (char)c;
     }
     return false;
@@ -241,7 +254,14 @@ static bool assign_string(ts_recipe *r, int field, const char *value,
 {
     (void)schema; (void)renderer;
     if (field == 0) return strcmp(value, "tapesister.recipe") == 0;
-    if (field == 3) { strcpy(name_storage, value); r->name = name_storage; return value[0] != '\0'; }
+    if (field == 3)
+    {
+        const size_t length = strlen(value);
+        if (length == 0 || length > TS_RECIPE_NAME_MAX_BYTES) return false;
+        memcpy(name_storage, value, length + 1);
+        r->name = name_storage;
+        return true;
+    }
     if (field == 4)
     {
         if (strlen(value) != 16) return false;
@@ -339,7 +359,7 @@ ts_io_status ts_recipe_parse(const char *json, const size_t length,
         skip_ws(&p);
         if (p.at < p.length && p.text[p.at] == '}') { p.at++; break; }
         if (item >= FIELD_COUNT || (item > 0 && !take(&p, ',')) ||
-            !parse_string(&p, key, sizeof(key)) || !take(&p, ':')) goto malformed;
+            !parse_string(&p, key, sizeof(key), NULL) || !take(&p, ':')) goto malformed;
         const int f = field_index(key);
         if (f < 0 || f == 35)
         { set_error(error, TS_IO_UNKNOWN_FIELD, p.at, "unknown recipe field"); return TS_IO_UNKNOWN_FIELD; }
@@ -348,8 +368,19 @@ ts_io_status ts_recipe_parse(const char *json, const size_t length,
         seen |= UINT64_C(1) << f;
         bool ok;
         if (f == 0 || f == 3 || f == 4 || f == 9 || f == 12 || f == 21 || f == 25 || f == 32)
-            ok = parse_string(&p, string_value, sizeof(string_value)) &&
-                assign_string(&r, f, string_value, name, &seed, &schema, &renderer);
+        {
+            bool stringTooLong = false;
+            ok = parse_string(&p, string_value, sizeof(string_value), &stringTooLong);
+            if (f == 3 && (stringTooLong ||
+                (ok && strlen(string_value) > TS_RECIPE_NAME_MAX_BYTES)))
+            {
+                set_error(error, TS_IO_INVALID_VALUE, p.at,
+                    "recipe name exceeds 127 decoded UTF-8 bytes");
+                return TS_IO_INVALID_VALUE;
+            }
+            ok = ok && assign_string(&r, f, string_value, name, &seed,
+                &schema, &renderer);
+        }
         else if (f == 20)
             ok = parse_bool(&p, &r.filter_enabled);
         else
@@ -370,10 +401,11 @@ ts_io_status ts_recipe_parse(const char *json, const size_t length,
     { set_error(error, TS_IO_INVALID_VALUE, 0, "recipe values fail renderer validation"); return TS_IO_INVALID_VALUE; }
     /* Names loaded through this API are owned by stable storage in the result.
      * The public recipe retains a pointer, so copy into a per-call heap block. */
-    char *owned_name = malloc(strlen(name) + 1);
+    const size_t name_length = strlen(name);
+    char *owned_name = malloc(name_length + 1);
     if (owned_name == NULL)
     { set_error(error, TS_IO_OPEN_FAILED, 0, "out of memory"); return TS_IO_OPEN_FAILED; }
-    strcpy(owned_name, name);
+    memcpy(owned_name, name, name_length + 1);
     r.name = owned_name;
     *recipe = r;
     set_error(error, TS_IO_OK, 0, "ok");
@@ -414,7 +446,8 @@ static bool append_escaped(char *dst, size_t capacity, size_t *used, const char 
 ts_io_status ts_recipe_format(const ts_recipe *r, char **json, size_t *length,
     ts_io_error *error)
 {
-    if (!ts_recipe_validate(r) || json == NULL || length == NULL)
+    if (!ts_recipe_validate(r) || strlen(r->name) > TS_RECIPE_NAME_MAX_BYTES ||
+        json == NULL || length == NULL)
     { set_error(error, TS_IO_INVALID_ARGUMENT, 0, "invalid recipe for formatting"); return TS_IO_INVALID_ARGUMENT; }
     char escaped[512] = { 0 }; size_t escaped_len = 0;
     if (!append_escaped(escaped, sizeof(escaped), &escaped_len, r->name))

@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #define TS_RECIPE_MAX_BYTES 65536U
+#define TS_RECIPE_NAME_MAX_BYTES 127U
 #define TS_IO_NO_FAILURE SIZE_MAX
 
 typedef enum ts_io_status
