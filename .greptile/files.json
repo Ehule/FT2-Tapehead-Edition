@@ -1,0 +1,97 @@
+{
+  "files": [
+    {
+      "path": "docs/FAST_TRACKS.md",
+      "description": "FastTracks transport model, ratios, private playheads, controls, and frozen Zxx command map.",
+      "scope": [
+        "src/ft2_fasttracks*",
+        "src/ft2_audio*",
+        "src/ft2_baker*",
+        "src/ft2_midi*",
+        "scripts/test_fasttracks*",
+        "scripts/test_baker*"
+      ]
+    },
+    {
+      "path": "docs/COMPOSITION_BAKER.md",
+      "description": "Current Baker capture contract, allocation rules, compatibility modes, lossless failure behavior, and validation.",
+      "scope": [
+        "src/ft2_baker*",
+        "src/ft2_module_loader*",
+        "src/ft2_module_saver*",
+        "src/ft2_fasttracks*",
+        "src/ft2_pattern_launcher*",
+        "src/ft2_sample_launcher*",
+        "scripts/test_baker*"
+      ]
+    },
+    {
+      "path": "docs/MICROTONAL_PITCH.md",
+      "description": "Mxx/Nxx tuning and drift semantics, dedicated-column restrictions, playback, strum, undo, and bake behavior.",
+      "scope": [
+        "src/ft2_pattern*",
+        "src/ft2_replayer*",
+        "src/ft2_audio*",
+        "src/ft2_baker*",
+        "src/ft2_module_*",
+        "scripts/test_microtonal*"
+      ]
+    },
+    {
+      "path": "docs/APC40_MK2.md",
+      "description": "Authoritative APC40 mkII mapping, encoder semantics, LED feedback, Sample Morph, strum, punch, and device cleanup behavior.",
+      "scope": [
+        "src/ft2_midi*",
+        "src/ft2_config*",
+        "src/ft2_events*",
+        "scripts/test_apc40*",
+        "scripts/test_midi*"
+      ]
+    },
+    {
+      "path": "docs/DECK_MATRIX.md",
+      "description": "Deck Matrix Q/Poly interaction, pattern/sample launch behavior, ownership, queueing, and stop gestures.",
+      "scope": [
+        "src/ft2_pattern_launcher*",
+        "src/ft2_sample_launcher*",
+        "src/ft2_events*",
+        "src/ft2_baker*",
+        "scripts/test_sample_launcher*",
+        "scripts/test_pattern_launcher*"
+      ]
+    },
+    {
+      "path": "docs/MULTICHANNEL_OUTPUT.md",
+      "description": "Stereo bus, mono output, JACK/SDL fallback, routing, trim, and teardown contract.",
+      "scope": [
+        "src/ft2_audio*",
+        "src/ft2_config*",
+        "src/*jack*",
+        "scripts/test_multichannel*",
+        "scripts/test_jack*"
+      ]
+    },
+    {
+      "path": "docs/CONFIGURATION.md",
+      "description": "Accepted tapehead.ini keys, ranges, defaults, and subsystem behavior.",
+      "scope": [
+        "src/ft2_config*",
+        "src/ft2_midi*",
+        "src/ft2_audio*",
+        "release/other/tapehead.ini",
+        "scripts/test_*config*"
+      ]
+    },
+    {
+      "path": "UNDO_IMPLEMENTATION_NOTES.md",
+      "description": "Undo/redo transaction model, memory limits, coverage, and validation.",
+      "scope": [
+        "src/ft2_undo*",
+        "src/ft2_pattern_ed*",
+        "src/ft2_sample_ed*",
+        "src/ft2_inst_ed*",
+        "scripts/test_undo*"
+      ]
+    }
+  ]
+}
