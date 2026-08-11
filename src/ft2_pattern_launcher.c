@@ -35,9 +35,9 @@ bool patternLauncherPatternHasMaterial(uint8_t patternNum)
 	if (pattern[patternNum] == NULL || patternNumRows[patternNum] <= 0)
 		return false;
 
-	for (uint8_t channel = 0; channel < song.numChannels; channel++)
+	for (uint8_t channelIndex = 0; channelIndex < song.numChannels; channelIndex++)
 	{
-		if (patternTrackIsPopulated(patternNum, channel))
+		if (patternTrackIsPopulated(patternNum, channelIndex))
 			return true;
 	}
 	return false;
