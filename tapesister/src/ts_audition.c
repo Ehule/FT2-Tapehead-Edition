@@ -1,4 +1,5 @@
 #include "tapesister/ts_audition.h"
+#include "tapesister/ts_preview.h"
 
 #include <float.h>
 #include <math.h>
@@ -28,6 +29,9 @@ bool ts_audition_init(ts_audition_mixer *mixer, const uint32_t rate) {
     return false;
   memset(mixer, 0, sizeof(*mixer));
   atomic_init(&mixer->overload_generation, 0);
+  atomic_init(&mixer->cursor_age, 0);
+  atomic_init(&mixer->cursor_frame, 0);
+  atomic_init(&mixer->cursor_frames, 0);
   mixer->device_sample_rate = rate;
   mixer->mode = TS_AUDITION_ONE_SHOT;
   return true;
@@ -35,9 +39,10 @@ bool ts_audition_init(ts_audition_mixer *mixer, const uint32_t rate) {
 
 static void start_voice(ts_audition_mixer *m, ts_audition_voice *v,
                         const ts_audition_source *source, uint8_t note,
-                        double step) {
+                        double step, ts_preview *preview) {
   memset(v, 0, sizeof(*v));
   v->source = source;
+  v->preview = preview;
   v->note = note;
   v->step = step;
   v->age = ++m->next_age;
@@ -62,7 +67,8 @@ bool ts_audition_note_on(ts_audition_mixer *m, const ts_audition_source *source,
       break;
     }
   if (chosen != NULL) {
-    start_voice(m, chosen, source, note, step);
+    ts_preview_retain(source->owner);
+    start_voice(m, chosen, source, note, step, source->owner);
     return true;
   }
   chosen = &m->voices[0];
@@ -72,8 +78,11 @@ bool ts_audition_note_on(ts_audition_mixer *m, const ts_audition_source *source,
   chosen->releasing = true;
   chosen->ramp = TS_AUDITION_RELEASE_RAMP;
   chosen->gain_step = -chosen->gain / (float)TS_AUDITION_RELEASE_RAMP;
+  if (chosen->pending) ts_preview_release_callback(chosen->pending_preview);
   chosen->pending = true;
   chosen->pending_source = source;
+  ts_preview_retain(source->owner);
+  chosen->pending_preview = source->owner;
   chosen->pending_note = note;
   chosen->pending_step = step;
   return true;
@@ -97,22 +106,40 @@ void ts_audition_stop_all(ts_audition_mixer *m) {
     return;
   for (size_t i = 0; i < TS_AUDITION_VOICES; i++)
     if (m->voices[i].active) {
+      if (m->voices[i].pending)
+        ts_preview_release_callback(m->voices[i].pending_preview);
       m->voices[i].pending = false;
+      m->voices[i].pending_preview = NULL;
+      m->voices[i].pending_source = NULL;
       m->voices[i].releasing = true;
       m->voices[i].ramp = TS_AUDITION_RELEASE_RAMP;
       m->voices[i].gain_step =
           -m->voices[i].gain / (float)TS_AUDITION_RELEASE_RAMP;
     }
+  atomic_store_explicit(&m->cursor_age, 0, memory_order_release);
+}
+
+void ts_audition_discard_all(ts_audition_mixer *m) {
+  if (m == NULL) return;
+  for (size_t i = 0; i < TS_AUDITION_VOICES; i++) {
+    if (m->voices[i].preview) ts_preview_release_callback(m->voices[i].preview);
+    if (m->voices[i].pending_preview) ts_preview_release_callback(m->voices[i].pending_preview);
+    memset(&m->voices[i], 0, sizeof(m->voices[i]));
+  }
+  atomic_store_explicit(&m->cursor_age, 0, memory_order_release);
 }
 
 static void finish_or_pending(ts_audition_mixer *m, ts_audition_voice *v) {
+  ts_preview *finished = v->preview;
   if (v->pending) {
     const ts_audition_source *source = v->pending_source;
     const uint8_t note = v->pending_note;
     const double step = v->pending_step;
-    start_voice(m, v, source, note, step);
+    ts_preview *preview = v->pending_preview;
+    start_voice(m, v, source, note, step, preview);
   } else
     memset(v, 0, sizeof(*v));
+  ts_preview_release_callback(finished);
 }
 
 void ts_audition_mix(ts_audition_mixer *m, float *stereo, const size_t frames) {
@@ -167,6 +194,18 @@ void ts_audition_mix(ts_audition_mixer *m, float *stereo, const size_t frames) {
   }
   if (m->overload)
     atomic_fetch_add_explicit(&m->overload_generation, 1, memory_order_release);
+  uint64_t newest = 0, position = 0, source_frames = 0;
+  for (size_t i = 0; i < TS_AUDITION_VOICES; i++) {
+    const ts_audition_voice *v = &m->voices[i];
+    if (v->active && v->age > newest && v->source != NULL) {
+      newest = v->age;
+      position = (uint64_t)v->position;
+      source_frames = v->source->frame_count;
+    }
+  }
+  atomic_store_explicit(&m->cursor_frame, position, memory_order_relaxed);
+  atomic_store_explicit(&m->cursor_frames, source_frames, memory_order_relaxed);
+  atomic_store_explicit(&m->cursor_age, newest, memory_order_release);
 }
 
 size_t ts_audition_active_voices(const ts_audition_mixer *m) {
@@ -183,4 +222,14 @@ uint32_t ts_audition_overload_generation(const ts_audition_mixer *m) {
   if (m == NULL)
     return 0;
   return atomic_load_explicit(&m->overload_generation, memory_order_acquire);
+}
+
+double ts_audition_cursor_position(const ts_audition_mixer *m) {
+  if (m == NULL || atomic_load_explicit(&m->cursor_age, memory_order_acquire) == 0)
+    return -1.0;
+  const uint64_t frames = atomic_load_explicit(&m->cursor_frames, memory_order_relaxed);
+  uint64_t frame = atomic_load_explicit(&m->cursor_frame, memory_order_relaxed);
+  if (frames <= 1) return frames == 1 ? 0.0 : -1.0;
+  if (frame >= frames) frame = frames - 1;
+  return (double)frame / (double)(frames - 1);
 }

@@ -338,8 +338,43 @@ int main(void)
         &rendered, &error) == TS_IO_OK);
     CHECK(ts_bake_pair_files(pair_recipe, pair_wav, ts_fixture_recipe(1),
         &rendered, &error) == TS_IO_EXISTS);
+    size_t old_pair_recipe_length = 0, old_pair_wav_length = 0;
+    char *old_pair_recipe = read_file(pair_recipe, &old_pair_recipe_length);
+    char *old_pair_wav = read_file(pair_wav, &old_pair_wav_length);
+    CHECK(old_pair_recipe != NULL && old_pair_wav != NULL);
+    for (unsigned int phase = 1; phase <= 3; phase++)
+    {
+        CHECK(ts_bake_pair_replace_files_test(pair_recipe, pair_wav,
+            ts_fixture_recipe(2), &rendered, phase, &error) == TS_IO_RENAME_FAILED);
+        size_t check_recipe_length = 0, check_wav_length = 0;
+        char *check_recipe = read_file(pair_recipe, &check_recipe_length);
+        char *check_wav = read_file(pair_wav, &check_wav_length);
+        CHECK(check_recipe != NULL && check_wav != NULL);
+        CHECK(check_recipe_length == old_pair_recipe_length &&
+            memcmp(check_recipe, old_pair_recipe, check_recipe_length) == 0);
+        CHECK(check_wav_length == old_pair_wav_length &&
+            memcmp(check_wav, old_pair_wav, check_wav_length) == 0);
+        free(check_recipe); free(check_wav);
+    }
+    CHECK(ts_bake_pair_replace_files(pair_recipe, pair_wav,
+        ts_fixture_recipe(2), &rendered, &error) == TS_IO_OK);
+    ts_recipe replaced_recipe;
+    CHECK(ts_recipe_load_file(pair_recipe, &replaced_recipe, &error) == TS_IO_OK);
+    CHECK(strcmp(replaced_recipe.name, ts_fixture_recipe(2)->name) == 0);
+    ts_recipe_loaded_dispose(&replaced_recipe);
+    CHECK(remove(pair_wav) == 0);
+    CHECK(ts_bake_pair_replace_files(pair_recipe, pair_wav,
+        ts_fixture_recipe(3), &rendered, &error) == TS_IO_OK);
+    CHECK(remove(pair_recipe) == 0);
+    CHECK(ts_bake_pair_replace_files(pair_recipe, pair_wav,
+        ts_fixture_recipe(4), &rendered, &error) == TS_IO_OK);
+    CHECK(ts_recipe_replace_file(recipe_path, ts_fixture_recipe(2), &error) == TS_IO_OK);
+    CHECK(ts_recipe_load_file(recipe_path, &replaced_recipe, &error) == TS_IO_OK);
+    CHECK(strcmp(replaced_recipe.name, ts_fixture_recipe(2)->name) == 0);
+    ts_recipe_loaded_dispose(&replaced_recipe);
 
-    free(after); free(preserved); free(collision); free(expected); free(wav);
+    free(old_pair_recipe); free(old_pair_wav); free(after); free(preserved);
+    free(collision); free(expected); free(wav);
     free(first_canonical); ts_rendered_sample_free(&rendered);
     remove(wav_path); remove(recipe_path); remove(failed_wav);
     remove(pair_recipe); remove(pair_wav);
