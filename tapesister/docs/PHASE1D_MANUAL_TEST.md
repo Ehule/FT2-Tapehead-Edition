@@ -14,7 +14,7 @@ Dummy-driver smoke: `SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy ./build/tapesis
 3. Verify slider, wheel, toggle, enum, numeric, and UTF-8 recipe-name editing.
 4. Exercise Undo/Redo shortcuts and confirm one Undo per completed drag.
 5. Commit Parent, edit, undo to Parent, and test Update Parent confirm and cancel.
-6. Verify plain `G`, `Ctrl+G`, clickable audition mode, focus navigation, and repeat suppression.
+6. Verify plain `G`, `Ctrl+G`, clickable audition mode, Tab page navigation, Up/Down row navigation, and repeat suppression.
 7. Exercise Save, Save As, Load, cancel, malformed-load retention, and collision feedback.
 8. Bake the exact WAV/recipe pair, import WAV into Tapehead, then test baked invalidation/restoration.
 9. Switch factory presets with an old note active and test discard behavior.

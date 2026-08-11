@@ -24,6 +24,16 @@ int main(void) {
   CHECK(fabs(ts_audition_step_for(60, 60, 44100, 48000) - (44100.0 / 48000.0)) <
         1e-12);
   CHECK(ts_audition_step_for(128, 60, 48000, 48000) == 0.0);
+  ts_audition_mixer poly;
+  CHECK(ts_audition_init(&poly, 48000));
+  for (int n = 0; n < 4; n++)
+    CHECK(ts_audition_note_on(&poly, &source, (uint8_t)(60 + n)));
+  float poly_out[512];
+  ts_audition_mix(&poly, poly_out, 256);
+  for (size_t i = 0; i < 512; i++)
+    CHECK(isfinite(poly_out[i]) && fabsf(poly_out[i]) <= 0.45f);
+  CHECK(!poly.overload);
+  ts_audition_discard_all(&poly);
   CHECK(ts_audition_note_on(&m, &source, 60));
   CHECK(m.voices[0].ramp == TS_AUDITION_START_RAMP);
   float out[512] = {0};
@@ -57,7 +67,7 @@ int main(void) {
   m.voices[0].ramp = 0;
   m.voices[0].gain = 1.0f;
   ts_audition_mix(&m, out, 4);
-  CHECK(out[0] == 0 && out[2] == 1 && out[4] == 0 &&
+  CHECK(out[0] == 0 && fabsf(out[2] - TS_AUDITION_VOICE_HEADROOM) < 1e-6f && out[4] == 0 &&
         ts_audition_active_voices(&m) == 0);
   ts_audition_source empty = {tiny, 0, 48000, 60}, one = {tiny, 1, 48000, 60};
   CHECK(!ts_audition_note_on(&m, &empty, 60));

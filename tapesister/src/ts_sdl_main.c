@@ -219,8 +219,8 @@ int main(int argc, char **argv) {
         else if(modal!=MODAL_NONE){if(k==SDLK_ESCAPE){ts_text_edit_destroy(&modal_edit);modal=MODAL_NONE;modal_error[0]=0;overwrite_confirm=false;discard_confirm=false;SDL_StopTextInput();}else if(k==SDLK_BACKSPACE){overwrite_confirm=false;discard_confirm=false;ts_text_edit_backspace(&modal_edit);}else if(k==SDLK_DELETE){overwrite_confirm=false;discard_confirm=false;ts_text_edit_delete(&modal_edit);}else if(k==SDLK_LEFT)ts_text_edit_left(&modal_edit);else if(k==SDLK_RIGHT)ts_text_edit_right(&modal_edit);else if(k==SDLK_HOME)ts_text_edit_home(&modal_edit);else if(k==SDLK_END)ts_text_edit_end(&modal_edit);else if(k==SDLK_RETURN&&!e.key.repeat){bool ok=false;ts_io_error io={0};if(modal==MODAL_SAVE)ok=ts_app_save_recipe_confirmed(&app,modal_edit.text,overwrite_confirm,&io);else if(modal==MODAL_LOAD){if(ts_app_session_requires_discard(&app)&&!discard_confirm){discard_confirm=true;snprintf(modal_error,sizeof modal_error,"UNSAVED/PARENT - ENTER AGAIN TO DISCARD");continue;}ok=ts_app_load_recipe(&app,modal_edit.text,&io);}else if(modal==MODAL_BAKE){char rp[1100],wp[1100];snprintf(rp,sizeof rp,"%s.tsr",modal_edit.text);snprintf(wp,sizeof wp,"%s.wav",modal_edit.text);ok=ts_app_bake_confirmed(&app,rp,wp,overwrite_confirm,&io);}else if(modal==MODAL_PARENT)ok=ts_app_update_parent(&app,true);else if(modal==MODAL_PARAMETER)ok=ts_app_set_parameter_text(&app,modal_parameter,modal_edit.text,modal_error,sizeof modal_error);else if(modal==MODAL_SELECT)ok=ts_app_select_recipe_confirmed(&app,pending_selection,true);if(ok){ts_text_edit_destroy(&modal_edit);modal=MODAL_NONE;modal_error[0]=0;overwrite_confirm=false;discard_confirm=false;SDL_StopTextInput();}else if(io.status==TS_IO_EXISTS&&(modal==MODAL_SAVE||modal==MODAL_BAKE)){overwrite_confirm=true;snprintf(modal_error,sizeof modal_error,"EXISTS - ENTER AGAIN TO REPLACE");}else if(!modal_error[0])snprintf(modal_error,sizeof modal_error,"%s",io.message[0]?io.message:"ACTION FAILED");}}
         else if (k == SDLK_ESCAPE)
           running = false;
-        else if((modifiers&KMOD_CTRL)&&(k==SDLK_s||k==SDLK_o||k==SDLK_b)&&!e.key.repeat){modal=k==SDLK_o?MODAL_LOAD:(k==SDLK_b?MODAL_BAKE:MODAL_SAVE);overwrite_confirm=false;const char*initial=(k==SDLK_s&&app.has_saved&&!(modifiers&KMOD_SHIFT))?app.saved_path:"";ts_text_edit_init(&modal_edit,TS_PATH_MAX_BYTES+1U,initial);SDL_StartTextInput();}
-        else if(k==SDLK_TAB){ts_app_focus_move(&app,(modifiers&KMOD_SHIFT)?-1:1);}
+        else if((modifiers&KMOD_CTRL)&&(k==SDLK_s||k==SDLK_o||k==SDLK_b)&&!e.key.repeat){if(drag_parameter>=0){if(!ts_recipe_fields_equal(&drag_before.value,&app.bank[app.selected].recipe))ts_recipe_history_commit(&app.history,&drag_before.value);ts_owned_recipe_destroy(&drag_before);drag_parameter=-1;}modal=k==SDLK_o?MODAL_LOAD:(k==SDLK_b?MODAL_BAKE:MODAL_SAVE);overwrite_confirm=false;const char*initial=(k==SDLK_s&&app.has_saved&&!(modifiers&KMOD_SHIFT))?app.saved_path:"";ts_text_edit_init(&modal_edit,TS_PATH_MAX_BYTES+1U,initial);SDL_StartTextInput();}
+        else if(k==SDLK_TAB){ts_app_set_page(&app,(ts_parameter_page)((app.page+((modifiers&KMOD_SHIFT)?5:1))%6));}
         else if(k==SDLK_PAGEUP&&!e.key.repeat){ts_app_set_page(&app,(ts_parameter_page)((app.page+5)%6));}
         else if(k==SDLK_PAGEDOWN&&!e.key.repeat){ts_app_set_page(&app,(ts_parameter_page)((app.page+1)%6));}
         else if(k==SDLK_UP){ts_app_focus_move(&app,-1);}
@@ -260,6 +260,9 @@ int main(int argc, char **argv) {
             lock_note(device, &audio, ts_app_preview_source(&app), note);
         }
       } else if(e.type==SDL_TEXTINPUT&&modal!=MODAL_NONE){overwrite_confirm=false;discard_confirm=false;ts_text_edit_insert(&modal_edit,e.text.text);}
+      else if(modal!=MODAL_NONE&&(e.type==SDL_MOUSEBUTTONDOWN||e.type==SDL_MOUSEBUTTONUP||e.type==SDL_MOUSEMOTION||e.type==SDL_MOUSEWHEEL)){
+        /* Modal overlays are keyboard-confirmed and exclusively consume pointer input. */
+      }
       else if (e.type == SDL_KEYUP) {
         int note;
         ts_app_key_release(&app, ascii_key(e.key.keysym.sym), &note);
@@ -271,7 +274,7 @@ int main(int argc, char **argv) {
         if (mouse_to_logical(window, renderer, &presentation, e.button.x,e.button.y,&lx,&ly)) {
           int tab=ts_ui_tab_hit(lx,ly),parameter=ts_ui_parameter_hit(lx,ly,app.page);
           ts_ui_action action=ts_ui_action_hit(lx,ly);
-          if(action!=TS_UI_ACTION_NONE){if(action==TS_UI_COMMIT_PARENT)ts_app_commit_parent(&app);else if(action==TS_UI_MODE){ts_app_toggle_mode(&app,false);if(device)SDL_LockAudioDevice(device);audio.mixer.mode=app.mode;if(device)SDL_UnlockAudioDevice(device);}else{modal=action==TS_UI_UPDATE_PARENT?MODAL_PARENT:(action==TS_UI_SAVE?MODAL_SAVE:(action==TS_UI_LOAD?MODAL_LOAD:MODAL_BAKE));ts_text_edit_init(&modal_edit,TS_PATH_MAX_BYTES+1U,"");SDL_StartTextInput();}}
+          if(action!=TS_UI_ACTION_NONE){if(drag_parameter>=0){if(!ts_recipe_fields_equal(&drag_before.value,&app.bank[app.selected].recipe))ts_recipe_history_commit(&app.history,&drag_before.value);ts_owned_recipe_destroy(&drag_before);drag_parameter=-1;}if(action==TS_UI_COMMIT_PARENT)ts_app_commit_parent(&app);else if(action==TS_UI_MODE){ts_app_toggle_mode(&app,false);if(device)SDL_LockAudioDevice(device);audio.mixer.mode=app.mode;if(device)SDL_UnlockAudioDevice(device);}else{modal=action==TS_UI_UPDATE_PARENT?MODAL_PARENT:(action==TS_UI_SAVE?MODAL_SAVE:(action==TS_UI_LOAD?MODAL_LOAD:MODAL_BAKE));ts_text_edit_init(&modal_edit,TS_PATH_MAX_BYTES+1U,"");SDL_StartTextInput();}}
           else if(tab>=0)ts_app_set_page(&app,(ts_parameter_page)tab);
           else if(parameter>=0){app.focused_parameter=parameter;double steps=1;if(lx<610&&lx>=578)steps=lx<594?-1:1;
             else if(lx>=416&&lx<=576){const ts_parameter_desc*d=ts_parameter_by_id((ts_parameter_id)parameter);double old;ts_parameter_get_number((ts_parameter_id)parameter,&app.bank[app.selected].recipe,&old);double target=ts_parameter_from_position(d,ts_ui_slider_position(lx));steps=(target-old)/d->fine_step;drag_parameter=parameter;ts_owned_recipe_copy(&drag_before,&app.bank[app.selected].recipe);}
@@ -283,7 +286,7 @@ int main(int argc, char **argv) {
         apply_mouse_result(device, &audio, &app, ts_app_mouse_release(&app),
                            error, sizeof error);
       } else if(e.type==SDL_MOUSEMOTION&&drag_parameter>=0){int lx,ly;if(mouse_to_logical(window,renderer,&presentation,e.motion.x,e.motion.y,&lx,&ly)){const ts_parameter_desc*d=ts_parameter_by_id((ts_parameter_id)drag_parameter);double old;ts_parameter_get_number(d->id,&app.bank[app.selected].recipe,&old);double target=ts_parameter_from_position(d,ts_ui_slider_position(lx));ts_app_adjust_parameter(&app,d->id,(target-old)/d->fine_step,false);}}
-      else if(e.type==SDL_MOUSEWHEEL&&modal==MODAL_NONE&&app.focused_parameter>=0)ts_app_adjust_parameter(&app,(ts_parameter_id)app.focused_parameter,e.wheel.y>0?1:-1,true);
+      else if(e.type==SDL_MOUSEWHEEL&&app.focused_parameter>=0){int wx,wy,lx,ly;SDL_GetMouseState(&wx,&wy);int parameter=-1;if(mouse_to_logical(window,renderer,&presentation,wx,wy,&lx,&ly))parameter=ts_ui_parameter_hit(lx,ly,app.page);ts_app_adjust_parameter(&app,(ts_parameter_id)(parameter>=0?parameter:app.focused_parameter),e.wheel.y>0?1:-1,true);}
       else if (e.type == SDL_MOUSEMOTION && app.mouse_note >= 0) {
         int lx, ly;
         ts_app_mouse_result mouse_result;

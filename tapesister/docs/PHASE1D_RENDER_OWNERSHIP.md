@@ -18,6 +18,11 @@ The main thread converts those values to a normalized waveform position. Voice
 slot reuse receives a strictly increasing age, preventing a cursor from
 following a stale slot identity.
 
+Live audition applies fixed `0.22` gain per voice before summing, leaving useful
+headroom for ordinary chords. The existing final finite check and hard bounds
+remain only as pathological protection; rendered previews and baked WAV bytes
+are not modified.
+
 Each accepted factory/file session increments a separate session identity and
 clears Undo/Redo only after its candidate render succeeds. A published preview
 is eligible for new notes only when its publication session equals the current

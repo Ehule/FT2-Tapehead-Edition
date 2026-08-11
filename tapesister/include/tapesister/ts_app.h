@@ -30,8 +30,8 @@ typedef struct ts_app_state {
   ts_parameter_page page;
   int focused_parameter;
   ts_recipe_history history;
-  ts_owned_recipe saved, parent;
-  bool has_saved, has_parent;
+  ts_owned_recipe saved, parent, baseline;
+  bool has_saved, has_parent, has_baseline;
   char saved_path[TS_PATH_MAX_BYTES + 1U];
   bool has_baked;
   uint64_t baked_recipe_identity, baked_pcm_identity;

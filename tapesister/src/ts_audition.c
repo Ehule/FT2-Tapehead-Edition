@@ -166,7 +166,7 @@ void ts_audition_mix(ts_audition_mixer *m, float *stereo, const size_t frames) {
       float sample =
           v->source->samples[index] +
           (v->source->samples[next] - v->source->samples[index]) * fraction;
-      sum += sample * v->gain;
+      sum += sample * v->gain * TS_AUDITION_VOICE_HEADROOM;
       v->position += v->step;
       if (v->ramp > 0) {
         v->gain += v->gain_step;

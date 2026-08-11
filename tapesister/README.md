@@ -53,8 +53,8 @@ location, then the configured source fixture directory. Options are
 `--resource-dir PATH`, and `--smoke-test`.
 
 Keyboard notes are `ZSXDCVGBHNJM` and `Q2W3ER5T6Y7U`. `[`/`]` change octave,
-Tab/Shift+Tab and Up/Down move parameter focus, Left/Right edit, and Page
-Up/Down select editor pages. Ctrl+G toggles gating, Ctrl+Z/Ctrl+Y undo/redo,
+Tab/Shift+Tab and Page Up/Down cycle pages, Up/Down select rows, and
+Left/Right edit. Ctrl+G toggles gating, Ctrl+Z/Ctrl+Y undo/redo,
 Ctrl+P commits Parent, Ctrl+Shift+P updates Parent, Space stops all, and Escape
 exits. G is only its mapped chromatic note. Recipe rows, tabs, controls, and
 piano keys are clickable.
