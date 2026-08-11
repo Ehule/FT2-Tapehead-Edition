@@ -1,0 +1,72 @@
+{
+  "strictness": 2,
+  "commentTypes": [
+    "logic",
+    "syntax",
+    "info"
+  ],
+  "triggerOnUpdates": true,
+  "fixWithAI": true,
+  "rules": [
+    {
+      "id": "preserve-native-ft2",
+      "rule": "When Tapehead-specific features are disabled or idle, preserve upstream FT2 Clone playback, editing, saving, loading, input, and UI behavior. Report any concrete native-behavior regression introduced by the change.",
+      "scope": [
+        "src/**"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "realtime-audio-safety",
+      "rule": "Audio callback and replayer paths must remain real-time safe: do not add blocking I/O, logging, allocation/free, device operations, or unsafe cross-thread state access. Prefer the project's established snapshot or synchronization patterns and do not propose blocking the audio thread.",
+      "scope": [
+        "src/ft2_audio*",
+        "src/ft2_replayer*",
+        "src/ft2_fasttracks*",
+        "src/ft2_pattern_launcher*",
+        "src/ft2_sample_launcher*"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "validate-tracker-boundaries",
+      "rule": "Validate track, pattern, row, instrument, sample, order, bus, MIDI, and allocator indices at every external or subsystem boundary. Pay special attention to zero-based C storage versus one-based UI and INI values, 16/32-channel assumptions, and signed/unsigned conversion.",
+      "scope": [
+        "src/**"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "lossless-baker",
+      "rule": "Composition Baker changes must preserve musical events and source assets, honor documented capture exclusions, and fail without writing an XM when timing, allocation, pattern-count, or memory limits cannot be represented. Never silently truncate, overwrite, wrap, or drop performance data.",
+      "scope": [
+        "src/ft2_baker*",
+        "src/ft2_module_saver*",
+        "src/ft2_module_loader*",
+        "scripts/test_baker*"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "xm-compatibility",
+      "rule": "Standard XM output must remain readable by conventional XM players, and ordinary XM input must remain compatible. Tapehead-only commands or metadata may be preserved only in the documented Tapehead output path; validate lengths and ownership before reading or writing optional extensions.",
+      "scope": [
+        "src/ft2_module_loader*",
+        "src/ft2_module_saver*",
+        "src/ft2_baker*",
+        "src/ft2_pattern_ed*",
+        "src/ft2_replayer*"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "tests-for-behavior",
+      "rule": "For a behavioral fix or feature, require a focused regression test when the behavior can be exercised without physical MIDI or audio hardware, and keep scripts/test_all_native.py as the integrated acceptance gate.",
+      "scope": [
+        "src/**",
+        "scripts/**"
+      ],
+      "severity": "medium"
+    }
+  ]
+}
