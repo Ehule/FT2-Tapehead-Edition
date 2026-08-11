@@ -332,7 +332,7 @@ void ts_ui_draw(ts_framebuffer *fb, const ts_ui_model *m) {
   const int ax[]={6,116,226,306,386},aw[]={110,110,80,80,80};
   for(int i=0;i<5;i++){frame(fb,ax[i],309,aw[i],20);text_clipped(fb,ax[i]+4,316,actions[i],i==4&&!m->baked&&m->rendering?C_DARK:C_TEXT,aw[i]-8);}
   frame(fb,506,309,120,20);text(fb,512,316,m->mode==TS_AUDITION_ONE_SHOT?"ONE SHOT":"GATED",C_TEXT);
-  if(m->modal_title){rect(fb,90,125,452,100,C_PANEL);frame(fb,90,125,452,100);text_clipped(fb,102,138,m->modal_title,C_TEXT,420);rect(fb,102,158,428,22,C_DARK);text_clipped(fb,108,166,m->modal_text?m->modal_text:"",C_TEXT,408);if(m->modal_error)text_clipped(fb,102,194,m->modal_error,C_WARN,420);text(fb,102,210,"ENTER CONFIRM  ESC CANCEL",C_TEXT);}
+  if(m->modal_title){rect(fb,70,62,492,228,C_PANEL);frame(fb,70,62,492,228);text_clipped(fb,82,74,m->modal_title,C_TEXT,460);if(m->browser){text_clipped(fb,82,88,m->browser->directory,C_WAVE,460);for(size_t i=0;i<10&&i+m->browser->scroll<m->browser->count;i++){size_t at=i+m->browser->scroll;if(at==m->browser->selected)rect(fb,82,101+(int)i*13,456,12,C_HILITE);char entry[280];snprintf(entry,sizeof entry,"%s%s",m->browser->entries[at].directory?"[D] ":"    ",m->browser->entries[at].name);text_clipped(fb,86,104+(int)i*13,entry,C_TEXT,448);}rect(fb,82,235,456,20,C_DARK);text_clipped(fb,88,242,m->browser->filename.text,C_TEXT,444);text(fb,82,270,"HOME      ROOT      PARENT      NEW DIR",C_TEXT);}else{rect(fb,82,98,456,22,C_DARK);text_clipped(fb,88,106,m->modal_text?m->modal_text:"",C_TEXT,444);text(fb,82,270,"ENTER CONFIRM  ESC CANCEL",C_TEXT);}if(m->modal_error)text_clipped(fb,82,258,m->modal_error,C_WARN,460);}
   const int kx = 22, ky = 333, ww = 42;
   for (int i = 0; i < 14; i++) {
     rect(fb, kx + i * ww, ky, ww - 1, 52, C_WHITE);

@@ -59,6 +59,12 @@ Ctrl+P commits Parent, Ctrl+Shift+P updates Parent, Space stops all, and Escape
 exits. G is only its mapped chromatic note. Recipe rows, tabs, controls, and
 piano keys are clickable.
 
+Save, Load, and Bake use the shared internal file browser. It shows the current
+absolute directory, directories before compatible recipe files, a separate
+filename/base-name field, and Home, filesystem Root, Parent, and New Directory
+controls. Successful operations remember their directory; Escape cancels
+without changing session or file identities.
+
 The 632x400 framebuffer is fractionally scaled to the largest aspect-correct
 rectangle that fits the renderer output, with nearest-neighbor filtering and
 letterboxing only on the unused axis. The same drawable-aware transform maps

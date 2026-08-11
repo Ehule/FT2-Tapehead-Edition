@@ -2,6 +2,7 @@
 
 #include "tapesister/ts_audition.h"
 #include "tapesister/ts_editor.h"
+#include "tapesister/ts_file_browser.h"
 
 #define TS_SCREEN_WIDTH 632
 #define TS_SCREEN_HEIGHT 400
@@ -31,6 +32,7 @@ typedef struct ts_ui_model {
   bool dirty, rendering, render_error, parent_present, parent_match, baked;
   double playback_position;
   const char *modal_title, *modal_text, *modal_error;
+  const ts_file_browser *browser;
   bool pressed[128];
 } ts_ui_model;
 

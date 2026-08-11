@@ -19,6 +19,7 @@ add_library(tapesister_core STATIC
     src/ts_editor.c
     src/ts_preview.c
     src/ts_text_edit.c
+    src/ts_file_browser.c
 )
 target_include_directories(tapesister_core PUBLIC include)
 target_compile_definitions(tapesister_core PUBLIC
@@ -76,6 +77,10 @@ if(BUILD_TESTING)
     target_compile_definitions(tapesister_session_tests PRIVATE
         TS_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
     add_test(NAME tapesister_session_tests COMMAND tapesister_session_tests)
+
+    add_executable(tapesister_file_browser_tests tests/test_file_browser.c)
+    target_link_libraries(tapesister_file_browser_tests PRIVATE tapesister_core)
+    add_test(NAME tapesister_file_browser_tests COMMAND tapesister_file_browser_tests)
 endif()
 
 if(TAPESISTER_BUILD_SDL)
