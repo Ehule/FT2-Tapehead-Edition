@@ -4,6 +4,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#include <process.h>
+#define TEST_GETPID _getpid
+#else
+#include <unistd.h>
+#define TEST_GETPID getpid
+#endif
 
 #define CHECK(condition) do { if (!(condition)) { \
     fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #condition); \
@@ -37,6 +44,13 @@ static char *read_file(const char *path, size_t *length)
     if (data == NULL) { fclose(f); return NULL; }
     *length = fread(data, 1, (size_t)end, f); fclose(f); data[*length] = '\0';
     return data;
+}
+
+static int file_exists(const char *path)
+{
+    FILE *f = fopen(path, "rb");
+    if (f == NULL) return 0;
+    fclose(f); return 1;
 }
 
 static int replace_once(char *text, const char *old, const char *replacement)
@@ -338,8 +352,76 @@ int main(void)
         &rendered, &error) == TS_IO_OK);
     CHECK(ts_bake_pair_files(pair_recipe, pair_wav, ts_fixture_recipe(1),
         &rendered, &error) == TS_IO_EXISTS);
+    size_t old_pair_recipe_length = 0, old_pair_wav_length = 0;
+    char *old_pair_recipe = read_file(pair_recipe, &old_pair_recipe_length);
+    char *old_pair_wav = read_file(pair_wav, &old_pair_wav_length);
+    CHECK(old_pair_recipe != NULL && old_pair_wav != NULL);
+    for (unsigned int phase = 1; phase <= 3; phase++)
+    {
+        CHECK(ts_bake_pair_replace_files_test(pair_recipe, pair_wav,
+            ts_fixture_recipe(2), &rendered, phase, &error) == TS_IO_RENAME_FAILED);
+        size_t check_recipe_length = 0, check_wav_length = 0;
+        char *check_recipe = read_file(pair_recipe, &check_recipe_length);
+        char *check_wav = read_file(pair_wav, &check_wav_length);
+        CHECK(check_recipe != NULL && check_wav != NULL);
+        CHECK(check_recipe_length == old_pair_recipe_length &&
+            memcmp(check_recipe, old_pair_recipe, check_recipe_length) == 0);
+        CHECK(check_wav_length == old_pair_wav_length &&
+            memcmp(check_wav, old_pair_wav, check_wav_length) == 0);
+        free(check_recipe); free(check_wav);
+    }
+    CHECK(ts_bake_pair_replace_files(pair_recipe, pair_wav,
+        ts_fixture_recipe(2), &rendered, &error) == TS_IO_OK);
+    ts_recipe replaced_recipe;
+    CHECK(ts_recipe_load_file(pair_recipe, &replaced_recipe, &error) == TS_IO_OK);
+    CHECK(strcmp(replaced_recipe.name, ts_fixture_recipe(2)->name) == 0);
+    ts_recipe_loaded_dispose(&replaced_recipe);
+    CHECK(remove(pair_wav) == 0);
+    CHECK(ts_bake_pair_replace_files(pair_recipe, pair_wav,
+        ts_fixture_recipe(3), &rendered, &error) == TS_IO_OK);
+    CHECK(remove(pair_recipe) == 0);
+    CHECK(ts_bake_pair_replace_files(pair_recipe, pair_wav,
+        ts_fixture_recipe(4), &rendered, &error) == TS_IO_OK);
+    CHECK(ts_recipe_replace_file(recipe_path, ts_fixture_recipe(2), &error) == TS_IO_OK);
+    CHECK(ts_recipe_load_file(recipe_path, &replaced_recipe, &error) == TS_IO_OK);
+    CHECK(strcmp(replaced_recipe.name, ts_fixture_recipe(2)->name) == 0);
+    ts_recipe_loaded_dispose(&replaced_recipe);
 
-    free(after); free(preserved); free(collision); free(expected); free(wav);
+    /* Replacement failures distinguish complete rollback from retained-backup
+     * recovery. The injected restoration failures use the first unique sibling. */
+    CHECK(ts_recipe_replace_file_test(recipe_path, ts_fixture_recipe(3),
+        true, false, &error) == TS_IO_RENAME_FAILED);
+    char recipe_backup[1024];
+    snprintf(recipe_backup, sizeof recipe_backup, "%s.backup.%ld.0",
+        recipe_path, (long)TEST_GETPID());
+    CHECK(ts_recipe_replace_file_test(recipe_path, ts_fixture_recipe(3),
+        true, true, &error) == TS_IO_ROLLBACK_FAILED);
+    CHECK(strstr(error.message, recipe_backup) != NULL);
+    CHECK(file_exists(recipe_backup));
+    remove(recipe_backup);
+    CHECK(ts_recipe_save_file(recipe_path, ts_fixture_recipe(2), &error) == TS_IO_OK);
+
+    for (unsigned int phase = 4; phase <= 6; ++phase) {
+        char rb[1024], wb[1024];
+        snprintf(rb, sizeof rb, "%s.backup.%ld.0", pair_recipe,
+            (long)TEST_GETPID());
+        snprintf(wb, sizeof wb, "%s.backup.%ld.0", pair_wav,
+            (long)TEST_GETPID());
+        CHECK(ts_bake_pair_replace_files_test(pair_recipe, pair_wav,
+            ts_fixture_recipe(5), &rendered, phase, &error) ==
+            TS_IO_ROLLBACK_FAILED);
+        if (phase == 4 || phase == 6) CHECK(file_exists(rb));
+        if (phase == 5 || phase == 6) CHECK(file_exists(wb));
+        /* The restoration not selected for failure was still attempted. */
+        if (phase == 4) CHECK(file_exists(pair_wav));
+        if (phase == 5) CHECK(file_exists(pair_recipe));
+        remove(pair_recipe); remove(pair_wav); remove(rb); remove(wb);
+        CHECK(ts_bake_pair_files(pair_recipe, pair_wav, ts_fixture_recipe(2),
+            &rendered, &error) == TS_IO_OK);
+    }
+
+    free(old_pair_recipe); free(old_pair_wav); free(after); free(preserved);
+    free(collision); free(expected); free(wav);
     free(first_canonical); ts_rendered_sample_free(&rendered);
     remove(wav_path); remove(recipe_path); remove(failed_wav);
     remove(pair_recipe); remove(pair_wav);
