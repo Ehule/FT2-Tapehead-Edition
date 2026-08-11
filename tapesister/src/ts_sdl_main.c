@@ -199,6 +199,9 @@ int main(int argc, char **argv) {
       SDL_UnlockAudioDevice(device);
   }
   bool running = true;
+  enum { MODAL_NONE, MODAL_SAVE, MODAL_LOAD, MODAL_BAKE, MODAL_PARENT, MODAL_PARAMETER } modal=MODAL_NONE;
+  ts_text_edit modal_edit={0}; char modal_error[160]={0};
+  ts_parameter_id modal_parameter=TS_P_SOURCE; int drag_parameter=-1;ts_owned_recipe drag_before={0};
   int result = 0;
   ts_present_rect presentation = {0};
   unsigned frames = 0;
@@ -210,17 +213,20 @@ int main(int argc, char **argv) {
       else if (e.type == SDL_KEYDOWN) {
         SDL_Keycode k = e.key.keysym.sym;
         const SDL_Keymod modifiers = (SDL_Keymod)e.key.keysym.mod;
-        if (k == SDLK_ESCAPE)
+        if(modal!=MODAL_NONE){if(k==SDLK_ESCAPE){ts_text_edit_destroy(&modal_edit);modal=MODAL_NONE;modal_error[0]=0;SDL_StopTextInput();}else if(k==SDLK_BACKSPACE)ts_text_edit_backspace(&modal_edit);else if(k==SDLK_DELETE)ts_text_edit_delete(&modal_edit);else if(k==SDLK_LEFT)ts_text_edit_left(&modal_edit);else if(k==SDLK_RIGHT)ts_text_edit_right(&modal_edit);else if(k==SDLK_HOME)ts_text_edit_home(&modal_edit);else if(k==SDLK_END)ts_text_edit_end(&modal_edit);else if(k==SDLK_RETURN&&!e.key.repeat){bool ok=false;ts_io_error io={0};if(modal==MODAL_SAVE)ok=ts_app_save_recipe(&app,modal_edit.text,&io);else if(modal==MODAL_LOAD)ok=ts_app_load_recipe(&app,modal_edit.text,&io);else if(modal==MODAL_BAKE){char rp[1100],wp[1100];snprintf(rp,sizeof rp,"%s.tsr",modal_edit.text);snprintf(wp,sizeof wp,"%s.wav",modal_edit.text);ok=ts_app_bake(&app,rp,wp,&io);}else if(modal==MODAL_PARENT)ok=ts_app_update_parent(&app,true);else if(modal==MODAL_PARAMETER)ok=ts_app_set_parameter_text(&app,modal_parameter,modal_edit.text,modal_error,sizeof modal_error);if(ok){ts_text_edit_destroy(&modal_edit);modal=MODAL_NONE;modal_error[0]=0;SDL_StopTextInput();}else if(!modal_error[0])snprintf(modal_error,sizeof modal_error,"%s",io.message[0]?io.message:"ACTION FAILED");}}
+        else if (k == SDLK_ESCAPE)
           running = false;
+        else if((modifiers&KMOD_CTRL)&&(k==SDLK_s||k==SDLK_o||k==SDLK_b)&&!e.key.repeat){modal=k==SDLK_o?MODAL_LOAD:(k==SDLK_b?MODAL_BAKE:MODAL_SAVE);const char*initial=(k==SDLK_s&&app.has_saved&&!(modifiers&KMOD_SHIFT))?app.saved_path:"";ts_text_edit_init(&modal_edit,TS_PATH_MAX_BYTES+1U,initial);SDL_StartTextInput();}
         else if(k==SDLK_TAB){ts_app_focus_move(&app,(modifiers&KMOD_SHIFT)?-1:1);}
         else if(k==SDLK_PAGEUP&&!e.key.repeat){ts_app_set_page(&app,(ts_parameter_page)((app.page+5)%6));}
         else if(k==SDLK_PAGEDOWN&&!e.key.repeat){ts_app_set_page(&app,(ts_parameter_page)((app.page+1)%6));}
         else if(k==SDLK_UP){ts_app_focus_move(&app,-1);}
         else if(k==SDLK_DOWN){ts_app_focus_move(&app,1);}
+        else if(k==SDLK_RETURN&&!e.key.repeat&&app.focused_parameter>=0){const ts_parameter_desc*d=ts_parameter_by_id((ts_parameter_id)app.focused_parameter);if(d->type==TS_PARAM_ENUM||d->type==TS_PARAM_BOOLEAN)ts_app_adjust_parameter(&app,d->id,1,true);else{char initial[128];if(d->id==TS_P_NAME)snprintf(initial,sizeof initial,"%s",app.bank[app.selected].recipe.name);else{double value=0;ts_parameter_get_number(d->id,&app.bank[app.selected].recipe,&value);snprintf(initial,sizeof initial,"%.9g",value);}modal=MODAL_PARAMETER;modal_parameter=d->id;ts_text_edit_init(&modal_edit,d->id==TS_P_NAME?TS_RECIPE_NAME_MAX_BYTES+1U:128U,initial);SDL_StartTextInput();}}
         else if((k==SDLK_LEFT||k==SDLK_RIGHT)&&app.focused_parameter>=0){double step=k==SDLK_RIGHT?1:-1;if(modifiers&KMOD_SHIFT)step*=10;if(modifiers&KMOD_CTRL)step*=.1;ts_app_adjust_parameter(&app,(ts_parameter_id)app.focused_parameter,step,true);}
         else if((modifiers&KMOD_CTRL)&&k==SDLK_z&&!e.key.repeat){if(modifiers&KMOD_SHIFT)ts_app_redo(&app);else ts_app_undo(&app);}
         else if((modifiers&KMOD_CTRL)&&k==SDLK_y&&!e.key.repeat){ts_app_redo(&app);}
-        else if((modifiers&KMOD_CTRL)&&k==SDLK_p&&!e.key.repeat){if(modifiers&KMOD_SHIFT)ts_app_update_parent(&app,true);else ts_app_commit_parent(&app);}
+        else if((modifiers&KMOD_CTRL)&&k==SDLK_p&&!e.key.repeat){if(modifiers&KMOD_SHIFT){modal=MODAL_PARENT;ts_text_edit_init(&modal_edit,2,"");SDL_StartTextInput();}else ts_app_commit_parent(&app);}
         else if (k == SDLK_F1 && app.selected > 0) {
           app.selected--;
           ts_app_ensure_rendered(&app, app.selected, error, sizeof error);
@@ -252,9 +258,10 @@ int main(int argc, char **argv) {
         else if ((modifiers & (KMOD_CTRL | KMOD_ALT | KMOD_GUI)) == 0) {
           int note;
           if (ts_app_key_press(&app, ascii_key(k), e.key.repeat != 0, &note))
-            lock_note(device, &audio, &app.bank[app.selected].source, note);
+            lock_note(device, &audio, ts_app_preview_source(&app) ? ts_app_preview_source(&app) : &app.bank[app.selected].source, note);
         }
-      } else if (e.type == SDL_KEYUP) {
+      } else if(e.type==SDL_TEXTINPUT&&modal!=MODAL_NONE)ts_text_edit_insert(&modal_edit,e.text.text);
+      else if (e.type == SDL_KEYUP) {
         int note;
         ts_app_key_release(&app, ascii_key(e.key.keysym.sym), &note);
         if (note >= 0)
@@ -264,18 +271,23 @@ int main(int argc, char **argv) {
         int lx, ly;
         if (mouse_to_logical(window, renderer, &presentation, e.button.x,e.button.y,&lx,&ly)) {
           int tab=ts_ui_tab_hit(lx,ly),parameter=ts_ui_parameter_hit(lx,ly,app.page);
-          if(tab>=0)ts_app_set_page(&app,(ts_parameter_page)tab);
+          ts_ui_action action=ts_ui_action_hit(lx,ly);
+          if(action!=TS_UI_ACTION_NONE){if(action==TS_UI_COMMIT_PARENT)ts_app_commit_parent(&app);else if(action==TS_UI_MODE){ts_app_toggle_mode(&app,false);if(device)SDL_LockAudioDevice(device);audio.mixer.mode=app.mode;if(device)SDL_UnlockAudioDevice(device);}else{modal=action==TS_UI_UPDATE_PARENT?MODAL_PARENT:(action==TS_UI_SAVE?MODAL_SAVE:(action==TS_UI_LOAD?MODAL_LOAD:MODAL_BAKE));ts_text_edit_init(&modal_edit,TS_PATH_MAX_BYTES+1U,"");SDL_StartTextInput();}}
+          else if(tab>=0)ts_app_set_page(&app,(ts_parameter_page)tab);
           else if(parameter>=0){app.focused_parameter=parameter;double steps=1;if(lx<610&&lx>=578)steps=lx<594?-1:1;
-            else if(lx>=416&&lx<=576){const ts_parameter_desc*d=ts_parameter_by_id((ts_parameter_id)parameter);double old;ts_parameter_get_number((ts_parameter_id)parameter,&app.bank[app.selected].recipe,&old);double target=ts_parameter_from_position(d,ts_ui_slider_position(lx));steps=(target-old)/d->fine_step;}
-            ts_app_adjust_parameter(&app,(ts_parameter_id)parameter,steps,true);
+            else if(lx>=416&&lx<=576){const ts_parameter_desc*d=ts_parameter_by_id((ts_parameter_id)parameter);double old;ts_parameter_get_number((ts_parameter_id)parameter,&app.bank[app.selected].recipe,&old);double target=ts_parameter_from_position(d,ts_ui_slider_position(lx));steps=(target-old)/d->fine_step;drag_parameter=parameter;ts_owned_recipe_copy(&drag_before,&app.bank[app.selected].recipe);}
+            ts_app_adjust_parameter(&app,(ts_parameter_id)parameter,steps,drag_parameter<0);
           } else apply_mouse_result(device, &audio, &app,
                              ts_app_mouse_press(&app, lx, ly), error,
                              sizeof error);}
       } else if (e.type == SDL_MOUSEBUTTONUP &&
                  e.button.button == SDL_BUTTON_LEFT) {
+        if(drag_parameter>=0){if(!ts_recipe_fields_equal(&drag_before.value,&app.bank[app.selected].recipe))ts_recipe_history_commit(&app.history,&drag_before.value);ts_owned_recipe_destroy(&drag_before);drag_parameter=-1;}
         apply_mouse_result(device, &audio, &app, ts_app_mouse_release(&app),
                            error, sizeof error);
-      } else if (e.type == SDL_MOUSEMOTION && app.mouse_note >= 0) {
+      } else if(e.type==SDL_MOUSEMOTION&&drag_parameter>=0){int lx,ly;if(mouse_to_logical(window,renderer,&presentation,e.motion.x,e.motion.y,&lx,&ly)){const ts_parameter_desc*d=ts_parameter_by_id((ts_parameter_id)drag_parameter);double old;ts_parameter_get_number(d->id,&app.bank[app.selected].recipe,&old);double target=ts_parameter_from_position(d,ts_ui_slider_position(lx));ts_app_adjust_parameter(&app,d->id,(target-old)/d->fine_step,false);}}
+      else if(e.type==SDL_MOUSEWHEEL&&modal==MODAL_NONE&&app.focused_parameter>=0)ts_app_adjust_parameter(&app,(ts_parameter_id)app.focused_parameter,e.wheel.y>0?1:-1,true);
+      else if (e.type == SDL_MOUSEMOTION && app.mouse_note >= 0) {
         int lx, ly;
         ts_app_mouse_result mouse_result;
         if (mouse_to_logical(window, renderer, &presentation, e.motion.x,
@@ -309,6 +321,7 @@ int main(int argc, char **argv) {
     model.page=app.page;model.focused_parameter=app.focused_parameter;model.dirty=ts_app_dirty(&app);
     model.parent_present=app.has_parent;model.parent_match=app.has_parent&&ts_recipe_fields_equal(&app.parent.value,&app.bank[app.selected].recipe);
     model.rendering=ts_app_rendering(&app);model.render_error=ts_app_render_failed(&app);model.playback_position=ts_audition_cursor_position(&audio.mixer);
+    model.baked=ts_app_baked(&app);if(modal!=MODAL_NONE){model.modal_title=modal==MODAL_SAVE?"SAVE RECIPE PATH":(modal==MODAL_LOAD?"LOAD RECIPE PATH":(modal==MODAL_BAKE?"BAKE OUTPUT BASE":(modal==MODAL_PARAMETER?"EDIT PARAMETER":"UPDATE PARENT?")));model.modal_text=modal_edit.text;model.modal_error=modal_error[0]?modal_error:NULL;}
     for (size_t i = 0; i < app.bank_count; i++) {
       model.recipes[i] = &app.bank[i].recipe;
       model.renders[i] = &app.bank[i].render;
@@ -354,6 +367,8 @@ int main(int argc, char **argv) {
     SDL_UnlockAudioDevice(device);
     SDL_CloseAudioDevice(device);
   }
+  if(modal!=MODAL_NONE){SDL_StopTextInput();ts_text_edit_destroy(&modal_edit);}
+  ts_owned_recipe_destroy(&drag_before);
   free(rgba);
   free(fb);
   SDL_DestroyTexture(texture);

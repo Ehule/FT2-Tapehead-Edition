@@ -18,6 +18,7 @@ add_library(tapesister_core STATIC
     src/ts_presentation.c
     src/ts_editor.c
     src/ts_preview.c
+    src/ts_text_edit.c
 )
 target_include_directories(tapesister_core PUBLIC include)
 target_compile_definitions(tapesister_core PUBLIC
@@ -65,6 +66,10 @@ if(BUILD_TESTING)
     add_executable(tapesister_preview_tests tests/test_preview.c)
     target_link_libraries(tapesister_preview_tests PRIVATE tapesister_core)
     add_test(NAME tapesister_preview_tests COMMAND tapesister_preview_tests)
+
+    add_executable(tapesister_text_edit_tests tests/test_text_edit.c)
+    target_link_libraries(tapesister_text_edit_tests PRIVATE tapesister_core)
+    add_test(NAME tapesister_text_edit_tests COMMAND tapesister_text_edit_tests)
 endif()
 
 if(TAPESISTER_BUILD_SDL)

@@ -125,6 +125,9 @@ int main(void) {
   CHECK(ts_ui_slider_position(420) == 0.0);
   CHECK(ts_ui_slider_position(570) == 1.0);
   CHECK(ts_ui_slider_position(571) == 1.0);
+  CHECK(ts_ui_action_hit(6, 309) == TS_UI_COMMIT_PARENT);
+  CHECK(ts_ui_action_hit(625, 328) == TS_UI_MODE);
+  CHECK(ts_ui_action_hit(626, 328) == TS_UI_ACTION_NONE);
   CHECK(ts_ui_keyboard_hit(22, 384, 3) == 48);
   CHECK(ts_ui_keyboard_hit(609, 384, 3) == 71);
   CHECK(ts_ui_keyboard_hit(52, 340, 3) == 49);

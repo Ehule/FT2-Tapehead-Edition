@@ -3,6 +3,7 @@
 #include "tapesister/ts_io.h"
 #include "tapesister/ts_ui.h"
 #include "tapesister/ts_preview.h"
+#include "tapesister/ts_text_edit.h"
 
 typedef struct ts_cli_options {
   const char *recipe_path, *palette_file, *palette_name, *resource_dir;
@@ -31,6 +32,11 @@ typedef struct ts_app_state {
   ts_recipe_history history;
   ts_owned_recipe saved, parent;
   bool has_saved, has_parent;
+  char saved_path[TS_PATH_MAX_BYTES + 1U];
+  bool has_baked;
+  uint64_t baked_recipe_identity, baked_pcm_identity;
+  char baked_recipe_path[TS_PATH_MAX_BYTES + 1U];
+  char baked_wav_path[TS_PATH_MAX_BYTES + 1U];
   uint64_t working_generation, published_generation;
   ts_render_worker *render_worker;
   ts_preview_pool previews;
@@ -81,3 +87,10 @@ bool ts_app_rendering(ts_app_state *app);
 bool ts_app_render_failed(ts_app_state *app);
 bool ts_app_render_matched(const ts_app_state *app);
 const ts_audition_source *ts_app_preview_source(const ts_app_state *app);
+bool ts_app_set_parameter_text(ts_app_state *app, ts_parameter_id id,
+                               const char *text, char *error, size_t capacity);
+bool ts_app_save_recipe(ts_app_state *app, const char *path, ts_io_error *error);
+bool ts_app_load_recipe(ts_app_state *app, const char *path, ts_io_error *error);
+bool ts_app_bake(ts_app_state *app, const char *recipe_path,
+                 const char *wav_path, ts_io_error *error);
+bool ts_app_baked(const ts_app_state *app);

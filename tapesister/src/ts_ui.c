@@ -108,6 +108,7 @@ static void text(ts_framebuffer *fb, int x, int y, const char *s, uint8_t c) {
           ts_framebuffer_put(fb, x + xx, y + yy, c);
   }
 }
+static void text_clipped(ts_framebuffer *fb,int x,int y,const char*s,uint8_t c,int width){char clipped[128];size_t max=(size_t)(width/6);if(max>=sizeof clipped)max=sizeof clipped-1;size_t n=strlen(s);if(n>max)n=max;memcpy(clipped,s,n);clipped[n]=0;text(fb,x,y,clipped,c);}
 
 void ts_palette_builtin(ts_palette *p, const char *name) {
   static const uint32_t normal[TS_PALETTE_SIZE] = {
@@ -265,6 +266,7 @@ double ts_ui_slider_position(int x) {
   if (x >= 570) return 1.0;
   return (double)(x - 420) / 150.0;
 }
+ts_ui_action ts_ui_action_hit(int x,int y){if(y<309||y>=329||x<6||x>=626)return TS_UI_ACTION_NONE;if(x<116)return TS_UI_COMMIT_PARENT;if(x<226)return TS_UI_UPDATE_PARENT;if(x<306)return TS_UI_SAVE;if(x<386)return TS_UI_LOAD;if(x<466)return TS_UI_BAKE;if(x>=506)return TS_UI_MODE;return TS_UI_ACTION_NONE;}
 
 void ts_ui_draw(ts_framebuffer *fb, const ts_ui_model *m) {
   ts_framebuffer_clear(fb, C_BG);
@@ -323,10 +325,14 @@ void ts_ui_draw(ts_framebuffer *fb, const ts_ui_model *m) {
     }
   }
   if(m->playback_position>=0.0&&m->playback_position<=1.0) rect(fb,200+(int)(m->playback_position*415.0),188,1,100,C_PRESSED);
-  text(fb, 10, 218, m->audio_status ? m->audio_status : "AUDIO UNKNOWN",
-       C_TEXT);
+  text_clipped(fb,10,218,m->audio_status ? m->audio_status : "AUDIO UNKNOWN",C_TEXT,170);
   if (m->message)
-    text(fb, 10, 234, m->message, C_WARN);
+    text_clipped(fb,10,234,m->message,C_WARN,170);
+  static const char *actions[]={"COMMIT PARENT","UPDATE PARENT","SAVE","LOAD","BAKE"};
+  const int ax[]={6,116,226,306,386},aw[]={110,110,80,80,80};
+  for(int i=0;i<5;i++){frame(fb,ax[i],309,aw[i],20);text_clipped(fb,ax[i]+4,316,actions[i],i==4&&!m->baked&&m->rendering?C_DARK:C_TEXT,aw[i]-8);}
+  frame(fb,506,309,120,20);text(fb,512,316,m->mode==TS_AUDITION_ONE_SHOT?"ONE SHOT":"GATED",C_TEXT);
+  if(m->modal_title){rect(fb,90,125,452,100,C_PANEL);frame(fb,90,125,452,100);text_clipped(fb,102,138,m->modal_title,C_TEXT,420);rect(fb,102,158,428,22,C_DARK);text_clipped(fb,108,166,m->modal_text?m->modal_text:"",C_TEXT,408);if(m->modal_error)text_clipped(fb,102,194,m->modal_error,C_WARN,420);text(fb,102,210,"ENTER CONFIRM  ESC CANCEL",C_TEXT);}
   const int kx = 22, ky = 333, ww = 42;
   for (int i = 0; i < 14; i++) {
     rect(fb, kx + i * ww, ky, ww - 1, 52, C_WHITE);

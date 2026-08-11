@@ -14,6 +14,8 @@ typedef struct ts_palette {
 typedef struct ts_framebuffer {
   uint8_t pixels[TS_SCREEN_WIDTH * TS_SCREEN_HEIGHT];
 } ts_framebuffer;
+typedef enum ts_ui_action { TS_UI_ACTION_NONE=-1, TS_UI_COMMIT_PARENT,
+  TS_UI_UPDATE_PARENT, TS_UI_SAVE, TS_UI_LOAD, TS_UI_BAKE, TS_UI_MODE } ts_ui_action;
 
 typedef struct ts_ui_model {
   const ts_recipe *recipes[TS_FACTORY_RECIPES + 1];
@@ -28,6 +30,7 @@ typedef struct ts_ui_model {
   int focused_parameter;
   bool dirty, rendering, render_error, parent_present, parent_match, baked;
   double playback_position;
+  const char *modal_title, *modal_text, *modal_error;
   bool pressed[128];
 } ts_ui_model;
 
@@ -42,3 +45,4 @@ int ts_ui_keyboard_hit(int x, int y, int base_octave);
 int ts_ui_tab_hit(int x, int y);
 int ts_ui_parameter_hit(int x, int y, ts_parameter_page page);
 double ts_ui_slider_position(int x);
+ts_ui_action ts_ui_action_hit(int x, int y);
