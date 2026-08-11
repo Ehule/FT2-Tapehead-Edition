@@ -1,6 +1,7 @@
 #pragma once
 
 #include "tapesister/ts_audition.h"
+#include "tapesister/ts_editor.h"
 
 #define TS_SCREEN_WIDTH 632
 #define TS_SCREEN_HEIGHT 400
@@ -23,6 +24,10 @@ typedef struct ts_ui_model {
   int base_octave;
   ts_audition_mode mode;
   bool overload;
+  ts_parameter_page page;
+  int focused_parameter;
+  bool dirty, rendering, render_error, parent_present, parent_match, baked;
+  double playback_position;
   bool pressed[128];
 } ts_ui_model;
 
@@ -34,3 +39,6 @@ bool ts_framebuffer_put(ts_framebuffer *fb, int x, int y, uint8_t color);
 void ts_ui_draw(ts_framebuffer *fb, const ts_ui_model *model);
 int ts_ui_recipe_hit(int x, int y, size_t recipe_count);
 int ts_ui_keyboard_hit(int x, int y, int base_octave);
+int ts_ui_tab_hit(int x, int y);
+int ts_ui_parameter_hit(int x, int y, ts_parameter_page page);
+double ts_ui_slider_position(int x);

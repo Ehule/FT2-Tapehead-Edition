@@ -4,7 +4,7 @@
 2. Select and hear every recipe; confirm their identities are plainly distinct.
 3. Play single notes and chords from both computer-keyboard rows.
 4. Change base octave with `[` and `]` and check pitch movement and limits.
-5. Compare one-shot and gated behavior using `Tab`; confirm `G` remains a note
+5. Compare one-shot and gated behavior using `Ctrl+G`; confirm plain `G` remains a note
    and listen for start/release clicks.
 6. Click, drag away from, and release keys on the onscreen two-octave keyboard.
 7. Switch recipes while notes are active and confirm old notes remain valid.

@@ -21,6 +21,7 @@ typedef struct ts_audition_source {
   size_t frame_count;
   uint32_t sample_rate;
   uint8_t root_midi_note;
+  struct ts_preview *owner;
 } ts_audition_source;
 
 typedef struct ts_audition_voice {
@@ -32,6 +33,7 @@ typedef struct ts_audition_voice {
   uint32_t ramp;
   uint8_t note, pending_note;
   bool active, releasing, pending;
+  struct ts_preview *preview, *pending_preview;
 } ts_audition_voice;
 
 typedef struct ts_audition_mixer {
@@ -41,6 +43,7 @@ typedef struct ts_audition_mixer {
   ts_audition_mode mode;
   bool overload;
   atomic_uint_least32_t overload_generation;
+  atomic_uint_least64_t cursor_age, cursor_frame, cursor_frames;
 } ts_audition_mixer;
 
 bool ts_audition_init(ts_audition_mixer *mixer, uint32_t device_sample_rate);
@@ -48,9 +51,11 @@ bool ts_audition_note_on(ts_audition_mixer *mixer,
                          const ts_audition_source *source, uint8_t midi_note);
 void ts_audition_note_off(ts_audition_mixer *mixer, uint8_t midi_note);
 void ts_audition_stop_all(ts_audition_mixer *mixer);
+void ts_audition_discard_all(ts_audition_mixer *mixer);
 void ts_audition_mix(ts_audition_mixer *mixer, float *stereo,
                      size_t frame_count);
 size_t ts_audition_active_voices(const ts_audition_mixer *mixer);
 double ts_audition_step_for(uint8_t note, uint8_t root_note,
                             uint32_t source_rate, uint32_t device_rate);
 uint32_t ts_audition_overload_generation(const ts_audition_mixer *mixer);
+double ts_audition_cursor_position(const ts_audition_mixer *mixer);

@@ -1,6 +1,7 @@
 #include "tapesister/ts_app.h"
 
 #include <stdio.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -95,6 +96,14 @@ bool ts_app_load_bank(ts_app_state *a, const char *d, const char *extra,
   a->base_octave = 3;
   a->mouse_note = -1;
   a->mode = TS_AUDITION_ONE_SHOT;
+  a->page = TS_PAGE_SOURCE;
+  a->focused_parameter = TS_P_SOURCE;
+  ts_preview_pool_init(&a->previews);
+  if (!ts_render_worker_create(&a->render_worker)) {
+    snprintf(error, cap, "cannot start render worker");
+    ts_app_dispose(a);
+    return false;
+  }
   for (int i = 0; i < TS_FACTORY_RECIPES; i++) {
     char p[1024];
     snprintf(p, sizeof p, "%s/%s", d, factory_names[i]);
@@ -264,13 +273,59 @@ bool ts_app_update_overload(ts_app_state *a, const uint32_t generation,
   }
   return a->overload_visible;
 }
+
+bool ts_app_set_page(ts_app_state *a, ts_parameter_page page) {
+  if (!a || page >= TS_EDITOR_PAGE_COUNT) return false;
+  a->page = page;
+  size_t count; const ts_parameter_desc *all=ts_parameter_descriptors(&count);
+  for(size_t i=0;i<count;i++) if(all[i].page==page &&
+      ts_parameter_enabled(all[i].id,&a->bank[a->selected].recipe)) {
+    a->focused_parameter=(int)all[i].id; return true;
+  }
+  return false;
+}
+bool ts_app_focus_move(ts_app_state *a,int direction) {
+  if(!a||direction==0)return false;
+  size_t count; const ts_parameter_desc *all=ts_parameter_descriptors(&count);
+  int at=a->focused_parameter;
+  for(size_t attempt=0;attempt<count;attempt++){at=(at+direction+(int)count)%(int)count;
+    if(all[at].page==a->page&&ts_parameter_enabled(all[at].id,&a->bank[a->selected].recipe)){a->focused_parameter=at;return true;}}
+  return false;
+}
+bool ts_app_adjust_parameter(ts_app_state*a,ts_parameter_id id,double steps,bool commit) {
+  if(!a||id>=TS_PARAMETER_COUNT||!ts_parameter_enabled(id,&a->bank[a->selected].recipe))return false;
+  const ts_parameter_desc*d=ts_parameter_by_id(id);double value;if(!ts_parameter_get_number(id,&a->bank[a->selected].recipe,&value))return false;
+  if(commit&&!ts_recipe_history_commit(&a->history,&a->bank[a->selected].recipe))return false;
+  double next=value+steps*d->fine_step;if(d->type==TS_PARAM_BOOLEAN)next=value==0?1:0;
+  if(d->type==TS_PARAM_ENUM){next=fmod(value+steps+(double)d->enum_count,(double)d->enum_count);}
+  if(next<d->minimum)next=d->minimum;
+  if(next>d->maximum)next=d->maximum;
+  if(!ts_parameter_set_number(id,&a->bank[a->selected].recipe,next)){if(commit&&a->history.undo_count)ts_owned_recipe_destroy(&a->history.undo[--a->history.undo_count]);return false;}
+  return ts_app_request_render(a);
+}
+static bool restore_history(ts_app_state*a,bool redo){ts_owned_recipe working={0};if(!ts_owned_recipe_copy(&working,&a->bank[a->selected].recipe))return false;
+  bool ok=redo?ts_recipe_history_redo(&a->history,&working):ts_recipe_history_undo(&a->history,&working);if(!ok){ts_owned_recipe_destroy(&working);return false;}
+  free((void*)a->bank[a->selected].recipe.name);a->bank[a->selected].recipe=working.value;working.name=NULL;return ts_app_request_render(a);}
+bool ts_app_undo(ts_app_state*a){return a&&restore_history(a,false);} bool ts_app_redo(ts_app_state*a){return a&&restore_history(a,true);}
+bool ts_app_commit_parent(ts_app_state*a){if(!a)return false;ts_owned_recipe_destroy(&a->parent);a->has_parent=ts_owned_recipe_copy(&a->parent,&a->bank[a->selected].recipe);return a->has_parent;}
+bool ts_app_update_parent(ts_app_state*a,bool confirmed){return confirmed&&ts_app_commit_parent(a);}
+bool ts_app_dirty(const ts_app_state*a){return a&&(!a->has_saved||!ts_recipe_fields_equal(&a->saved.value,&a->bank[a->selected].recipe));}
+bool ts_app_request_render(ts_app_state*a){if(!a||!a->render_worker)return false;uint64_t g=ts_render_worker_request(a->render_worker,&a->bank[a->selected].recipe);if(!g)return false;a->working_generation=g;a->failed_generation=0;a->render_error[0]=0;return true;}
+bool ts_app_poll_render(ts_app_state*a){if(!a||!a->render_worker)return false;ts_preview*p=ts_render_worker_take(a->render_worker);if(p){if(p->generation==a->working_generation){ts_preview_pool_publish(&a->previews,p);a->published_generation=p->generation;}else{atomic_store(&p->retired,true);ts_preview_pool tmp;ts_preview_pool_init(&tmp);p->next=tmp.all;tmp.all=p;tmp.retained=1;ts_preview_pool_collect(&tmp);} }ts_preview_pool_collect(&a->previews);uint64_t failed=0;if(ts_render_worker_failed(a->render_worker,&failed,a->render_error,sizeof a->render_error))a->failed_generation=failed;return p!=NULL;}
+bool ts_app_rendering(ts_app_state*a){return a&&a->render_worker&&a->working_generation!=a->published_generation&&!ts_app_render_failed(a)&&ts_render_worker_rendering(a->render_worker);}
+bool ts_app_render_failed(ts_app_state*a){if(!a||!a->render_worker)return false;uint64_t failed=0;if(ts_render_worker_failed(a->render_worker,&failed,a->render_error,sizeof a->render_error))a->failed_generation=failed;return a->failed_generation==a->working_generation&&failed!=0;}
+bool ts_app_render_matched(const ts_app_state*a){return a&&a->previews.current&&a->published_generation==a->working_generation&&a->failed_generation!=a->working_generation;}
+const ts_audition_source *ts_app_preview_source(const ts_app_state*a){return a&&a->previews.current?&a->previews.current->source:NULL;}
 void ts_app_dispose(ts_app_state *a) {
   if (!a)
     return;
+  ts_render_worker_destroy(a->render_worker);a->render_worker=NULL;
+  ts_preview_pool_destroy(&a->previews);
   for (size_t i = 0; i < a->bank_count; i++) {
     ts_rendered_sample_free(&a->bank[i].render);
     if (a->bank[i].loaded)
       ts_recipe_loaded_dispose(&a->bank[i].recipe);
   }
+  ts_recipe_history_destroy(&a->history);ts_owned_recipe_destroy(&a->saved);ts_owned_recipe_destroy(&a->parent);
   memset(a, 0, sizeof(*a));
 }

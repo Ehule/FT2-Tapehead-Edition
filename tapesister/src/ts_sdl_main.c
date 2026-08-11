@@ -56,18 +56,20 @@ static void lock_off(SDL_AudioDeviceID dev, audio_context *a, int note) {
   if (dev)
     SDL_UnlockAudioDevice(dev);
 }
-
 static void apply_mouse_result(SDL_AudioDeviceID device, audio_context *audio,
                                ts_app_state *app,
                                const ts_app_mouse_result result, char *error,
                                size_t error_capacity) {
   if (result.selected_recipe >= 0)
+  {
     ts_app_ensure_rendered(app, (size_t)result.selected_recipe, error,
                            error_capacity);
+    ts_app_request_render(app);
+  }
   if (result.note_off >= 0)
     lock_off(device, audio, result.note_off);
   if (result.note_on >= 0)
-    lock_note(device, audio, &app->bank[app->selected].source, result.note_on);
+    lock_note(device, audio, ts_app_preview_source(app) ? ts_app_preview_source(app) : &app->bank[app->selected].source, result.note_on);
 }
 
 int main(int argc, char **argv) {
@@ -101,6 +103,7 @@ int main(int argc, char **argv) {
     ts_app_dispose(&app);
     return 5;
   }
+  ts_app_request_render(&app);
   if (options.smoke_test)
     for (size_t i = 0; i < app.bank_count; i++)
       if (!ts_app_ensure_rendered(&app, i, error, sizeof error)) {
@@ -206,19 +209,32 @@ int main(int argc, char **argv) {
         running = false;
       else if (e.type == SDL_KEYDOWN) {
         SDL_Keycode k = e.key.keysym.sym;
+        const SDL_Keymod modifiers = (SDL_Keymod)e.key.keysym.mod;
         if (k == SDLK_ESCAPE)
           running = false;
-        else if (k == SDLK_UP && app.selected > 0) {
+        else if(k==SDLK_TAB){ts_app_focus_move(&app,(modifiers&KMOD_SHIFT)?-1:1);}
+        else if(k==SDLK_PAGEUP&&!e.key.repeat){ts_app_set_page(&app,(ts_parameter_page)((app.page+5)%6));}
+        else if(k==SDLK_PAGEDOWN&&!e.key.repeat){ts_app_set_page(&app,(ts_parameter_page)((app.page+1)%6));}
+        else if(k==SDLK_UP){ts_app_focus_move(&app,-1);}
+        else if(k==SDLK_DOWN){ts_app_focus_move(&app,1);}
+        else if((k==SDLK_LEFT||k==SDLK_RIGHT)&&app.focused_parameter>=0){double step=k==SDLK_RIGHT?1:-1;if(modifiers&KMOD_SHIFT)step*=10;if(modifiers&KMOD_CTRL)step*=.1;ts_app_adjust_parameter(&app,(ts_parameter_id)app.focused_parameter,step,true);}
+        else if((modifiers&KMOD_CTRL)&&k==SDLK_z&&!e.key.repeat){if(modifiers&KMOD_SHIFT)ts_app_redo(&app);else ts_app_undo(&app);}
+        else if((modifiers&KMOD_CTRL)&&k==SDLK_y&&!e.key.repeat){ts_app_redo(&app);}
+        else if((modifiers&KMOD_CTRL)&&k==SDLK_p&&!e.key.repeat){if(modifiers&KMOD_SHIFT)ts_app_update_parent(&app,true);else ts_app_commit_parent(&app);}
+        else if (k == SDLK_F1 && app.selected > 0) {
           app.selected--;
           ts_app_ensure_rendered(&app, app.selected, error, sizeof error);
-        } else if (k == SDLK_DOWN && app.selected + 1 < app.bank_count) {
+          ts_app_request_render(&app);
+        } else if (k == SDLK_F2 && app.selected + 1 < app.bank_count) {
           app.selected++;
           ts_app_ensure_rendered(&app, app.selected, error, sizeof error);
+          ts_app_request_render(&app);
         } else if (k == SDLK_LEFTBRACKET && app.base_octave > -1)
           app.base_octave--;
         else if (k == SDLK_RIGHTBRACKET && app.base_octave < 9)
           app.base_octave++;
-        else if (k == SDLK_TAB && ts_app_toggle_mode(&app, e.key.repeat != 0)) {
+        else if (k == SDLK_g && (modifiers & KMOD_CTRL) != 0 &&
+                 ts_app_toggle_mode(&app, e.key.repeat != 0)) {
           if (device)
             SDL_LockAudioDevice(device);
           audio.mixer.mode = app.mode;
@@ -231,9 +247,9 @@ int main(int argc, char **argv) {
           if (device)
             SDL_UnlockAudioDevice(device);
         } else if (k == SDLK_RETURN && !e.key.repeat)
-          lock_note(device, &audio, &app.bank[app.selected].source,
+          lock_note(device, &audio, ts_app_preview_source(&app) ? ts_app_preview_source(&app) : &app.bank[app.selected].source,
                     app.bank[app.selected].recipe.root_midi_note);
-        else {
+        else if ((modifiers & (KMOD_CTRL | KMOD_ALT | KMOD_GUI)) == 0) {
           int note;
           if (ts_app_key_press(&app, ascii_key(k), e.key.repeat != 0, &note))
             lock_note(device, &audio, &app.bank[app.selected].source, note);
@@ -246,11 +262,15 @@ int main(int argc, char **argv) {
       } else if (e.type == SDL_MOUSEBUTTONDOWN &&
                  e.button.button == SDL_BUTTON_LEFT) {
         int lx, ly;
-        if (mouse_to_logical(window, renderer, &presentation, e.button.x,
-                             e.button.y, &lx, &ly))
-          apply_mouse_result(device, &audio, &app,
+        if (mouse_to_logical(window, renderer, &presentation, e.button.x,e.button.y,&lx,&ly)) {
+          int tab=ts_ui_tab_hit(lx,ly),parameter=ts_ui_parameter_hit(lx,ly,app.page);
+          if(tab>=0)ts_app_set_page(&app,(ts_parameter_page)tab);
+          else if(parameter>=0){app.focused_parameter=parameter;double steps=1;if(lx<610&&lx>=578)steps=lx<594?-1:1;
+            else if(lx>=416&&lx<=576){const ts_parameter_desc*d=ts_parameter_by_id((ts_parameter_id)parameter);double old;ts_parameter_get_number((ts_parameter_id)parameter,&app.bank[app.selected].recipe,&old);double target=ts_parameter_from_position(d,ts_ui_slider_position(lx));steps=(target-old)/d->fine_step;}
+            ts_app_adjust_parameter(&app,(ts_parameter_id)parameter,steps,true);
+          } else apply_mouse_result(device, &audio, &app,
                              ts_app_mouse_press(&app, lx, ly), error,
-                             sizeof error);
+                             sizeof error);}
       } else if (e.type == SDL_MOUSEBUTTONUP &&
                  e.button.button == SDL_BUTTON_LEFT) {
         apply_mouse_result(device, &audio, &app, ts_app_mouse_release(&app),
@@ -271,6 +291,7 @@ int main(int argc, char **argv) {
                            sizeof error);
       }
     }
+    ts_app_poll_render(&app);
     ts_ui_model model = {0};
     model.recipe_count = app.bank_count;
     model.selected_recipe = app.selected;
@@ -285,10 +306,14 @@ int main(int argc, char **argv) {
       SDL_UnlockAudioDevice(device);
     model.overload = ts_app_update_overload(
         &app, ts_audition_overload_generation(&audio.mixer), SDL_GetTicks());
+    model.page=app.page;model.focused_parameter=app.focused_parameter;model.dirty=ts_app_dirty(&app);
+    model.parent_present=app.has_parent;model.parent_match=app.has_parent&&ts_recipe_fields_equal(&app.parent.value,&app.bank[app.selected].recipe);
+    model.rendering=ts_app_rendering(&app);model.render_error=ts_app_render_failed(&app);model.playback_position=ts_audition_cursor_position(&audio.mixer);
     for (size_t i = 0; i < app.bank_count; i++) {
       model.recipes[i] = &app.bank[i].recipe;
       model.renders[i] = &app.bank[i].render;
     }
+    if(app.previews.current)model.renders[app.selected]=&app.previews.current->render;
     memcpy(model.pressed, app.key_down, sizeof(model.pressed));
     ts_ui_draw(fb, &model);
     size_t nonblank = 0;
@@ -325,7 +350,7 @@ int main(int argc, char **argv) {
   }
   if (device) {
     SDL_LockAudioDevice(device);
-    ts_audition_stop_all(&audio.mixer);
+    ts_audition_discard_all(&audio.mixer);
     SDL_UnlockAudioDevice(device);
     SDL_CloseAudioDevice(device);
   }

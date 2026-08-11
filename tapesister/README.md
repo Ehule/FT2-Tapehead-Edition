@@ -1,5 +1,11 @@
 # TapeSister source incubation
 
+The SDL-independent `ts_editor.h` parameter catalog is the authority for six
+renderer-1 pages, formatting, mappings, safe access, canonical identity, and a
+bounded 128-snapshot undo/redo history. Schema v1 has no separate color,
+delay, or ambience bypasses, damping, fades, octave/ratio, or filter-envelope
+decay; the editor does not invent or serialize future parameters.
+
 TapeSister is a standalone sample-instrument forge being incubated in the
 Tapehead source tree. It does not link to FT2 tracker state or modify the
 tracker executable.
@@ -47,8 +53,10 @@ location, then the configured source fixture directory. Options are
 `--resource-dir PATH`, and `--smoke-test`.
 
 Keyboard notes are `ZSXDCVGBHNJM` and `Q2W3ER5T6Y7U`. `[`/`]` change octave,
-Up/Down select recipes, Enter plays the root, Tab toggles gating, Space stops
-all, and Escape exits. G is only its mapped chromatic note. Recipe rows and
+Tab/Shift+Tab and Up/Down move parameter focus, Left/Right edit, and Page
+Up/Down select editor pages. Ctrl+G toggles gating, Ctrl+Z/Ctrl+Y undo/redo,
+Ctrl+P commits Parent, Ctrl+Shift+P updates Parent, Space stops all, and Escape
+exits. G is only its mapped chromatic note. Recipe rows, tabs, controls, and
 piano keys are clickable.
 
 The 632x400 framebuffer is fractionally scaled to the largest aspect-correct
