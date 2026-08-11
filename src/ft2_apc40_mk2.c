@@ -21,6 +21,9 @@ enum
 {
 	APC_MODE_GENERIC = 0x40,
 	APC_MODE_ALTERNATE_ABLETON = 0x42,
+	APC_APPLICATION_VERSION_MAJOR = 0x09,
+	APC_APPLICATION_VERSION_MINOR = 0x07,
+	APC_APPLICATION_VERSION_BUGFIX = 0x01,
 	APC_RGB_PRIMARY = 0,
 	APC_RGB_PULSE_EIGHTH = 8,
 	APC_RGB_BLINK_EIGHTH = 13,
@@ -284,7 +287,8 @@ size_t tapeheadAPC40Mk2BuildIntroduction(uint8_t mode, uint8_t *message,
 	const uint8_t introduction[12] =
 	{
 		0xF0, 0x47, 0x7F, 0x29, 0x60, 0x00, 0x04,
-		mode, 0x00, 0x01, 0x00, 0xF7
+		mode, APC_APPLICATION_VERSION_MAJOR, APC_APPLICATION_VERSION_MINOR,
+		APC_APPLICATION_VERSION_BUGFIX, 0xF7
 	};
 	memcpy(message, introduction, sizeof (introduction));
 	return sizeof (introduction);
@@ -645,7 +649,6 @@ static void refreshGlobalButtons(void)
 	sendNote(0, 0x58, target == TAPEHEAD_MATRIX_SAMPLE);
 	sendNote(0, 0x59, patternLauncherStandaloneIsShown());
 	sendNote(0, 0x5A, allSelectedFastTracksReversed());
-	sendNote(0, 0x63, tapeheadActionFastTrackGlobalModeState());
 	sendNote(0, 0x66, tapeheadActionMatrixGridIsPoly());
 	sendNote(0, 0x67, selectedDeckHasWork());
 

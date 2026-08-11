@@ -164,9 +164,9 @@ channels as well, while leaving their private transport assignments intact.
 | Shift + Stop All Clips | Hard-silence latched jog voices only; Matrix, FastTracks, and ordinary transport continue | Momentary |
 | Play | Toggle ordinary Song playback | On only during ordinary Song playback |
 | Record | Toggle ordinary Pattern playback | On only during ordinary Pattern playback |
-| Tap Tempo | Toggle all enabled FastTracks between Pattern and Song mode | Off = Pattern; on = Song; blink = mixed |
+| Tap Tempo | Toggle all enabled FastTracks between Pattern and Song mode | No addressable LED; hold Shift to reveal each track's mode on Track Select |
 | Tempo encoder | BPM ±1 per relative step | Hardware position |
-| Nudge − / + | Speed/TPL −/+ 1 | Momentary |
+| Nudge − / + | Speed/TPL −/+ 1 | No addressable LEDs |
 | Metronome | Set all selected FastTracks tracks reverse/forward together | On = all selected tracks reversed |
 | Master button | If any track is audible, Performance Mute all eight; if all are muted, unmute all | Solid = all, blink = some |
 | Master fader | FT2 master volume, 0–256 | Hardware position |

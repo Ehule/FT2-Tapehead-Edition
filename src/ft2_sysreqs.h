@@ -24,6 +24,21 @@ typedef struct okBoxData_t
 	void (*checkBoxCallback)(void);
 } okBoxData_t;
 
+#define SYSREQ_MAX_MESSAGE_LINES 32
+#define SYSREQ_MAX_MESSAGE_LENGTH 512
+
+typedef struct systemRequestLayout_t
+{
+	char lines[SYSREQ_MAX_MESSAGE_LINES][SYSREQ_MAX_MESSAGE_LENGTH];
+	uint16_t lineWidths[SYSREQ_MAX_MESSAGE_LINES];
+	int16_t lineX[SYSREQ_MAX_MESSAGE_LINES];
+	uint16_t lineCount, frameX, frameY, frameWidth, frameHeight;
+	uint16_t headlineX, textY, buttonY;
+} systemRequestLayout_t;
+
+bool systemRequestCalculateLayout(const char *headline, const char *text,
+	uint16_t buttonSpan, uint16_t baseY, systemRequestLayout_t *layout);
+
 // If the checkBoxCallback argument is set, then you get a "Do not show again" checkbox.
 int16_t okBoxThreadSafe(int16_t type, const char *headline, const char *text, void (*checkBoxCallback)(void));
 int16_t okBox(int16_t type, const char *headline, const char *text, void (*checkBoxCallback)(void));
