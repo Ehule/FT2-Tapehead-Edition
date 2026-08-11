@@ -21,6 +21,7 @@
 #include "ft2_tables.h"
 #include "ft2_structs.h"
 #include "ft2_fasttracks.h"
+#include "ft2_pattern_launcher_ui.h"
 
 enum
 {
@@ -1947,6 +1948,105 @@ void copyBlock(void)
 		markYSize = markY2 - markY1;
 		blockCopied = true;
 	}
+}
+
+static bool patternCellHasMaterial(const note_t *cell)
+{
+	return cell->note != 0 || cell->instr != 0 || cell->vol != 0 ||
+		cell->efx != 0 || cell->efxData != 0 || cell->tuneType != 0 ||
+		cell->tuneData != 0;
+}
+
+bool extractBlockToPattern(void)
+{
+	const uint16_t sourcePattern = editor.editPattern;
+	int32_t x1 = pattMark.markX1;
+	int32_t x2 = pattMark.markX2;
+	int32_t y1 = pattMark.markY1;
+	int32_t y2 = pattMark.markY2;
+	const int32_t sourceRows = patternNumRows[sourcePattern];
+
+	/* Match block-copy's inclusive channel/exclusive row convention, while
+	** rejecting bounds that cannot describe any source cell. */
+	if (pattern[sourcePattern] == NULL || song.numChannels <= 0 || sourceRows <= 0 ||
+		x1 < 0 || x2 < 0 || y1 < 0 || y2 <= y1 || x1 > x2 ||
+		x1 >= song.numChannels || y1 >= sourceRows)
+	{
+		okBox(0, "System message", "No valid pattern block is selected.", NULL);
+		return false;
+	}
+
+	x2 = MIN(x2, song.numChannels - 1);
+	y2 = MIN(y2, sourceRows);
+	if (x2 < x1 || y2 <= y1)
+	{
+		okBox(0, "System message", "No valid pattern block is selected.", NULL);
+		return false;
+	}
+
+	bool hasMaterial = false;
+	for (int32_t y = y1; y < y2 && !hasMaterial; y++)
+	{
+		for (int32_t x = x1; x <= x2; x++)
+		{
+			if (patternCellHasMaterial(&pattern[sourcePattern][y * MAX_CHANNELS + x]))
+			{
+				hasMaterial = true;
+				break;
+			}
+		}
+	}
+
+	if (!hasMaterial)
+	{
+		okBox(0, "System message", "The selected pattern block is empty.", NULL);
+		return false;
+	}
+
+	const int16_t destination = findUnusedPattern();
+	if (destination < 0)
+	{
+		okBox(0, "System message", "No unused pattern slot is available.", NULL);
+		return false;
+	}
+
+	const int16_t oldRows = patternNumRows[destination];
+	const int16_t extractedRows = (int16_t)(y2 - y1);
+	if (!undoTransactionBegin("Extract block to pattern") ||
+		!undoTransactionAddPattern((uint16_t)destination))
+	{
+		undoCancelTransaction();
+		okBox(0, "System message", "Not enough memory to create undo data.", NULL);
+		return false;
+	}
+
+	patternNumRows[destination] = extractedRows;
+	const int16_t liveRows = song.currNumRows;
+	if (!allocatePattern((uint16_t)destination))
+	{
+		patternNumRows[destination] = oldRows;
+		song.currNumRows = liveRows;
+		undoCancelTransaction();
+		okBox(0, "System message", "Not enough memory to extract the block.", NULL);
+		return false;
+	}
+	song.currNumRows = liveRows;
+
+	pauseMusic();
+	for (int32_t y = y1; y < y2; y++)
+	{
+		for (int32_t x = x1; x <= x2; x++)
+		{
+			pattern[destination][(y - y1) * MAX_CHANNELS + x] =
+				pattern[sourcePattern][y * MAX_CHANNELS + x];
+		}
+	}
+	resumeMusic();
+
+	patternLauncherNotifyPatternChanged((uint16_t)destination);
+	setSongModifiedFlag();
+	undoTransactionCommit();
+	return true;
 }
 
 void pasteBlock(void)

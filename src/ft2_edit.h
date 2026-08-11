@@ -75,6 +75,7 @@ void pastePattern(void);
 void cutBlock(void);
 void copyBlock(void);
 void pasteBlock(void);
+bool extractBlockToPattern(void);
 void remapBlock(void);
 void remapTrack(void);
 void remapPattern(void);

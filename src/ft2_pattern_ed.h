@@ -60,6 +60,7 @@ extern volatile pattMark_t pattMark; // ft2_pattern_ed.c
 void resetPlaybackTime(void);
 
 bool allocatePattern(uint16_t pattNum);
+int16_t findUnusedPattern(void);
 void killPatternIfUnused(uint16_t pattNum);
 uint8_t getMaxVisibleChannels(void);
 void updatePatternWidth(void);

@@ -40,12 +40,24 @@ Standalone=true
 [Keyboard]
 DiskOpBackspaceParent=false
 PatternBackspacePullUp=false
+F8ExtractBlock=true
 ```
 
 - `DiskOpBackspaceParent`: makes Backspace navigate to the parent folder while
   Disk Op is open.
 - `PatternBackspacePullUp`: makes Backspace delete the current note row and
   pull later notes upward.
+- `F8ExtractBlock`: defaults to `true`, including when the key is missing or
+  malformed. Plain F8 then copies the selected Pattern Editor rectangle to the
+  lowest unused, unreferenced pattern slot. Set it to `false` to restore F8's
+  legacy duplicate octave-6 behavior. Shift/Ctrl/Alt+F8 continue to transpose
+  the current instrument upward in the track/pattern/block, respectively.
+
+Extraction is copy-only: it leaves the source, cursor, selection, clipboard,
+song position, and order list unchanged. Rows are rebased to row `00`, selected
+tracks keep their channel positions, and all other tracks remain empty. The
+new 1–256-row pattern is Matrix-only. Ctrl+Z removes it and Redo recreates the
+same pattern number, row count, XM events, and Tuning/Drift data.
 
 ## Audio
 

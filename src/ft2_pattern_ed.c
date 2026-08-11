@@ -161,7 +161,8 @@ bool allocatePattern(uint16_t pattNum) // for tracker use only, not in loader!
 			return false;
 		}
 
-		song.currNumRows = patternNumRows[pattNum];
+		if (pattNum == song.pattNum)
+			song.currNumRows = patternNumRows[pattNum];
 		patternWasAllocated = true;
 	}
 
@@ -1807,7 +1808,7 @@ void pbPosEdPosDown(void)
 
 static void inheritPatternLengthIfUnused(uint8_t oldPatt, uint8_t newPatt);
 
-static int16_t findUnusedPattern(void)
+int16_t findUnusedPattern(void)
 {
 	for (int16_t pattNum = 0; pattNum < MAX_PATTERNS; pattNum++)
 	{

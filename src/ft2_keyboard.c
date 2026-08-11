@@ -672,6 +672,11 @@ static void handleKeys(SDL_Keycode keycode, SDL_Scancode scanKey)
 			     if (keyb.leftShiftPressed) trackTranspCurInsUp();
 			else if (keyb.leftCtrlPressed)  pattTranspCurInsUp();
 			else if (keyb.leftAltPressed)   blockTranspCurInsUp();
+			else if (tapeheadConfig.f8ExtractBlock)
+			{
+				if (!keyWasRepeated)
+					extractBlockToPattern();
+			}
 			else                            editor.curOctave = 6;
 		}
 		break;

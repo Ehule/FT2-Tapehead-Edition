@@ -776,6 +776,9 @@ static void writeDefaultTapeheadConfig(const UNICHAR *filePathU)
 	fputs("DiskOpBackspaceParent=false\n\n", f);
 	fputs("; Backspace deletes the current note row and pulls later notes upward.\n", f);
 	fputs("PatternBackspacePullUp=false\n\n", f);
+	fputs("; Plain F8 extracts the selected Pattern Editor block to a new Matrix pattern.\n", f);
+	fputs("; Set false to restore the original duplicate octave-6 command.\n", f);
+	fputs("F8ExtractBlock=true\n\n", f);
 	fputs("[Audio]\n\n", f);
 	fputs("; Logical stereo output buses requested from the selected audio device or\n", f);
 	fputs("; exposed as separate ports by \"Tapehead JACK Virtual Outputs\" on Linux.\n", f);
@@ -843,6 +846,7 @@ void loadTapeheadConfig(void)
 {
 	tapeheadConfig.diskOpBackspaceParent = false;
 	tapeheadConfig.patternBackspacePullUp = false;
+	tapeheadConfig.f8ExtractBlock = true;
 	tapeheadConfig.monoOutputs = false;
 	tapeheadConfig.midiPerformanceControl = false;
 	tapeheadConfig.midiProfile = TAPEHEAD_MIDI_PROFILE_NONE;
@@ -1043,6 +1047,8 @@ void loadTapeheadConfig(void)
 				parseBoolValue(value, &tapeheadConfig.diskOpBackspaceParent);
 			else if (!_stricmp(key, "PatternBackspacePullUp"))
 				parseBoolValue(value, &tapeheadConfig.patternBackspacePullUp);
+			else if (!_stricmp(key, "F8ExtractBlock"))
+				parseBoolValue(value, &tapeheadConfig.f8ExtractBlock);
 		}
 		else if (section == TAPEHEAD_SECTION_AUDIO && !_stricmp(key, "OutputBuses"))
 		{
