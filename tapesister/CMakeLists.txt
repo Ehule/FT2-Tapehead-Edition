@@ -15,6 +15,7 @@ add_library(tapesister_core STATIC
     src/ts_audition.c
     src/ts_ui.c
     src/ts_app.c
+    src/ts_presentation.c
 )
 target_include_directories(tapesister_core PUBLIC include)
 target_compile_definitions(tapesister_core PUBLIC

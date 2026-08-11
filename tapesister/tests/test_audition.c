@@ -71,6 +71,8 @@ int main(void) {
     CHECK(ts_audition_note_on(&m, &source, (uint8_t)(40 + n)));
   ts_audition_mix(&m, out, 256);
   CHECK(m.overload);
+  const uint32_t overload_generation = ts_audition_overload_generation(&m);
+  CHECK(overload_generation > 0);
   for (size_t i = 0; i < 512; i++)
     CHECK(isfinite(out[i]) && fabsf(out[i]) <= 1.0f);
   /* Sources are immutable and caller-owned; all active pointers remain
@@ -78,6 +80,11 @@ int main(void) {
   for (size_t i = 0; i < TS_AUDITION_VOICES; i++)
     if (m.voices[i].active)
       CHECK(m.voices[i].source == &source);
+  ts_audition_stop_all(&m);
+  ts_audition_mix(&m, out, TS_AUDITION_RELEASE_RAMP);
+  ts_audition_mix(&m, out, 1);
+  CHECK(!m.overload);
+  CHECK(ts_audition_overload_generation(&m) >= overload_generation);
   puts("PASS audition mixer pitch, ramps, stealing, bounds and lifetime");
   return 0;
 }

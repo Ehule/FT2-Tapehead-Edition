@@ -339,6 +339,6 @@ void ts_ui_draw(ts_framebuffer *fb, const ts_ui_model *m) {
               ts_framebuffer_put(fb, x, y, C_PRESSED);
       }
     }
-  text(fb, 10, 390, "ZSXDCVGBHNJM / Q2W3ER5T6Y7U  [ ] OCT  G GATE  SPACE STOP",
+  text(fb, 10, 390, "ZSXDCVGBHNJM / Q2W3ER5T6Y7U  [ ] OCT  TAB GATE  SPACE STOP",
        C_TEXT);
 }

@@ -2,6 +2,7 @@
 
 #include "tapesister/ts_render.h"
 
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -39,6 +40,7 @@ typedef struct ts_audition_mixer {
   uint64_t next_age;
   ts_audition_mode mode;
   bool overload;
+  atomic_uint_least32_t overload_generation;
 } ts_audition_mixer;
 
 bool ts_audition_init(ts_audition_mixer *mixer, uint32_t device_sample_rate);
@@ -51,3 +53,4 @@ void ts_audition_mix(ts_audition_mixer *mixer, float *stereo,
 size_t ts_audition_active_voices(const ts_audition_mixer *mixer);
 double ts_audition_step_for(uint8_t note, uint8_t root_note,
                             uint32_t source_rate, uint32_t device_rate);
+uint32_t ts_audition_overload_generation(const ts_audition_mixer *mixer);

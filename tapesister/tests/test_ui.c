@@ -1,4 +1,5 @@
 #include "tapesister/ts_app.h"
+#include "tapesister/ts_presentation.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,6 +12,39 @@
     }                                                                          \
   } while (0)
 int main(void) {
+  ts_present_rect present;
+  CHECK(ts_present_fit(1264, 800, &present));
+  CHECK(present.x == 0 && present.y == 0 && present.w == 1264 &&
+        present.h == 800);
+  int logical_x, logical_y;
+  CHECK(ts_present_window_to_logical(&present, 1264, 800, 1264, 800, 0, 0,
+                                     &logical_x, &logical_y));
+  CHECK(logical_x == 0 && logical_y == 0);
+  CHECK(ts_present_window_to_logical(&present, 1264, 800, 1264, 800, 1263, 799,
+                                     &logical_x, &logical_y));
+  CHECK(logical_x == 631 && logical_y == 399);
+  CHECK(!ts_present_window_to_logical(&present, 1264, 800, 1264, 800, 1264, 799,
+                                      &logical_x, &logical_y));
+  CHECK(ts_present_fit(1000, 700, &present));
+  CHECK(present.w == 1000 && present.h == 633 && present.y == 33);
+  CHECK(!ts_present_window_to_logical(&present, 1000, 700, 1000, 700, 500, 32,
+                                      &logical_x, &logical_y));
+  CHECK(ts_present_window_to_logical(&present, 1000, 700, 1000, 700, 500, 33,
+                                     &logical_x, &logical_y));
+  CHECK(logical_y == 0);
+  CHECK(ts_present_fit(1920, 1080, &present));
+  CHECK(present.h == 1080 && present.w > 1700 && present.x > 0);
+  CHECK(ts_present_window_to_logical(&present, 960, 540, 1920, 1080, 480, 270,
+                                     &logical_x, &logical_y));
+  CHECK(logical_x >= 315 && logical_x <= 316 && logical_y == 200);
+  CHECK(ts_present_fit(316, 200, &present));
+  CHECK(present.x == 0 && present.y == 0 && present.w == 316 &&
+        present.h == 200);
+  CHECK(ts_present_fit(1600, 500, &present));
+  CHECK(present.h == 500 && present.w == 790 && present.x == 405);
+  CHECK(ts_present_fit(500, 1000, &present));
+  CHECK(present.w == 500 && present.h == 316 && present.y == 342);
+
   ts_framebuffer *fb = calloc(1, sizeof(*fb));
   CHECK(fb);
   ts_framebuffer_clear(fb, 0);
@@ -28,6 +62,15 @@ int main(void) {
   CHECK(ts_ui_keyboard_hit(52, 340, 3) == 49);
   CHECK(ts_ui_keyboard_hit(21, 350, 3) == -1);
   CHECK(ts_ui_keyboard_hit(610, 350, 3) == -1);
+  bool piano_notes[24] = {0};
+  for (int y = 333; y < 385; y++)
+    for (int x = 22; x < 610; x++) {
+      const int hit = ts_ui_keyboard_hit(x, y, 3);
+      if (hit >= 48 && hit < 72)
+        piano_notes[hit - 48] = true;
+    }
+  for (int i = 0; i < 24; i++)
+    CHECK(piano_notes[i]);
   ts_palette fallback, candidate;
   ts_palette_builtin(&fallback, "default");
   candidate = fallback;
@@ -81,6 +124,39 @@ int main(void) {
   CHECK(ts_app_key_note('Q', 3) == 60);
   CHECK(ts_app_key_note('Z', -1) == 0);
   CHECK(ts_app_key_note('U', 9) == -1);
+  CHECK(ts_app_key_note('G', 3) == 54);
+  CHECK(ts_app_toggle_mode(&app, false));
+  CHECK(app.mode == TS_AUDITION_GATED);
+  CHECK(!ts_app_toggle_mode(&app, true));
+  CHECK(app.mode == TS_AUDITION_GATED);
+
+  ts_app_mouse_result mouse = ts_app_mouse_press(&app, 10, 45 + 2 * 24);
+  CHECK(mouse.selected_recipe == 2 && app.selected == 2);
+  mouse = ts_app_mouse_press(&app, 22, 384);
+  CHECK(mouse.note_on == 48 && app.mouse_note == 48 && app.key_down[48]);
+  mouse = ts_app_mouse_move(&app, 52, 340);
+  CHECK(mouse.note_off == 48 && mouse.note_on == 49 && app.mouse_note == 49);
+  mouse = ts_app_mouse_release(&app);
+  CHECK(mouse.note_off == 49 && app.mouse_note == -1 && !app.key_down[49]);
+  app.mode = TS_AUDITION_ONE_SHOT;
+  mouse = ts_app_mouse_press(&app, 22, 384);
+  CHECK(mouse.note_on == 48);
+  mouse = ts_app_mouse_move(&app, 52, 340);
+  CHECK(mouse.note_off == -1 && mouse.note_on == 49 && app.mouse_note == 49);
+  mouse = ts_app_mouse_release(&app);
+  CHECK(mouse.note_off == -1 && app.mouse_note == -1 && !app.key_down[49]);
+  app.mode = TS_AUDITION_GATED;
+  mouse = ts_app_mouse_press(&app, 22, 384);
+  mouse = ts_app_focus_lost(&app);
+  CHECK(mouse.note_off == 48 && app.mouse_note == -1);
+
+  CHECK(!ts_app_update_overload(&app, 0, 1000));
+  CHECK(ts_app_update_overload(&app, 1, 1100));
+  CHECK(ts_app_update_overload(&app, 1, 1800));
+  CHECK(!ts_app_update_overload(&app, 1, 1851));
+  CHECK(ts_app_update_overload(&app, 2, 1900));
+  CHECK(ts_app_update_overload(&app, 2, 2600));
+  CHECK(!ts_app_update_overload(&app, 2, 2651));
   ts_ui_model model = {0};
   model.recipe_count = 6;
   model.selected_recipe = 0;

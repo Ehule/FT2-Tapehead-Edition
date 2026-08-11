@@ -1,7 +1,7 @@
 #include "tapesister/ts_app.h"
+#include "tapesister/ts_presentation.h"
 
 #include <SDL.h>
-#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -21,22 +21,25 @@ static int ascii_key(SDL_Keycode k) {
     return '0' + (int)(k - SDLK_0);
   return (int)k;
 }
-static bool window_to_logical(SDL_Window *window, int x, int y, float *lx,
-                              float *ly) {
-  int w, h;
-  SDL_GetWindowSize(window, &w, &h);
-  if (w <= 0 || h <= 0)
+static bool update_presentation(SDL_Window *window, SDL_Renderer *renderer,
+                                ts_present_rect *presentation, int *window_w,
+                                int *window_h, int *output_w, int *output_h) {
+  SDL_GetWindowSize(window, window_w, window_h);
+  if (SDL_GetRendererOutputSize(renderer, output_w, output_h) != 0)
     return false;
-  float scale = fminf((float)w / TS_SCREEN_WIDTH, (float)h / TS_SCREEN_HEIGHT);
-  if (scale >= 1.0f)
-    scale = floorf(scale);
-  float rw = TS_SCREEN_WIDTH * scale, rh = TS_SCREEN_HEIGHT * scale;
-  float ox = (w - rw) * 0.5f, oy = (h - rh) * 0.5f;
-  if (x < ox || y < oy || x >= ox + rw || y >= oy + rh)
+  return ts_present_fit(*output_w, *output_h, presentation);
+}
+
+static bool mouse_to_logical(SDL_Window *window, SDL_Renderer *renderer,
+                             ts_present_rect *presentation, int window_x,
+                             int window_y, int *logical_x, int *logical_y) {
+  int window_w, window_h, output_w, output_h;
+  if (!update_presentation(window, renderer, presentation, &window_w, &window_h,
+                           &output_w, &output_h))
     return false;
-  *lx = (x - ox) / scale;
-  *ly = (y - oy) / scale;
-  return true;
+  return ts_present_window_to_logical(presentation, window_w, window_h,
+                                      output_w, output_h, window_x, window_y,
+                                      logical_x, logical_y);
 }
 static void lock_note(SDL_AudioDeviceID dev, audio_context *a,
                       const ts_audition_source *s, int note) {
@@ -52,6 +55,19 @@ static void lock_off(SDL_AudioDeviceID dev, audio_context *a, int note) {
   ts_audition_note_off(&a->mixer, (uint8_t)note);
   if (dev)
     SDL_UnlockAudioDevice(dev);
+}
+
+static void apply_mouse_result(SDL_AudioDeviceID device, audio_context *audio,
+                               ts_app_state *app,
+                               const ts_app_mouse_result result, char *error,
+                               size_t error_capacity) {
+  if (result.selected_recipe >= 0)
+    ts_app_ensure_rendered(app, (size_t)result.selected_recipe, error,
+                           error_capacity);
+  if (result.note_off >= 0)
+    lock_off(device, audio, result.note_off);
+  if (result.note_on >= 0)
+    lock_note(device, audio, &app->bank[app->selected].source, result.note_on);
 }
 
 int main(int argc, char **argv) {
@@ -121,12 +137,6 @@ int main(int argc, char **argv) {
   if (!renderer)
     renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
   SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
-  if (renderer)
-    SDL_RenderSetLogicalSize(renderer, TS_SCREEN_WIDTH, TS_SCREEN_HEIGHT);
-#if SDL_VERSION_ATLEAST(2, 0, 5)
-  if (renderer)
-    SDL_RenderSetIntegerScale(renderer, SDL_TRUE);
-#endif
   SDL_Texture *texture =
       renderer ? SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
                                    SDL_TEXTUREACCESS_STREAMING, TS_SCREEN_WIDTH,
@@ -186,7 +196,8 @@ int main(int argc, char **argv) {
       SDL_UnlockAudioDevice(device);
   }
   bool running = true;
-  int result = 0, mouse_note = -1;
+  int result = 0;
+  ts_present_rect presentation = {0};
   unsigned frames = 0;
   while (running) {
     SDL_Event e;
@@ -207,17 +218,12 @@ int main(int argc, char **argv) {
           app.base_octave--;
         else if (k == SDLK_RIGHTBRACKET && app.base_octave < 9)
           app.base_octave++;
-        else if (k == SDLK_g && !e.key.repeat) {
-          app.mode = app.mode == TS_AUDITION_ONE_SHOT ? TS_AUDITION_GATED
-                                                      : TS_AUDITION_ONE_SHOT;
+        else if (k == SDLK_TAB && ts_app_toggle_mode(&app, e.key.repeat != 0)) {
           if (device)
             SDL_LockAudioDevice(device);
           audio.mixer.mode = app.mode;
           if (device)
             SDL_UnlockAudioDevice(device);
-          int note;
-          if (ts_app_key_press(&app, 'G', false, &note))
-            lock_note(device, &audio, &app.bank[app.selected].source, note);
         } else if (k == SDLK_SPACE) {
           if (device)
             SDL_LockAudioDevice(device);
@@ -239,35 +245,30 @@ int main(int argc, char **argv) {
           lock_off(device, &audio, note);
       } else if (e.type == SDL_MOUSEBUTTONDOWN &&
                  e.button.button == SDL_BUTTON_LEFT) {
-        float lx, ly;
-        if (window_to_logical(window, e.button.x, e.button.y, &lx, &ly)) {
-          int row = ts_ui_recipe_hit((int)lx, (int)ly, app.bank_count);
-          if (row >= 0) {
-            app.selected = (size_t)row;
-            ts_app_ensure_rendered(&app, app.selected, error, sizeof error);
-          } else if ((mouse_note = ts_ui_keyboard_hit((int)lx, (int)ly,
-                                                      app.base_octave)) >= 0) {
-            app.key_down[mouse_note] = true;
-            lock_note(device, &audio, &app.bank[app.selected].source,
-                      mouse_note);
-          }
-        }
+        int lx, ly;
+        if (mouse_to_logical(window, renderer, &presentation, e.button.x,
+                             e.button.y, &lx, &ly))
+          apply_mouse_result(device, &audio, &app,
+                             ts_app_mouse_press(&app, lx, ly), error,
+                             sizeof error);
       } else if (e.type == SDL_MOUSEBUTTONUP &&
                  e.button.button == SDL_BUTTON_LEFT) {
-        if (mouse_note >= 0) {
-          app.key_down[mouse_note] = false;
-          lock_off(device, &audio, mouse_note);
-          mouse_note = -1;
-        }
-      } else if (e.type == SDL_MOUSEMOTION && mouse_note >= 0) {
-        float lx, ly;
-        if (!window_to_logical(window, e.motion.x, e.motion.y, &lx, &ly) ||
-            ts_ui_keyboard_hit((int)lx, (int)ly, app.base_octave) !=
-                mouse_note) {
-          app.key_down[mouse_note] = false;
-          lock_off(device, &audio, mouse_note);
-          mouse_note = -1;
-        }
+        apply_mouse_result(device, &audio, &app, ts_app_mouse_release(&app),
+                           error, sizeof error);
+      } else if (e.type == SDL_MOUSEMOTION && app.mouse_note >= 0) {
+        int lx, ly;
+        ts_app_mouse_result mouse_result;
+        if (mouse_to_logical(window, renderer, &presentation, e.motion.x,
+                             e.motion.y, &lx, &ly))
+          mouse_result = ts_app_mouse_move(&app, lx, ly);
+        else
+          mouse_result = ts_app_mouse_release(&app);
+        apply_mouse_result(device, &audio, &app, mouse_result, error,
+                           sizeof error);
+      } else if (e.type == SDL_WINDOWEVENT &&
+                 e.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
+        apply_mouse_result(device, &audio, &app, ts_app_focus_lost(&app), error,
+                           sizeof error);
       }
     }
     ts_ui_model model = {0};
@@ -280,9 +281,10 @@ int main(int argc, char **argv) {
     if (device)
       SDL_LockAudioDevice(device);
     model.active_voices = ts_audition_active_voices(&audio.mixer);
-    model.overload = audio.mixer.overload;
     if (device)
       SDL_UnlockAudioDevice(device);
+    model.overload = ts_app_update_overload(
+        &app, ts_audition_overload_generation(&audio.mixer), SDL_GetTicks());
     for (size_t i = 0; i < app.bank_count; i++) {
       model.recipes[i] = &app.bank[i].recipe;
       model.renders[i] = &app.bank[i].render;
@@ -305,9 +307,17 @@ int main(int argc, char **argv) {
       running = false;
     }
     SDL_UpdateTexture(texture, NULL, rgba, TS_SCREEN_WIDTH * 4);
+    int window_w, window_h, output_w, output_h;
+    if (!update_presentation(window, renderer, &presentation, &window_w,
+                             &window_h, &output_w, &output_h)) {
+      result = 9;
+      running = false;
+    }
+    SDL_Rect destination = {presentation.x, presentation.y, presentation.w,
+                            presentation.h};
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
     SDL_RenderClear(renderer);
-    SDL_RenderCopy(renderer, texture, NULL, NULL);
+    SDL_RenderCopy(renderer, texture, NULL, &destination);
     SDL_RenderPresent(renderer);
     if (options.smoke_test && ++frames >= 4)
       running = false;

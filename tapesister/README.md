@@ -47,15 +47,21 @@ location, then the configured source fixture directory. Options are
 `--resource-dir PATH`, and `--smoke-test`.
 
 Keyboard notes are `ZSXDCVGBHNJM` and `Q2W3ER5T6Y7U`. `[`/`]` change octave,
-Up/Down select recipes, Enter plays the root, G toggles gating, Space stops all,
-and Escape exits. Because the requested G gate control overlaps the G note key,
-pressing G both toggles the audition mode and plays its mapped note. Recipe rows
-and piano keys are clickable.
+Up/Down select recipes, Enter plays the root, Tab toggles gating, Space stops
+all, and Escape exits. G is only its mapped chromatic note. Recipe rows and
+piano keys are clickable.
+
+The 632x400 framebuffer is fractionally scaled to the largest aspect-correct
+rectangle that fits the renderer output, with nearest-neighbor filtering and
+letterboxing only on the unused axis. The same drawable-aware transform maps
+window mouse coordinates back to logical pixels, including high-DPI windows.
 
 The preview resampler is intentionally linear. SDL requests native-endian
 32-bit float stereo; the mono buffer is copied equally to both channels. The
 callback only mixes pre-rendered immutable buffers. Parsing, rendering, I/O,
 allocation, logging, SDL locking, and UI work happen outside the callback.
+Overload blocks increment an atomic event generation; the UI keeps the warning
+visible for 750ms after the newest event and then clears it automatically.
 
 Palette-file compatibility accepts the six required Tapehead keys
 `PatternText`, `BlockMark`, `TextOnBlock`, `Mouse`, `Desktop`, and `Buttons`

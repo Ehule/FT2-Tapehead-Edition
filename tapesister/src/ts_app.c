@@ -93,6 +93,7 @@ bool ts_app_load_bank(ts_app_state *a, const char *d, const char *extra,
     return false;
   memset(a, 0, sizeof(*a));
   a->base_octave = 3;
+  a->mouse_note = -1;
   a->mode = TS_AUDITION_ONE_SHOT;
   for (int i = 0; i < TS_FACTORY_RECIPES; i++) {
     char p[1024];
@@ -176,6 +177,92 @@ void ts_app_key_release(ts_app_state *a, int key, int *note) {
     if (note)
       *note = n;
   }
+}
+
+bool ts_app_toggle_mode(ts_app_state *a, const bool repeat) {
+  if (a == NULL || repeat)
+    return false;
+  a->mode = a->mode == TS_AUDITION_ONE_SHOT ? TS_AUDITION_GATED
+                                            : TS_AUDITION_ONE_SHOT;
+  return true;
+}
+
+static ts_app_mouse_result empty_mouse_result(void) {
+  ts_app_mouse_result result = {-1, -1, -1};
+  return result;
+}
+
+static void release_mouse_note(ts_app_state *a, ts_app_mouse_result *result) {
+  if (a->mouse_note < 0)
+    return;
+  a->key_down[a->mouse_note] = false;
+  if (a->mode == TS_AUDITION_GATED)
+    result->note_off = a->mouse_note;
+  a->mouse_note = -1;
+}
+
+ts_app_mouse_result ts_app_mouse_press(ts_app_state *a, const int x,
+                                       const int y) {
+  ts_app_mouse_result result = empty_mouse_result();
+  if (a == NULL)
+    return result;
+  release_mouse_note(a, &result);
+  const int recipe = ts_ui_recipe_hit(x, y, a->bank_count);
+  if (recipe >= 0) {
+    a->selected = (size_t)recipe;
+    result.selected_recipe = recipe;
+    return result;
+  }
+  const int note = ts_ui_keyboard_hit(x, y, a->base_octave);
+  if (note >= 0) {
+    a->mouse_note = note;
+    a->key_down[note] = true;
+    result.note_on = note;
+  }
+  return result;
+}
+
+ts_app_mouse_result ts_app_mouse_move(ts_app_state *a, const int x,
+                                      const int y) {
+  ts_app_mouse_result result = empty_mouse_result();
+  if (a == NULL || a->mouse_note < 0)
+    return result;
+  const int note = ts_ui_keyboard_hit(x, y, a->base_octave);
+  if (note == a->mouse_note)
+    return result;
+  release_mouse_note(a, &result);
+  if (note >= 0) {
+    a->mouse_note = note;
+    a->key_down[note] = true;
+    result.note_on = note;
+  }
+  return result;
+}
+
+ts_app_mouse_result ts_app_mouse_release(ts_app_state *a) {
+  ts_app_mouse_result result = empty_mouse_result();
+  if (a != NULL)
+    release_mouse_note(a, &result);
+  return result;
+}
+
+ts_app_mouse_result ts_app_focus_lost(ts_app_state *a) {
+  return ts_app_mouse_release(a);
+}
+
+bool ts_app_update_overload(ts_app_state *a, const uint32_t generation,
+                            const uint64_t now_ms) {
+  if (a == NULL)
+    return false;
+  if (generation != a->overload_generation) {
+    a->overload_generation = generation;
+    a->overload_last_ms = now_ms;
+    a->overload_visible = true;
+  } else if (a->overload_visible && (now_ms < a->overload_last_ms ||
+                                     now_ms - a->overload_last_ms > 750)) {
+    a->overload_visible = false;
+  }
+  return a->overload_visible;
 }
 void ts_app_dispose(ts_app_state *a) {
   if (!a)

@@ -27,6 +27,7 @@ bool ts_audition_init(ts_audition_mixer *mixer, const uint32_t rate) {
   if (mixer == NULL || rate < 8000 || rate > 384000)
     return false;
   memset(mixer, 0, sizeof(*mixer));
+  atomic_init(&mixer->overload_generation, 0);
   mixer->device_sample_rate = rate;
   mixer->mode = TS_AUDITION_ONE_SHOT;
   return true;
@@ -120,6 +121,7 @@ void ts_audition_mix(ts_audition_mixer *m, float *stereo, const size_t frames) {
   memset(stereo, 0, frames * 2U * sizeof(*stereo));
   if (m == NULL)
     return;
+  m->overload = false;
   for (size_t frame = 0; frame < frames; frame++) {
     double sum = 0.0;
     for (size_t i = 0; i < TS_AUDITION_VOICES; i++) {
@@ -163,6 +165,8 @@ void ts_audition_mix(ts_audition_mixer *m, float *stereo, const size_t frames) {
     }
     stereo[frame * 2U] = stereo[frame * 2U + 1U] = (float)sum;
   }
+  if (m->overload)
+    atomic_fetch_add_explicit(&m->overload_generation, 1, memory_order_release);
 }
 
 size_t ts_audition_active_voices(const ts_audition_mixer *m) {
@@ -173,4 +177,10 @@ size_t ts_audition_active_voices(const ts_audition_mixer *m) {
     if (m->voices[i].active)
       count++;
   return count;
+}
+
+uint32_t ts_audition_overload_generation(const ts_audition_mixer *m) {
+  if (m == NULL)
+    return 0;
+  return atomic_load_explicit(&m->overload_generation, memory_order_acquire);
 }
