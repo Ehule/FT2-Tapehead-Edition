@@ -1,0 +1,85 @@
+cmake_minimum_required(VERSION 3.16)
+
+project(tapesister_core VERSION 0.1.0 LANGUAGES C)
+
+option(TAPESISTER_BUILD_SDL "Build the SDL2 TapeSister audition application" ON)
+
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_C_EXTENSIONS OFF)
+
+add_library(tapesister_core STATIC
+    src/ts_render.c
+    src/ts_recipes.c
+    src/ts_io.c
+    src/ts_audition.c
+    src/ts_ui.c
+    src/ts_app.c
+    src/ts_presentation.c
+)
+target_include_directories(tapesister_core PUBLIC include)
+target_compile_definitions(tapesister_core PUBLIC
+    TS_FACTORY_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
+if(NOT MSVC)
+    target_link_libraries(tapesister_core PUBLIC m)
+endif()
+
+if(MSVC)
+    target_compile_options(tapesister_core PRIVATE /W4 /fp:strict)
+else()
+    target_compile_options(tapesister_core PRIVATE
+        -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror
+        -ffp-contract=off
+    )
+endif()
+
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(tapesister_core_tests tests/test_core.c)
+    target_link_libraries(tapesister_core_tests PRIVATE tapesister_core)
+    target_compile_definitions(tapesister_core_tests PRIVATE
+        TS_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
+    add_test(NAME tapesister_core_tests COMMAND tapesister_core_tests)
+
+    add_executable(tapesister_io_tests tests/test_io.c)
+    target_link_libraries(tapesister_io_tests PRIVATE tapesister_core)
+    target_compile_definitions(tapesister_io_tests PRIVATE
+        TS_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
+    add_test(NAME tapesister_io_tests COMMAND tapesister_io_tests)
+
+    add_executable(tapesister_audition_tests tests/test_audition.c)
+    target_link_libraries(tapesister_audition_tests PRIVATE tapesister_core)
+    add_test(NAME tapesister_audition_tests COMMAND tapesister_audition_tests)
+
+    add_executable(tapesister_ui_tests tests/test_ui.c)
+    target_link_libraries(tapesister_ui_tests PRIVATE tapesister_core)
+    add_test(NAME tapesister_ui_tests COMMAND tapesister_ui_tests)
+endif()
+
+if(TAPESISTER_BUILD_SDL)
+    find_package(SDL2 QUIET)
+    if(SDL2_FOUND)
+        add_executable(tapesister src/ts_sdl_main.c)
+        target_link_libraries(tapesister PRIVATE tapesister_core)
+        if(TARGET SDL2::SDL2main)
+            target_link_libraries(tapesister PRIVATE SDL2::SDL2main)
+        endif()
+        if(TARGET SDL2::SDL2)
+            target_link_libraries(tapesister PRIVATE SDL2::SDL2)
+        else()
+            target_include_directories(tapesister SYSTEM PRIVATE ${SDL2_INCLUDE_DIRS})
+            target_link_libraries(tapesister PRIVATE ${SDL2_LIBRARIES})
+        endif()
+        add_custom_command(TARGET tapesister POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
+                "$<TARGET_FILE_DIR:tapesister>/resources/recipes")
+        if(BUILD_TESTING)
+            add_test(NAME tapesister_sdl_smoke COMMAND tapesister --smoke-test)
+            set_tests_properties(tapesister_sdl_smoke PROPERTIES
+                ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_AUDIODRIVER=dummy")
+        endif()
+    else()
+        message(WARNING "SDL2 not found: core/UI/mixer tests build, but the tapesister executable is disabled")
+    endif()
+endif()
