@@ -250,27 +250,32 @@ void setPatternLen(uint16_t pattNum, int16_t numRows)
 	if (pattern[pattNum] != NULL)
 		killPatternIfUnused(pattNum);
 
-	// non-FT2 security
-	song.pattDelTime = 0;
-	song.pattDelTime2 = 0;
-	song.pBreakFlag = false;
-	song.posJumpFlag = false;
-	song.pBreakPos = 0;
-
-	song.currNumRows = numRows;
-	if (song.row >= song.currNumRows)
+	/* Off-screen Matrix patterns can be resized by generic Undo snapshots.
+	** Only the active pattern owns the live editor/playback row context. */
+	if (pattNum == song.pattNum)
 	{
-		song.row = song.currNumRows - 1;
-		editor.row = song.row;
-	}
+		// non-FT2 security for the live playback pattern
+		song.pattDelTime = 0;
+		song.pattDelTime2 = 0;
+		song.pBreakFlag = false;
+		song.posJumpFlag = false;
+		song.pBreakPos = 0;
 
-	checkMarkLimits();
+		song.currNumRows = numRows;
+		if (song.row >= song.currNumRows)
+		{
+			song.row = song.currNumRows - 1;
+			editor.row = song.row;
+		}
+
+		checkMarkLimits();
+		ui.updatePatternEditor = true;
+		ui.updatePosSections = true;
+	}
 
 	if (audioWasntLocked)
 		unlockAudio();
 
-	ui.updatePatternEditor = true;
-	ui.updatePosSections = true;
 }
 
 int16_t getUsedSamples(int16_t smpNum)

@@ -28,6 +28,7 @@ TEST_SCRIPTS = (
 	"test_pattern_layout.py",
 	"test_pattern_colors.py",
 	"test_pattern_palette_native.py",
+	"test_pattern_block_extract.py",
     "test_fasttracks_transport.py",
     "test_multichannel_native.py",
     "test_audio_bus_delivery.py",

@@ -70,7 +70,8 @@ static bool patternTrackIsPopulated(uint8_t patternNum, uint8_t sourceChannel)
 	for (int32_t row = 0; row < numRows; row++, track += MAX_CHANNELS)
 	{
 		if (track->note != 0 || track->instr != 0 || track->vol != 0 ||
-			track->efx != 0 || track->efxData != 0)
+			track->efx != 0 || track->efxData != 0 || track->tuneType != 0 ||
+			track->tuneData != 0)
 		{
 			return true;
 		}

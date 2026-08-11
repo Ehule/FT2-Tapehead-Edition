@@ -334,6 +334,7 @@ typedef struct tapeheadConfig_t
 {
 	bool diskOpBackspaceParent;
 	bool patternBackspacePullUp;
+	bool f8ExtractBlock;
 	bool monoOutputs;
 	bool midiPerformanceControl;
 	bool hdMode;

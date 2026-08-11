@@ -454,6 +454,7 @@ Delete  @T160Delete note or volume column at cursor.
 >Alt+F3 @T160Cut block.
 >Alt+F4 @T160Copy block.
 >Alt+F5 @T160Paste block.
+>F8 @T160Extract block to a Matrix-only pattern (copy-only).
 >Alt+C  @T160Mark current track.
 
 @X040@C001Miscellaneous:
@@ -462,7 +463,7 @@ Right ctrl.  @T160Play song.
 >Right alt    @T160Play pattern.
 >Right shift  @T160Record pattern.
 >Space    @T160Stop/Edit.
->F1..F7 @T160Select octave.
+>F1..F7 @T160Select octave (F8 can restore duplicate octave 6 in tapehead.ini).
 >Key below Esc @T160Increase cursoradd.
 >Sh+(1/2) @T160Decrease cursoradd.
 >CapsLock or <> @T160Enter Keyoff-"note".
