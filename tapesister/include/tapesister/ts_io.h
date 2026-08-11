@@ -53,6 +53,16 @@ ts_io_status ts_wav_save_file(const char *path,
 ts_io_status ts_bake_pair_files(const char *recipe_path, const char *wav_path,
     const ts_recipe *recipe, const ts_rendered_sample *sample,
     ts_io_error *error);
+ts_io_status ts_recipe_replace_file(const char *path, const ts_recipe *recipe,
+    ts_io_error *error);
+ts_io_status ts_bake_pair_replace_files(const char *recipe_path,
+    const char *wav_path, const ts_recipe *recipe,
+    const ts_rendered_sample *sample, ts_io_error *error);
+/* fail_phase: 1 after backups, 2 after recipe publish, 3 after WAV publish. */
+ts_io_status ts_bake_pair_replace_files_test(const char *recipe_path,
+    const char *wav_path, const ts_recipe *recipe,
+    const ts_rendered_sample *sample, unsigned int fail_phase,
+    ts_io_error *error);
 
 /* Deterministic failure injection used by native I/O cleanup tests. */
 ts_io_status ts_recipe_save_file_test(const char *path,

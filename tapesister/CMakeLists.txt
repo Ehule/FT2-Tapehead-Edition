@@ -16,12 +16,16 @@ add_library(tapesister_core STATIC
     src/ts_ui.c
     src/ts_app.c
     src/ts_presentation.c
+    src/ts_editor.c
+    src/ts_preview.c
+    src/ts_text_edit.c
 )
 target_include_directories(tapesister_core PUBLIC include)
 target_compile_definitions(tapesister_core PUBLIC
     TS_FACTORY_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
 if(NOT MSVC)
-    target_link_libraries(tapesister_core PUBLIC m)
+    find_package(Threads REQUIRED)
+    target_link_libraries(tapesister_core PUBLIC m Threads::Threads)
 endif()
 
 if(MSVC)
@@ -54,6 +58,24 @@ if(BUILD_TESTING)
     add_executable(tapesister_ui_tests tests/test_ui.c)
     target_link_libraries(tapesister_ui_tests PRIVATE tapesister_core)
     add_test(NAME tapesister_ui_tests COMMAND tapesister_ui_tests)
+
+    add_executable(tapesister_editor_tests tests/test_editor.c)
+    target_link_libraries(tapesister_editor_tests PRIVATE tapesister_core)
+    add_test(NAME tapesister_editor_tests COMMAND tapesister_editor_tests)
+
+    add_executable(tapesister_preview_tests tests/test_preview.c)
+    target_link_libraries(tapesister_preview_tests PRIVATE tapesister_core)
+    add_test(NAME tapesister_preview_tests COMMAND tapesister_preview_tests)
+
+    add_executable(tapesister_text_edit_tests tests/test_text_edit.c)
+    target_link_libraries(tapesister_text_edit_tests PRIVATE tapesister_core)
+    add_test(NAME tapesister_text_edit_tests COMMAND tapesister_text_edit_tests)
+
+    add_executable(tapesister_session_tests tests/test_session.c)
+    target_link_libraries(tapesister_session_tests PRIVATE tapesister_core)
+    target_compile_definitions(tapesister_session_tests PRIVATE
+        TS_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
+    add_test(NAME tapesister_session_tests COMMAND tapesister_session_tests)
 endif()
 
 if(TAPESISTER_BUILD_SDL)

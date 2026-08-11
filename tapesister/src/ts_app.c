@@ -1,6 +1,7 @@
 #include "tapesister/ts_app.h"
 
 #include <stdio.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -95,6 +96,15 @@ bool ts_app_load_bank(ts_app_state *a, const char *d, const char *extra,
   a->base_octave = 3;
   a->mouse_note = -1;
   a->mode = TS_AUDITION_ONE_SHOT;
+  a->page = TS_PAGE_SOURCE;
+  a->focused_parameter = TS_P_SOURCE;
+  a->session_identity = 1;
+  ts_preview_pool_init(&a->previews);
+  if (!ts_render_worker_create(&a->render_worker)) {
+    snprintf(error, cap, "cannot start render worker");
+    ts_app_dispose(a);
+    return false;
+  }
   for (int i = 0; i < TS_FACTORY_RECIPES; i++) {
     char p[1024];
     snprintf(p, sizeof p, "%s/%s", d, factory_names[i]);
@@ -107,6 +117,11 @@ bool ts_app_load_bank(ts_app_state *a, const char *d, const char *extra,
     a->bank[i].loaded = true;
     a->bank_count++;
   }
+  if (!ts_owned_recipe_copy(&a->baseline, &a->bank[a->selected].recipe)) {
+    snprintf(error, cap, "cannot establish session baseline");
+    ts_app_dispose(a); return false;
+  }
+  a->has_baseline = true;
   if (extra) {
     ts_io_error e;
     if (ts_recipe_load_file(extra, &a->bank[a->bank_count].recipe, &e) !=
@@ -209,8 +224,7 @@ ts_app_mouse_result ts_app_mouse_press(ts_app_state *a, const int x,
   release_mouse_note(a, &result);
   const int recipe = ts_ui_recipe_hit(x, y, a->bank_count);
   if (recipe >= 0) {
-    a->selected = (size_t)recipe;
-    result.selected_recipe = recipe;
+    if (ts_app_select_recipe(a, (size_t)recipe)) result.selected_recipe = recipe;
     return result;
   }
   const int note = ts_ui_keyboard_hit(x, y, a->base_octave);
@@ -264,13 +278,70 @@ bool ts_app_update_overload(ts_app_state *a, const uint32_t generation,
   }
   return a->overload_visible;
 }
+
+bool ts_app_set_page(ts_app_state *a, ts_parameter_page page) {
+  if (!a || page >= TS_EDITOR_PAGE_COUNT) return false;
+  a->page = page;
+  size_t count; const ts_parameter_desc *all=ts_parameter_descriptors(&count);
+  for(size_t i=0;i<count;i++) if(all[i].page==page &&
+      ts_parameter_enabled(all[i].id,&a->bank[a->selected].recipe)) {
+    a->focused_parameter=(int)all[i].id; return true;
+  }
+  return false;
+}
+bool ts_app_page_move(ts_app_state *a,int direction){if(!a||direction==0)return false;int page=((int)a->page+(direction>0?1:5))%(int)TS_EDITOR_PAGE_COUNT;return ts_app_set_page(a,(ts_parameter_page)page);}
+bool ts_app_focus_move(ts_app_state *a,int direction) {
+  if(!a||direction==0)return false;
+  size_t count; const ts_parameter_desc *all=ts_parameter_descriptors(&count);
+  int at=a->focused_parameter;
+  for(size_t attempt=0;attempt<count;attempt++){at=(at+direction+(int)count)%(int)count;
+    if(all[at].page==a->page&&ts_parameter_enabled(all[at].id,&a->bank[a->selected].recipe)){a->focused_parameter=at;return true;}}
+  return false;
+}
+bool ts_app_adjust_parameter(ts_app_state*a,ts_parameter_id id,double steps,bool commit) {
+  if(!a||id>=TS_PARAMETER_COUNT||!ts_parameter_enabled(id,&a->bank[a->selected].recipe))return false;
+  const ts_parameter_desc*d=ts_parameter_by_id(id);double value;if(!ts_parameter_get_number(id,&a->bank[a->selected].recipe,&value))return false;
+  if(commit&&!ts_recipe_history_commit(&a->history,&a->bank[a->selected].recipe))return false;
+  double next=value+steps*d->fine_step;if(d->type==TS_PARAM_BOOLEAN)next=value==0?1:0;
+  if(d->type==TS_PARAM_ENUM){next=fmod(value+steps+(double)d->enum_count,(double)d->enum_count);}
+  if(next<d->minimum)next=d->minimum;
+  if(next>d->maximum)next=d->maximum;
+  if(!ts_parameter_set_number(id,&a->bank[a->selected].recipe,next)){if(commit&&a->history.undo_count)ts_owned_recipe_destroy(&a->history.undo[--a->history.undo_count]);return false;}
+  return ts_app_request_render(a);
+}
+static bool restore_history(ts_app_state*a,bool redo){ts_owned_recipe working={0};if(!ts_owned_recipe_copy(&working,&a->bank[a->selected].recipe))return false;
+  bool ok=redo?ts_recipe_history_redo(&a->history,&working):ts_recipe_history_undo(&a->history,&working);if(!ok){ts_owned_recipe_destroy(&working);return false;}
+  free((void*)a->bank[a->selected].recipe.name);a->bank[a->selected].recipe=working.value;working.name=NULL;return ts_app_request_render(a);}
+bool ts_app_undo(ts_app_state*a){return a&&restore_history(a,false);} bool ts_app_redo(ts_app_state*a){return a&&restore_history(a,true);}
+bool ts_app_commit_parent(ts_app_state*a){if(!a)return false;ts_owned_recipe_destroy(&a->parent);a->has_parent=ts_owned_recipe_copy(&a->parent,&a->bank[a->selected].recipe);return a->has_parent;}
+bool ts_app_update_parent(ts_app_state*a,bool confirmed){return confirmed&&ts_app_commit_parent(a);}
+bool ts_app_dirty(const ts_app_state*a){return a&&(!a->has_saved||!ts_recipe_fields_equal(&a->saved.value,&a->bank[a->selected].recipe));}
+bool ts_app_request_render(ts_app_state*a){if(!a||!a->render_worker)return false;uint64_t g=ts_render_worker_request(a->render_worker,&a->bank[a->selected].recipe);if(!g)return false;a->working_generation=g;a->failed_generation=0;a->render_error[0]=0;return true;}
+bool ts_app_poll_render(ts_app_state*a){if(!a||!a->render_worker)return false;ts_preview*p=ts_render_worker_take(a->render_worker);if(p){if(p->generation==a->working_generation){ts_preview_pool_publish(&a->previews,p);a->published_generation=p->generation;a->preview_session_identity=a->session_identity;}else{atomic_store(&p->retired,true);ts_preview_pool tmp;ts_preview_pool_init(&tmp);p->next=tmp.all;tmp.all=p;tmp.retained=1;ts_preview_pool_collect(&tmp);} }ts_preview_pool_collect(&a->previews);uint64_t failed=0;if(ts_render_worker_failed(a->render_worker,&failed,a->render_error,sizeof a->render_error))a->failed_generation=failed;return p!=NULL;}
+bool ts_app_rendering(ts_app_state*a){return a&&a->render_worker&&a->working_generation!=a->published_generation&&!ts_app_render_failed(a)&&ts_render_worker_rendering(a->render_worker);}
+bool ts_app_render_failed(ts_app_state*a){if(!a||!a->render_worker)return false;uint64_t failed=0;if(ts_render_worker_failed(a->render_worker,&failed,a->render_error,sizeof a->render_error))a->failed_generation=failed;return a->failed_generation==a->working_generation&&failed!=0;}
+bool ts_app_render_matched(const ts_app_state*a){return a&&a->previews.current&&a->published_generation==a->working_generation&&a->failed_generation!=a->working_generation;}
+const ts_audition_source *ts_app_preview_source(const ts_app_state*a){return a&&a->previews.current&&a->preview_session_identity==a->session_identity?&a->previews.current->source:NULL;}
+bool ts_app_set_parameter_text(ts_app_state*a,ts_parameter_id id,const char*text,char*error,size_t cap){if(!a||!text||id>=TS_PARAMETER_COUNT)return false;ts_recipe*r=&a->bank[a->selected].recipe;if(id==TS_P_NAME){size_t n=strlen(text);if(!n||n>TS_RECIPE_NAME_MAX_BYTES||!ts_utf8_valid(text,n)){snprintf(error,cap,"name must be valid UTF-8, 1..127 bytes");return false;}if(!ts_recipe_history_commit(&a->history,r))return false;char*name=malloc(n+1);if(!name){ts_owned_recipe_destroy(&a->history.undo[--a->history.undo_count]);return false;}memcpy(name,text,n+1);free((void*)r->name);r->name=name;return ts_app_request_render(a);}ts_recipe candidate=*r;if(!ts_parameter_parse(id,&candidate,text)){snprintf(error,cap,"invalid or out-of-range value");return false;}if(ts_recipe_fields_equal(&candidate,r))return true;if(!ts_recipe_history_commit(&a->history,r))return false;*r=candidate;return ts_app_request_render(a);}
+bool ts_app_save_recipe_confirmed(ts_app_state*a,const char*path,bool replace,ts_io_error*error){if(!a||!path||strlen(path)>TS_PATH_MAX_BYTES)return false;ts_recipe*r=&a->bank[a->selected].recipe;ts_io_status status=replace?ts_recipe_replace_file(path,r,error):ts_recipe_save_file(path,r,error);if(status!=TS_IO_OK)return false;ts_owned_recipe copy={0};if(!ts_owned_recipe_copy(&copy,r))return false;ts_owned_recipe_destroy(&a->saved);a->saved=copy;a->has_saved=true;snprintf(a->saved_path,sizeof a->saved_path,"%s",path);return true;}
+bool ts_app_save_recipe(ts_app_state*a,const char*path,ts_io_error*error){return ts_app_save_recipe_confirmed(a,path,false,error);}
+bool ts_app_load_recipe(ts_app_state*a,const char*path,ts_io_error*error){if(!a||!path||strlen(path)>TS_PATH_MAX_BYTES)return false;ts_recipe candidate;if(ts_recipe_load_file(path,&candidate,error)!=TS_IO_OK)return false;ts_rendered_sample rendered={0};ts_render_report report;if(!ts_render(&candidate,&rendered,&report)){ts_recipe_loaded_dispose(&candidate);if(error){error->status=TS_IO_INVALID_VALUE;snprintf(error->message,sizeof error->message,"candidate render failed");}return false;}ts_rendered_sample_free(&rendered);ts_owned_recipe saved={0},baseline={0};if(!ts_owned_recipe_copy(&saved,&candidate)||!ts_owned_recipe_copy(&baseline,&candidate)){ts_owned_recipe_destroy(&saved);ts_owned_recipe_destroy(&baseline);ts_recipe_loaded_dispose(&candidate);return false;}uint64_t generation=ts_render_worker_request(a->render_worker,&candidate);if(!generation){ts_owned_recipe_destroy(&saved);ts_owned_recipe_destroy(&baseline);ts_recipe_loaded_dispose(&candidate);return false;}ts_recipe_loaded_dispose(&a->bank[a->selected].recipe);a->bank[a->selected].recipe=candidate;a->bank[a->selected].loaded=true;ts_recipe_history_destroy(&a->history);ts_owned_recipe_destroy(&a->parent);a->has_parent=false;a->has_baked=false;ts_owned_recipe_destroy(&a->saved);a->saved=saved;a->has_saved=true;ts_owned_recipe_destroy(&a->baseline);a->baseline=baseline;a->has_baseline=true;snprintf(a->saved_path,sizeof a->saved_path,"%s",path);a->session_identity++;a->working_generation=generation;a->failed_generation=0;a->render_error[0]=0;return true;}
+bool ts_app_bake_confirmed(ts_app_state*a,const char*recipe_path,const char*wav_path,bool replace,ts_io_error*error){if(!a||!recipe_path||!wav_path||strlen(recipe_path)>TS_PATH_MAX_BYTES||strlen(wav_path)>TS_PATH_MAX_BYTES||!ts_app_render_matched(a))return false;ts_preview*p=a->previews.current;ts_recipe*r=&a->bank[a->selected].recipe;if(p->recipe_identity!=ts_recipe_identity(r))return false;ts_io_status status=replace?ts_bake_pair_replace_files(recipe_path,wav_path,r,&p->render,error):ts_bake_pair_files(recipe_path,wav_path,r,&p->render,error);if(status!=TS_IO_OK)return false;a->has_baked=true;a->baked_recipe_identity=p->recipe_identity;a->baked_pcm_identity=p->pcm_identity;snprintf(a->baked_recipe_path,sizeof a->baked_recipe_path,"%s",recipe_path);snprintf(a->baked_wav_path,sizeof a->baked_wav_path,"%s",wav_path);return true;}
+bool ts_app_bake(ts_app_state*a,const char*recipe_path,const char*wav_path,ts_io_error*error){return ts_app_bake_confirmed(a,recipe_path,wav_path,false,error);}
+bool ts_app_baked(const ts_app_state*a){return a&&a->has_baked&&ts_app_render_matched(a)&&a->previews.current->recipe_identity==a->baked_recipe_identity&&a->previews.current->pcm_identity==a->baked_pcm_identity&&ts_recipe_identity(&a->bank[a->selected].recipe)==a->baked_recipe_identity;}
+bool ts_app_session_requires_discard(const ts_app_state*a){return a&&(a->has_parent||!a->has_baseline||!ts_recipe_fields_equal(&a->baseline.value,&a->bank[a->selected].recipe));}
+bool ts_app_select_recipe_confirmed(ts_app_state*a,size_t index,bool confirmed){if(!a||index>=a->bank_count)return false;if(index==a->selected)return true;if(ts_app_session_requires_discard(a)&&!confirmed)return false;ts_rendered_sample candidate={0};ts_render_report report;if(!ts_render(&a->bank[index].recipe,&candidate,&report))return false;ts_rendered_sample_free(&candidate);ts_owned_recipe baseline={0};if(!ts_owned_recipe_copy(&baseline,&a->bank[index].recipe))return false;uint64_t generation=ts_render_worker_request(a->render_worker,&a->bank[index].recipe);if(!generation){ts_owned_recipe_destroy(&baseline);return false;}a->selected=index;a->session_identity++;a->working_generation=generation;a->failed_generation=0;a->render_error[0]=0;ts_recipe_history_destroy(&a->history);ts_owned_recipe_destroy(&a->parent);a->has_parent=false;a->has_baked=false;ts_owned_recipe_destroy(&a->saved);a->has_saved=false;a->saved_path[0]=0;ts_owned_recipe_destroy(&a->baseline);a->baseline=baseline;a->has_baseline=true;return true;}
+bool ts_app_select_recipe(ts_app_state*a,size_t index){return ts_app_select_recipe_confirmed(a,index,true);}
 void ts_app_dispose(ts_app_state *a) {
   if (!a)
     return;
+  ts_render_worker_destroy(a->render_worker);a->render_worker=NULL;
+  ts_preview_pool_destroy(&a->previews);
   for (size_t i = 0; i < a->bank_count; i++) {
     ts_rendered_sample_free(&a->bank[i].render);
     if (a->bank[i].loaded)
       ts_recipe_loaded_dispose(&a->bank[i].recipe);
   }
+  ts_recipe_history_destroy(&a->history);ts_owned_recipe_destroy(&a->saved);ts_owned_recipe_destroy(&a->parent);ts_owned_recipe_destroy(&a->baseline);
   memset(a, 0, sizeof(*a));
 }

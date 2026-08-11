@@ -677,3 +677,88 @@ ts_io_status ts_bake_pair_files(const char *recipe_path, const char *wav_path,
     return ts_bake_pair_files_test(recipe_path, wav_path, recipe, sample,
         TS_IO_NO_FAILURE, TS_IO_NO_FAILURE, error);
 }
+
+static bool unique_sibling(const char *path, const char *tag, char *out,
+    size_t capacity)
+{
+    for (unsigned int attempt = 0; attempt < 64U; attempt++)
+    {
+        const int count = snprintf(out, capacity, "%s.%s.%ld.%u", path, tag,
+            (long)TS_GETPID(), attempt);
+        if (count < 0 || (size_t)count >= capacity) return false;
+        if (!path_exists(out)) return true;
+    }
+    return false;
+}
+
+ts_io_status ts_recipe_replace_file(const char *path, const ts_recipe *recipe,
+    ts_io_error *error)
+{
+    if (path == NULL || recipe == NULL) return TS_IO_INVALID_ARGUMENT;
+    if (!path_exists(path)) return ts_recipe_save_file(path, recipe, error);
+    char stage[1024], backup[1024];
+    if (!unique_sibling(path, "replace", stage, sizeof stage) ||
+        !unique_sibling(path, "backup", backup, sizeof backup))
+        return TS_IO_OPEN_FAILED;
+    ts_io_status status = ts_recipe_save_file(stage, recipe, error);
+    if (status != TS_IO_OK) return status;
+    if (rename(path, backup) != 0)
+    { TS_UNLINK(stage); return TS_IO_RENAME_FAILED; }
+    if (!publish_no_replace(stage, path))
+    {
+        (void)rename(backup, path); TS_UNLINK(stage);
+        set_error(error, TS_IO_RENAME_FAILED, 0, "replacement rolled back");
+        return TS_IO_RENAME_FAILED;
+    }
+    TS_UNLINK(backup); set_error(error, TS_IO_OK, 0, "ok"); return TS_IO_OK;
+}
+
+ts_io_status ts_bake_pair_replace_files_test(const char *recipe_path,
+    const char *wav_path, const ts_recipe *recipe,
+    const ts_rendered_sample *sample, const unsigned int fail_phase,
+    ts_io_error *error)
+{
+    if (recipe_path == NULL || wav_path == NULL || recipe == NULL ||
+        sample == NULL || strcmp(recipe_path, wav_path) == 0)
+        return TS_IO_INVALID_ARGUMENT;
+    char rs[1024], ws[1024], rb[1024], wb[1024];
+    if (!unique_sibling(recipe_path, "replace", rs, sizeof rs) ||
+        !unique_sibling(wav_path, "replace", ws, sizeof ws) ||
+        !unique_sibling(recipe_path, "backup", rb, sizeof rb) ||
+        !unique_sibling(wav_path, "backup", wb, sizeof wb))
+        return TS_IO_OPEN_FAILED;
+    ts_io_status status = ts_recipe_save_file(rs, recipe, error);
+    if (status == TS_IO_OK) status = ts_wav_save_file(ws, sample, error);
+    if (status != TS_IO_OK) { TS_UNLINK(rs); TS_UNLINK(ws); return status; }
+    const bool had_r = path_exists(recipe_path), had_w = path_exists(wav_path);
+    if ((had_r && rename(recipe_path, rb) != 0) ||
+        (had_w && rename(wav_path, wb) != 0))
+    {
+        if (had_r && !path_exists(recipe_path)) (void)rename(rb, recipe_path);
+        TS_UNLINK(rs); TS_UNLINK(ws); return TS_IO_RENAME_FAILED;
+    }
+    bool recipe_new = false, wav_new = false;
+    if (fail_phase == 1U || !publish_no_replace(rs, recipe_path)) goto rollback;
+    recipe_new = true;
+    if (fail_phase == 2U || !publish_no_replace(ws, wav_path)) goto rollback;
+    wav_new = true;
+    if (fail_phase == 3U) goto rollback;
+    if (had_r) TS_UNLINK(rb);
+    if (had_w) TS_UNLINK(wb);
+    set_error(error, TS_IO_OK, 0, "ok"); return TS_IO_OK;
+rollback:
+    if (recipe_new) TS_UNLINK(recipe_path); else TS_UNLINK(rs);
+    if (wav_new) TS_UNLINK(wav_path); else TS_UNLINK(ws);
+    if (had_r) (void)rename(rb, recipe_path);
+    if (had_w) (void)rename(wb, wav_path);
+    set_error(error, TS_IO_RENAME_FAILED, 0, "pair replacement rolled back");
+    return TS_IO_RENAME_FAILED;
+}
+
+ts_io_status ts_bake_pair_replace_files(const char *recipe_path,
+    const char *wav_path, const ts_recipe *recipe,
+    const ts_rendered_sample *sample, ts_io_error *error)
+{
+    return ts_bake_pair_replace_files_test(recipe_path, wav_path, recipe,
+        sample, 0U, error);
+}
