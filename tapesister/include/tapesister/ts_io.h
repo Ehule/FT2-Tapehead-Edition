@@ -17,6 +17,7 @@ typedef enum ts_io_status
     TS_IO_OPEN_FAILED,
     TS_IO_WRITE_FAILED,
     TS_IO_RENAME_FAILED,
+    TS_IO_ROLLBACK_FAILED,
     TS_IO_TOO_LARGE,
     TS_IO_PARSE_ERROR,
     TS_IO_DUPLICATE_FIELD,
@@ -52,6 +53,19 @@ ts_io_status ts_wav_save_file(const char *path,
     const ts_rendered_sample *sample, ts_io_error *error);
 ts_io_status ts_bake_pair_files(const char *recipe_path, const char *wav_path,
     const ts_recipe *recipe, const ts_rendered_sample *sample,
+    ts_io_error *error);
+ts_io_status ts_recipe_replace_file(const char *path, const ts_recipe *recipe,
+    ts_io_error *error);
+ts_io_status ts_recipe_replace_file_test(const char *path,
+    const ts_recipe *recipe, bool fail_publish, bool fail_restore,
+    ts_io_error *error);
+ts_io_status ts_bake_pair_replace_files(const char *recipe_path,
+    const char *wav_path, const ts_recipe *recipe,
+    const ts_rendered_sample *sample, ts_io_error *error);
+/* fail_phase 1..3 fails publication; 4 recipe restore, 5 WAV restore, 6 both. */
+ts_io_status ts_bake_pair_replace_files_test(const char *recipe_path,
+    const char *wav_path, const ts_recipe *recipe,
+    const ts_rendered_sample *sample, unsigned int fail_phase,
     ts_io_error *error);
 
 /* Deterministic failure injection used by native I/O cleanup tests. */

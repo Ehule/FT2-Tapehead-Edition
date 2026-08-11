@@ -108,6 +108,7 @@ static void text(ts_framebuffer *fb, int x, int y, const char *s, uint8_t c) {
           ts_framebuffer_put(fb, x + xx, y + yy, c);
   }
 }
+static void text_clipped(ts_framebuffer *fb,int x,int y,const char*s,uint8_t c,int width){char clipped[128];size_t max=(size_t)(width/6);if(max>=sizeof clipped)max=sizeof clipped-1;size_t n=strlen(s);if(n>max)n=max;memcpy(clipped,s,n);clipped[n]=0;text(fb,x,y,clipped,c);}
 
 void ts_palette_builtin(ts_palette *p, const char *name) {
   static const uint32_t normal[TS_PALETTE_SIZE] = {
@@ -248,23 +249,29 @@ int ts_ui_keyboard_hit(int x, int y, int octave) {
   int n = 12 * (octave + 1) + white_note[(x - kx) / ww];
   return n <= 127 ? n : -1;
 }
+int ts_ui_tab_hit(int x, int y) {
+  if (x < 190 || x >= 626 || y < 38 || y >= 54) return -1;
+  return (x - 190) * (int)TS_EDITOR_PAGE_COUNT / 436;
+}
+int ts_ui_parameter_hit(int x, int y, ts_parameter_page page) {
+  if (x < 194 || x >= 622 || y < 58 || y >= 170) return -1;
+  const int row = (y - 58) / 14;
+  size_t count; const ts_parameter_desc *all = ts_parameter_descriptors(&count);
+  for (size_t i = 0; i < count; i++)
+    if (all[i].page == page && (int)all[i].order == row) return (int)all[i].id;
+  return -1;
+}
+double ts_ui_slider_position(int x) {
+  if (x <= 420) return 0.0;
+  if (x >= 570) return 1.0;
+  return (double)(x - 420) / 150.0;
+}
+ts_ui_action ts_ui_action_hit(int x,int y){if(y<309||y>=329||x<6||x>=626)return TS_UI_ACTION_NONE;if(x<116)return TS_UI_COMMIT_PARENT;if(x<226)return TS_UI_UPDATE_PARENT;if(x<306)return TS_UI_SAVE;if(x<386)return TS_UI_LOAD;if(x<466)return TS_UI_BAKE;if(x>=506)return TS_UI_MODE;return TS_UI_ACTION_NONE;}
 
-static const char *source_name(ts_source_type v) {
-  static const char *n[] = {"SINE", "TRIANGLE", "SAW", "PULSE", "CLICK"};
-  return n[v];
-}
-static const char *filter_name(ts_filter_mode v) {
-  static const char *n[] = {"LOW PASS", "BAND PASS", "HIGH PASS", "NOTCH"};
-  return n[v];
-}
-static const char *shape_name(ts_shaper_type v) {
-  static const char *n[] = {"SOFT", "HARD", "FOLD"};
-  return n[v];
-}
 void ts_ui_draw(ts_framebuffer *fb, const ts_ui_model *m) {
   ts_framebuffer_clear(fb, C_BG);
   rect(fb, 0, 0, TS_SCREEN_WIDTH, 30, C_PANEL);
-  text(fb, 10, 9, "TAPESISTER 0.1C", C_TEXT);
+  text(fb, 10, 9, "TAPESISTER 0.1D", C_TEXT);
   text(fb, 470, 9, m->overload ? "OVERLOAD" : "AUDIO OK",
        m->overload ? C_WARN : C_WAVE);
   frame(fb, 6, 38, 178, 170);
@@ -279,25 +286,26 @@ void ts_ui_draw(ts_framebuffer *fb, const ts_ui_model *m) {
   const ts_recipe *r = m->recipes[m->selected_recipe];
   const ts_rendered_sample *s = m->renders[m->selected_recipe];
   char line[128];
-  snprintf(line, sizeof line, "NAME %s", r->name);
-  text(fb, 200, 48, line, C_TEXT);
-  snprintf(line, sizeof line, "SOURCE %s  FILTER %s  SHAPER %s",
-           source_name(r->source), filter_name(r->filter_mode),
-           shape_name(r->shaper));
-  text(fb, 200, 62, line, C_TEXT);
-  snprintf(line, sizeof line,
-           "ROOT %u FINE %d/100 CENT DURATION %u MS RATE %u HZ",
-           r->root_midi_note, r->fine_tune_cent100,
-           (unsigned)((uint64_t)r->requested_frames * 1000U / r->sample_rate),
-           r->sample_rate);
-  text(fb, 200, 74, line, C_TEXT);
-  snprintf(line, sizeof line, "FINISH %s  MODE %s  OCTAVE %d  VOICES %u",
-           r->finishing_mode == TS_FINISH_TARGET_PEAK ? "TARGET PEAK"
-                                                      : "FIXED HEADROOM",
-           m->mode == TS_AUDITION_ONE_SHOT ? "ONE SHOT" : "GATED",
-           m->base_octave, (unsigned)m->active_voices);
-  text(fb, 200, 86, line, C_TEXT);
-  rect(fb, 200, 104, 416, 184, C_DARK);
+  static const char *tabs[]={"SOURCE","CONTOUR","FILTER","COLOR","SPACE","SAMPLE"};
+  for (int i=0;i<6;i++) { if (i==(int)m->page) rect(fb,191+i*72,39,71,14,C_HILITE); text(fb,196+i*72,43,tabs[i],C_TEXT); }
+  size_t descriptor_count; const ts_parameter_desc *all=ts_parameter_descriptors(&descriptor_count);
+  for(size_t i=0;i<descriptor_count;i++) if(all[i].page==m->page) {
+    const int y=58+(int)all[i].order*14; const bool enabled=ts_parameter_enabled(all[i].id,r);
+    if((int)all[i].id==m->focused_parameter) rect(fb,194,y,428,13,C_HILITE);
+    text(fb,199,y+3,all[i].label,enabled?C_TEXT:C_DARK);
+    if(all[i].id==TS_P_RENDER_FRAMES) snprintf(line,sizeof line,"%.3f s",(double)r->requested_frames/r->sample_rate);
+    else if(!ts_parameter_format(all[i].id,r,line,sizeof line)) snprintf(line,sizeof line,"?");
+    text(fb,312,y+3,line,enabled?C_TEXT:C_DARK);
+    if(all[i].type!=TS_PARAM_NAME&&all[i].type!=TS_PARAM_ENUM&&all[i].type!=TS_PARAM_BOOLEAN) {
+      double value=0; ts_parameter_get_number(all[i].id,r,&value); double p=ts_parameter_to_position(&all[i],value);
+      rect(fb,420,y+5,151,3,C_DARK); rect(fb,420,y+4+(0),2+(int)(p*149.0),5,enabled?C_WAVE:C_DARK);
+    } else { frame(fb,416,y+1,160,11); }
+    text(fb,582,y+3,"- +",enabled?C_TEXT:C_DARK);
+  }
+  snprintf(line,sizeof line,"%s %s %s %s %s",m->dirty?"DIRTY":"CLEAN",m->rendering?"RENDERING":(m->render_error?"ERROR":"READY"),m->parent_present?(m->parent_match?"PARENT":"PARENT*"):"NO PARENT",m->baked?"BAKED":"UNBAKED",m->mode==TS_AUDITION_ONE_SHOT?"ONE SHOT":"GATED");
+  text(fb,196,174,line,C_TEXT);
+  rect(fb,200,188,416,100,C_DARK);
+  rect(fb,200,237,416,1,C_PANEL);
   if (s && s->samples && s->frame_count) {
     for (int x = 0; x < 416; x++) {
       size_t a = (size_t)x * s->frame_count / 416U,
@@ -311,15 +319,20 @@ void ts_ui_draw(ts_framebuffer *fb, const ts_ui_model *m) {
         if (s->samples[i] > hi)
           hi = s->samples[i];
       }
-      int y1 = 196 - (int)(hi * 84), y2 = 196 - (int)(lo * 84);
+      int y1 = 237 - (int)(hi * 47), y2 = 237 - (int)(lo * 47);
       for (int y = y1; y <= y2; y++)
         ts_framebuffer_put(fb, 200 + x, y, C_WAVE);
     }
   }
-  text(fb, 10, 218, m->audio_status ? m->audio_status : "AUDIO UNKNOWN",
-       C_TEXT);
+  if(m->playback_position>=0.0&&m->playback_position<=1.0) rect(fb,200+(int)(m->playback_position*415.0),188,1,100,C_PRESSED);
+  text_clipped(fb,10,218,m->audio_status ? m->audio_status : "AUDIO UNKNOWN",C_TEXT,170);
   if (m->message)
-    text(fb, 10, 234, m->message, C_WARN);
+    text_clipped(fb,10,234,m->message,C_WARN,170);
+  static const char *actions[]={"COMMIT PARENT","UPDATE PARENT","SAVE","LOAD","BAKE"};
+  const int ax[]={6,116,226,306,386},aw[]={110,110,80,80,80};
+  for(int i=0;i<5;i++){frame(fb,ax[i],309,aw[i],20);text_clipped(fb,ax[i]+4,316,actions[i],i==4&&!m->baked&&m->rendering?C_DARK:C_TEXT,aw[i]-8);}
+  frame(fb,506,309,120,20);text(fb,512,316,m->mode==TS_AUDITION_ONE_SHOT?"ONE SHOT":"GATED",C_TEXT);
+  if(m->modal_title){rect(fb,70,62,492,228,C_PANEL);frame(fb,70,62,492,228);text_clipped(fb,82,74,m->modal_title,C_TEXT,460);if(m->browser){text_clipped(fb,82,88,m->browser->directory,C_WAVE,460);for(size_t i=0;i<10&&i+m->browser->scroll<m->browser->count;i++){size_t at=i+m->browser->scroll;if(at==m->browser->selected)rect(fb,82,101+(int)i*13,456,12,C_HILITE);char entry[280];snprintf(entry,sizeof entry,"%s%s",m->browser->entries[at].directory?"[D] ":"    ",m->browser->entries[at].name);text_clipped(fb,86,104+(int)i*13,entry,C_TEXT,448);}rect(fb,82,235,456,20,C_DARK);text_clipped(fb,88,242,m->browser->filename.text,C_TEXT,444);text(fb,82,270,"HOME      ROOT      PARENT      NEW DIR",C_TEXT);}else{rect(fb,82,98,456,22,C_DARK);text_clipped(fb,88,106,m->modal_text?m->modal_text:"",C_TEXT,444);text(fb,82,270,"ENTER CONFIRM  ESC CANCEL",C_TEXT);}if(m->modal_error)text_clipped(fb,82,258,m->modal_error,C_WARN,460);}
   const int kx = 22, ky = 333, ww = 42;
   for (int i = 0; i < 14; i++) {
     rect(fb, kx + i * ww, ky, ww - 1, 52, C_WHITE);
@@ -339,6 +352,6 @@ void ts_ui_draw(ts_framebuffer *fb, const ts_ui_model *m) {
               ts_framebuffer_put(fb, x, y, C_PRESSED);
       }
     }
-  text(fb, 10, 390, "ZSXDCVGBHNJM / Q2W3ER5T6Y7U  [ ] OCT  TAB GATE  SPACE STOP",
+  text(fb, 10, 390, "NOTES ZSXDCVGBHNJM/Q2W3ER5T6Y7U  CTRL+G GATE  SPACE STOP",
        C_TEXT);
 }

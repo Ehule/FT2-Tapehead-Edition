@@ -1,5 +1,11 @@
 # TapeSister source incubation
 
+The SDL-independent `ts_editor.h` parameter catalog is the authority for six
+renderer-1 pages, formatting, mappings, safe access, canonical identity, and a
+bounded 128-snapshot undo/redo history. Schema v1 has no separate color,
+delay, or ambience bypasses, damping, fades, octave/ratio, or filter-envelope
+decay; the editor does not invent or serialize future parameters.
+
 TapeSister is a standalone sample-instrument forge being incubated in the
 Tapehead source tree. It does not link to FT2 tracker state or modify the
 tracker executable.
@@ -47,9 +53,17 @@ location, then the configured source fixture directory. Options are
 `--resource-dir PATH`, and `--smoke-test`.
 
 Keyboard notes are `ZSXDCVGBHNJM` and `Q2W3ER5T6Y7U`. `[`/`]` change octave,
-Up/Down select recipes, Enter plays the root, Tab toggles gating, Space stops
-all, and Escape exits. G is only its mapped chromatic note. Recipe rows and
+Tab/Shift+Tab and Page Up/Down cycle pages, Up/Down select rows, and
+Left/Right edit. Ctrl+G toggles gating, Ctrl+Z/Ctrl+Y undo/redo,
+Ctrl+P commits Parent, Ctrl+Shift+P updates Parent, Space stops all, and Escape
+exits. G is only its mapped chromatic note. Recipe rows, tabs, controls, and
 piano keys are clickable.
+
+Save, Load, and Bake use the shared internal file browser. It shows the current
+absolute directory, directories before compatible recipe files, a separate
+filename/base-name field, and Home, filesystem Root, Parent, and New Directory
+controls. Successful operations remember their directory; Escape cancels
+without changing session or file identities.
 
 The 632x400 framebuffer is fractionally scaled to the largest aspect-correct
 rectangle that fits the renderer output, with nearest-neighbor filtering and
