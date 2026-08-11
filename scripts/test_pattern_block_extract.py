@@ -29,6 +29,8 @@ assert "blockTranspCurInsUp()" in f8
 assert "tapeheadConfig.f8ExtractBlock" in f8
 assert "!keyWasRepeated" in f8
 assert "editor.curOctave = 6" in f8
+assert "handleKeys(SDL_Keycode keycode, SDL_Scancode scanKey, bool keyWasRepeated)" in keyboard
+assert "handleKeys(keycode, scancode, keyWasRepeated)" in keyboard
 
 assert "tapeheadConfig.f8ExtractBlock = true" in config
 assert '"F8ExtractBlock"' in config

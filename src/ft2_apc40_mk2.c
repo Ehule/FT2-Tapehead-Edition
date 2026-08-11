@@ -681,20 +681,20 @@ static void clearFeedbackSurface(void)
 	{
 		APC_RGB_PRIMARY, APC_RGB_PULSE_EIGHTH, APC_RGB_BLINK_EIGHTH
 	};
-	for (size_t channel = 0;
-		channel < sizeof (rgbChannels) / sizeof (rgbChannels[0]); channel++)
+	for (size_t channelIndex = 0;
+		channelIndex < sizeof (rgbChannels) / sizeof (rgbChannels[0]); channelIndex++)
 	{
 		for (uint8_t note = 0; note < 40; note++)
 		{
 			const uint8_t message[3] =
 			{
-				(uint8_t)(0x90 | rgbChannels[channel]), note, APC_COLOR_OFF
+				(uint8_t)(0x90 | rgbChannels[channelIndex]), note, APC_COLOR_OFF
 			};
 			if (!sendMessage(message)) return;
 		}
 	}
 
-	for (uint8_t channel = 0; channel < 8; channel++)
+	for (uint8_t channelIndex = 0; channelIndex < 8; channelIndex++)
 	{
 		static const uint8_t stripNotes[] =
 		{
@@ -705,7 +705,7 @@ static void clearFeedbackSurface(void)
 		{
 			const uint8_t message[3] =
 			{
-				(uint8_t)(0x90 | channel), stripNotes[i], 0
+				(uint8_t)(0x90 | channelIndex), stripNotes[i], 0
 			};
 			if (!sendMessage(message)) return;
 		}

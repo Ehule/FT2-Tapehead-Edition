@@ -47,7 +47,7 @@ static const uint8_t scancodeKey2Note[52] = // keys (USB usage page standard) to
 	0x00, 0x0D, 0x0F, 0x11
 };
 
-static void handleKeys(SDL_Keycode keycode, SDL_Scancode scanKey);
+static void handleKeys(SDL_Keycode keycode, SDL_Scancode scanKey, bool keyWasRepeated);
 static bool checkModifiedKeys(SDL_Keycode keycode);
 
 static int32_t fastTracksChannelFromScancode(SDL_Scancode scancode)
@@ -339,10 +339,10 @@ void keyDownHandler(SDL_Scancode scancode, SDL_Keycode keycode, SDL_Keymod modif
 	if (keyb.keyModifierDown && checkModifiedKeys(keycode))
 		return;
 
-	handleKeys(keycode, scancode); // no pattern editing, do general key handling
+	handleKeys(keycode, scancode, keyWasRepeated); // no pattern editing, do general key handling
 }
 
-static void handleKeys(SDL_Keycode keycode, SDL_Scancode scanKey)
+static void handleKeys(SDL_Keycode keycode, SDL_Scancode scanKey, bool keyWasRepeated)
 {
 	// if we're holding numpad plus but not pressing bank keys, don't check any other key
 	if (keyb.numPadPlusPressed && !keyb.leftCtrlPressed)
