@@ -153,6 +153,31 @@ For a build without MIDI functionality, use:
 The no-MIDI build does not use ALSA, but it also disables MIDI controllers and
 the APC40 performance surface.
 
+### Linux desktop shortcut conflicts
+
+Linux desktop environments and window managers can intercept keyboard and
+mouse combinations before Tapehead receives them. If a Tapehead command does
+nothing, switches workspaces, opens a window menu, or moves or resizes the
+program window, check the desktop's shortcuts before assuming Tapehead is
+broken.
+
+On Linux Mint Xfce:
+
+1. Open **Settings → Window Manager → Keyboard**. Clear or reassign conflicting
+   window and workspace shortcuts. Common Xfce defaults include
+   `Ctrl+Alt+Arrow` for switching workspaces, `Ctrl+F1` through `Ctrl+F12`
+   for selecting workspaces, and several `Alt+Function key` window commands.
+2. Open **Settings → Keyboard → Application Shortcuts** and check for any
+   additional global shortcuts using the same combinations as Tapehead.
+3. Xfce also uses `Alt+left-drag` and `Alt+right-drag` on a window to move
+   and resize it. In **Settings → Window Manager Tweaks → Accessibility**,
+   change the window-grab key from **Alt** to **Super** if those mouse gestures
+   interfere with Tapehead.
+
+Other desktops such as GNOME, KDE Plasma, Cinnamon, and MATE have equivalent
+window-manager and global-shortcut settings. Reassign only the combinations
+that conflict with Tapehead.
+
 Platform-specific compilation instructions remain in
 [`HOW-TO-COMPILE.txt`](HOW-TO-COMPILE.txt).
 
