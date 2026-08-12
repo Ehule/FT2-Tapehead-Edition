@@ -97,9 +97,64 @@ boundaries.
 
 ## Building and testing
 
+### Linux Mint / Ubuntu quick start
+
+Tapehead's normal Linux build includes MIDI support. Install the compiler,
+SDL2 development files, ALSA development files, Git, and Python 3:
+
+```bash
+sudo apt update
+sudo apt install build-essential libsdl2-dev libasound2-dev git python3
+```
+
+The packages are used for:
+
+- `build-essential` — the GCC/G++ compiler and standard build tools
+- `libsdl2-dev` — windowing, graphics, input, and audio
+- `libasound2-dev` — ALSA MIDI support
+- `git` — downloading and updating the repository
+- `python3` — running Tapehead's regression tests
+
+Download the MIDI performance surface branch and enter its directory:
+
+```bash
+git clone --branch midi-performance-surface --single-branch \
+  https://github.com/Ehule/FT2-Tapehead-Edition.git
+cd FT2-Tapehead-Edition
+```
+
+Build Tapehead:
+
+```bash
+./make-linux.sh
+```
+
+The executable is written to `release/other`. Run it from the repository
+root with:
+
+```bash
+./release/other/ft2-clone
+```
+
+If the shell reports `Permission denied` for the build script, make it
+executable and try again:
+
+```bash
+chmod +x make-linux.sh
+./make-linux.sh
+```
+
+For a build without MIDI functionality, use:
+
+```bash
+./make-linux-nomidi.sh
+```
+
+The no-MIDI build does not use ALSA, but it also disables MIDI controllers and
+the APC40 performance surface.
+
 Platform-specific compilation instructions remain in
-[`HOW-TO-COMPILE.txt`](HOW-TO-COMPILE.txt). Linux convenience scripts are
-provided at the repository root.
+[`HOW-TO-COMPILE.txt`](HOW-TO-COMPILE.txt).
 
 Run every standalone native regression suite with:
 
