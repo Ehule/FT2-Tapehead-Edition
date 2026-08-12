@@ -20,13 +20,15 @@ static bool join(const char*d,const char*n,char*out,size_t c){int k=snprintf(out
 static void copy_text(char*out,size_t capacity,const char*in){size_t n=strlen(in);if(n>=capacity)n=capacity-1;memcpy(out,in,n);out[n]=0;}
 static int compare(const void*a,const void*b){const ts_browser_entry*x=a,*y=b;if(x->directory!=y->directory)return x->directory?-1:1;return strcmp(x->name,y->name);}
 static bool compatible(ts_browser_mode mode,const char*n){if(mode!=TS_BROWSER_LOAD)return true;size_t l=strlen(n);return l>=4&&strcmp(n+l-4,".tsr")==0;}
-static bool scan(ts_file_browser*b,const char*path){b->count=0;b->selected=0;b->scroll=0;
+void ts_file_browser_ensure_visible(ts_file_browser*b){if(!b)return;if(b->count==0){b->selected=b->scroll=0;}else{if(b->selected>=b->count)b->selected=b->count-1;if(b->selected<b->scroll)b->scroll=b->selected;if(b->selected>=b->scroll+TS_BROWSER_VISIBLE_ROWS)b->scroll=b->selected-TS_BROWSER_VISIBLE_ROWS+1;}ft2_ui_scrollbar_set(&b->scrollbar,b->count,TS_BROWSER_VISIBLE_ROWS,b->scroll);}
+bool ts_file_browser_move(ts_file_browser*b,ts_browser_key k){if(!b||!b->count)return false;size_t old=b->selected;if(k==TS_BROWSER_KEY_UP&&b->selected)b->selected--;else if(k==TS_BROWSER_KEY_DOWN&&b->selected+1<b->count)b->selected++;else if(k==TS_BROWSER_KEY_PAGE_UP)b->selected=b->selected<TS_BROWSER_VISIBLE_ROWS?0:b->selected-TS_BROWSER_VISIBLE_ROWS;else if(k==TS_BROWSER_KEY_PAGE_DOWN){b->selected+=TS_BROWSER_VISIBLE_ROWS;if(b->selected>=b->count)b->selected=b->count-1;}else if(k==TS_BROWSER_KEY_HOME)b->selected=0;else if(k==TS_BROWSER_KEY_END)b->selected=b->count-1;ts_file_browser_ensure_visible(b);return old!=b->selected;}
+static bool scan(ts_file_browser*b,const char*path){b->count=0;b->selected=0;b->scroll=0;b->scrollbar=(ft2_ui_scrollbar){.x=520,.y=101,.w=18,.h=130,.arrows=13};
 #ifdef _WIN32
  char pattern[TS_PATH_MAX_BYTES+4];snprintf(pattern,sizeof pattern,"%s\\*",path);WIN32_FIND_DATAA data;HANDLE h=FindFirstFileA(pattern,&data);if(h==INVALID_HANDLE_VALUE)return false;do{if(strcmp(data.cFileName,".")==0||strcmp(data.cFileName,"..")==0)continue;bool dir=(data.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY)!=0;if((dir||compatible(b->mode,data.cFileName))&&b->count<TS_BROWSER_MAX_ENTRIES){ts_browser_entry*e=&b->entries[b->count++];copy_text(e->name,sizeof e->name,data.cFileName);e->directory=dir;}}while(FindNextFileA(h,&data));FindClose(h);
 #else
  DIR*dir=opendir(path);if(!dir)return false;struct dirent*de;while((de=readdir(dir))!=NULL){if(strcmp(de->d_name,".")==0||strcmp(de->d_name,"..")==0)continue;char full[TS_PATH_MAX_BYTES+1];struct stat st;if(!join(path,de->d_name,full,sizeof full)||stat(full,&st)!=0)continue;bool isdir=S_ISDIR(st.st_mode);if((isdir||compatible(b->mode,de->d_name))&&b->count<TS_BROWSER_MAX_ENTRIES){ts_browser_entry*e=&b->entries[b->count++];copy_text(e->name,sizeof e->name,de->d_name);e->directory=isdir;}}closedir(dir);
 #endif
- qsort(b->entries,b->count,sizeof(b->entries[0]),compare);copy_text(b->directory,sizeof b->directory,path);return true;}
+ qsort(b->entries,b->count,sizeof(b->entries[0]),compare);copy_text(b->directory,sizeof b->directory,path);ts_file_browser_ensure_visible(b);return true;}
 bool ts_file_browser_open(ts_file_browser*b,ts_browser_mode m,const char*d,const char*n){if(!b)return false;memset(b,0,sizeof(*b));b->mode=m;if(!d||!d[0])d=".";char absolute[TS_PATH_MAX_BYTES+1];
 #ifdef _WIN32
  if(!_fullpath(absolute,d,sizeof absolute))return false;

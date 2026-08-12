@@ -9,6 +9,7 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
 add_library(tapesister_core STATIC
+    src/ft2_shared_ui.c
     src/ts_render.c
     src/ts_recipes.c
     src/ts_io.c
@@ -87,6 +88,10 @@ if(BUILD_TESTING)
     add_executable(tapesister_file_browser_tests tests/test_file_browser.c)
     target_link_libraries(tapesister_file_browser_tests PRIVATE tapesister_core)
     add_test(NAME tapesister_file_browser_tests COMMAND tapesister_file_browser_tests)
+
+    add_executable(tapesister_shared_ui_tests tests/test_shared_ui.c)
+    target_link_libraries(tapesister_shared_ui_tests PRIVATE tapesister_core)
+    add_test(NAME tapesister_shared_ui_tests COMMAND tapesister_shared_ui_tests)
 endif()
 
 if(TAPESISTER_BUILD_SDL)
