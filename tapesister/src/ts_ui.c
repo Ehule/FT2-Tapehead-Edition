@@ -1,4 +1,5 @@
 #include "tapesister/ts_ui.h"
+#include "ft2_shared_ui.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -332,7 +333,7 @@ void ts_ui_draw(ts_framebuffer *fb, const ts_ui_model *m) {
   const int ax[]={6,116,226,306,386},aw[]={110,110,80,80,80};
   for(int i=0;i<5;i++){frame(fb,ax[i],309,aw[i],20);text_clipped(fb,ax[i]+4,316,actions[i],i==4&&!m->baked&&m->rendering?C_DARK:C_TEXT,aw[i]-8);}
   frame(fb,506,309,120,20);text(fb,512,316,m->mode==TS_AUDITION_ONE_SHOT?"ONE SHOT":"GATED",C_TEXT);
-  if(m->modal_title){rect(fb,70,62,492,228,C_PANEL);frame(fb,70,62,492,228);text_clipped(fb,82,74,m->modal_title,C_TEXT,460);if(m->browser){text_clipped(fb,82,88,m->browser->directory,C_WAVE,460);for(size_t i=0;i<10&&i+m->browser->scroll<m->browser->count;i++){size_t at=i+m->browser->scroll;if(at==m->browser->selected)rect(fb,82,101+(int)i*13,456,12,C_HILITE);char entry[280];snprintf(entry,sizeof entry,"%s%s",m->browser->entries[at].directory?"[D] ":"    ",m->browser->entries[at].name);text_clipped(fb,86,104+(int)i*13,entry,C_TEXT,448);}rect(fb,82,235,456,20,C_DARK);text_clipped(fb,88,242,m->browser->filename.text,C_TEXT,444);text(fb,82,270,"HOME      ROOT      PARENT      NEW DIR",C_TEXT);}else{rect(fb,82,98,456,22,C_DARK);text_clipped(fb,88,106,m->modal_text?m->modal_text:"",C_TEXT,444);text(fb,82,270,"ENTER CONFIRM  ESC CANCEL",C_TEXT);}if(m->modal_error)text_clipped(fb,82,258,m->modal_error,C_WARN,460);}
+  if(m->modal_title){rect(fb,70,62,492,228,C_PANEL);frame(fb,70,62,492,228);text_clipped(fb,82,74,m->modal_title,C_TEXT,460);if(m->browser){ft2_ui_surface surface={fb->pixels,TS_SCREEN_WIDTH,TS_SCREEN_HEIGHT,TS_SCREEN_WIDTH};text_clipped(fb,82,88,m->browser->directory,C_WAVE,430);for(size_t i=0;i<TS_BROWSER_VISIBLE_ROWS&&i+m->browser->scroll<m->browser->count;i++){size_t at=i+m->browser->scroll;if(at==m->browser->selected)rect(fb,82,101+(int)i*13,438,12,C_HILITE);text_clipped(fb,86,104+(int)i*13,m->browser->entries[at].directory?">":"-",m->browser->entries[at].directory?C_WAVE:C_TEXT,8);text_clipped(fb,98,104+(int)i*13,m->browser->entries[at].name,C_TEXT,418);}ft2_ui_scrollbar_draw(&surface,&m->browser->scrollbar,C_PANEL,C_LIGHT,C_DARK,C_TEXT);rect(fb,82,235,456,20,C_DARK);text_clipped(fb,88,242,m->browser->filename.text,C_TEXT,444);const int bx[]={82,182,282,382};const char*bl[]={"HOME","ROOT","PARENT","NEW FOLDER"};for(int i=0;i<4;i++){ft2_ui_bevel(&surface,bx[i],263,96,20,C_PANEL,C_LIGHT,C_DARK,false);ft2_ui_text(&surface,bx[i]+8,269,bl[i],C_TEXT);}}else{rect(fb,82,98,456,22,C_DARK);text_clipped(fb,88,106,m->modal_text?m->modal_text:"",C_TEXT,444);text(fb,82,270,"ENTER CONFIRM  ESC CANCEL",C_TEXT);}if(m->modal_error)text_clipped(fb,82,258,m->modal_error,C_WARN,460);}
   const int kx = 22, ky = 333, ww = 42;
   for (int i = 0; i < 14; i++) {
     rect(fb, kx + i * ww, ky, ww - 1, 52, C_WHITE);
