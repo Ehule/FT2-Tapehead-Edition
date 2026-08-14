@@ -199,6 +199,46 @@ static void testTransactionalArguments(void)
 	bakerAdaptivePatternSetFree(NULL);
 }
 
+static void testEmptyPatternClockAnchors(void)
+{
+	enum { channels = 2, rowCount = 12 };
+	bakerAdaptiveXMCell_t rows[rowCount * channels];
+	memset(rows, 0, sizeof (rows));
+	rows[0].efx = 0x0F;
+	rows[0].efxData = 6;
+	rows[1].note = 12;
+	rows[8 * channels].note = 24;
+
+	bakerAdaptivePatternSet_t *patterns = NULL;
+	bakerAdaptivePatternStats_t stats;
+	assert(bakerAdaptivePatternSetBuild(rows, rowCount, channels, 4,
+		&patterns, &stats) == BAKER_ADAPTIVE_PATTERN_OK);
+	assert(patterns->patternCount == 3 && patterns->rowCount[2] == 4);
+	uint16_t anchorCount = 0;
+	assert(bakerAdaptivePatternSetAnchorEmptyPatterns(patterns, 1,
+		&anchorCount));
+	assert(anchorCount == 1);
+	assert(patterns->pattern[1][0].efx == 0x0F);
+	assert(patterns->pattern[1][0].efxData == 6);
+	for (uint32_t cell = 1; cell < 4 * channels; cell++)
+	{
+		bakerAdaptiveXMCell_t empty = { 0 };
+		assert(memcmp(&patterns->pattern[1][cell], &empty,
+			sizeof (empty)) == 0);
+	}
+
+	anchorCount = UINT16_MAX;
+	assert(bakerAdaptivePatternSetAnchorEmptyPatterns(patterns, 1,
+		&anchorCount));
+	assert(anchorCount == 0);
+	bakerAdaptivePatternSetFree(patterns);
+
+	anchorCount = UINT16_MAX;
+	assert(!bakerAdaptivePatternSetAnchorEmptyPatterns(NULL, 1,
+		&anchorCount));
+	assert(anchorCount == 0);
+}
+
 int main(void)
 {
 	testExactAndPartialPatterns();
@@ -206,6 +246,7 @@ int main(void)
 	testAllPatternGeometries();
 	testMaximumCapacity();
 	testTransactionalArguments();
+	testEmptyPatternClockAnchors();
 	puts("Baker adaptive XM pattern packing tests passed.");
 	return 0;
 }

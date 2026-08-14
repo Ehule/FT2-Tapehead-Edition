@@ -5,6 +5,8 @@
 #include "ft2_header.h"
 #include "ft2_audio.h"
 #include "ft2_baker.h"
+#include "ft2_baker_adaptive_patterns.h"
+#include "ft2_baker_adaptive_xm.h"
 #include "ft2_baker_assets.h"
 #include "ft2_baker_core.h"
 #include "ft2_fasttracks.h"
@@ -31,6 +33,15 @@ enum
 	BAKE_LIVE_SAVING
 };
 
+typedef enum bakerAdaptiveSaveError_t
+{
+	BAKE_ADAPTIVE_SAVE_OK = 0,
+	BAKE_ADAPTIVE_SAVE_NO_MEMORY,
+	BAKE_ADAPTIVE_SAVE_CAPACITY,
+	BAKE_ADAPTIVE_SAVE_SOURCE_SPEED,
+	BAKE_ADAPTIVE_SAVE_INVALID
+} bakerAdaptiveSaveError_t;
+
 static volatile uint8_t bakeState;
 static SDL_Thread *bakeThread;
 static note_t *bakePatterns[MAX_PATTERNS];
@@ -38,6 +49,10 @@ static int32_t bakeRow;
 static uint32_t bakeCollisions, bakeUnsupportedSubTicks, bakeRelocatedEvents;
 static uint32_t bakeMergedDuplicateEvents, bakeStrippedMicrotonalCommands;
 static uint32_t bakePreservedMicrotonalCommands;
+static uint32_t bakeAdaptiveOutputRows;
+static uint16_t bakeAdaptivePatternCount;
+static uint16_t bakeAdaptiveClockAnchors;
+static bakerAdaptiveSaveError_t bakeAdaptiveSaveError;
 static bool bakeOverflow, bakeMergeExactDuplicates, bakeTickResolution;
 static bakerOutputTarget_t bakeOutputTarget;
 static uint16_t bakeInitialBPM, bakeInitialSpeed, bakePatternRows = BAKE_DEFAULT_PATTERN_ROWS;
@@ -427,6 +442,10 @@ static void resetBakeCapture(bool tickResolution)
 	bakeMergedDuplicateEvents = 0;
 	bakeStrippedMicrotonalCommands = 0;
 	bakePreservedMicrotonalCommands = 0;
+	bakeAdaptiveOutputRows = 0;
+	bakeAdaptivePatternCount = 0;
+	bakeAdaptiveClockAnchors = 0;
+	bakeAdaptiveSaveError = BAKE_ADAPTIVE_SAVE_OK;
 	bakeOverflow = false;
 	bakeSkippedSampleLaunches = 0;
 	memset(bakeInvalidSampleTiles, 0, sizeof (bakeInvalidSampleTiles));
@@ -575,6 +594,162 @@ static bool allocateLiveBakePatterns(void)
 	return true;
 }
 
+static bakerAdaptiveXMCell_t adaptiveCellFromNote(const note_t *source)
+{
+	return (bakerAdaptiveXMCell_t)
+	{
+		source->note, source->instr, source->vol, source->efx,
+		source->efxData, source->tuneType, source->tuneData
+	};
+}
+
+static note_t noteFromAdaptiveCell(const bakerAdaptiveXMCell_t *source)
+{
+	return (note_t)
+	{
+		source->note, source->instr, source->vol, source->efx,
+		source->efxData, source->tuneType, source->tuneData
+	};
+}
+
+static void mapAdaptiveEmitterError(bakerAdaptiveXMResult_t result)
+{
+	if (result == BAKER_ADAPTIVE_XM_NO_MEMORY)
+		bakeAdaptiveSaveError = BAKE_ADAPTIVE_SAVE_NO_MEMORY;
+	else if (result == BAKER_ADAPTIVE_XM_CAPACITY)
+		bakeAdaptiveSaveError = BAKE_ADAPTIVE_SAVE_CAPACITY;
+	else if (result == BAKER_ADAPTIVE_XM_SOURCE_SPEED)
+		bakeAdaptiveSaveError = BAKE_ADAPTIVE_SAVE_SOURCE_SPEED;
+	else
+		bakeAdaptiveSaveError = BAKE_ADAPTIVE_SAVE_INVALID;
+}
+
+static bool saveAdaptiveBakeResult(int32_t bakedRows, int32_t outputChannels)
+{
+	const size_t linearCellCount = (size_t)bakedRows * outputChannels;
+	bakerAdaptiveXMCell_t *linearRows = calloc(linearCellCount,
+		sizeof (*linearRows));
+	if (linearRows == NULL)
+	{
+		bakeAdaptiveSaveError = BAKE_ADAPTIVE_SAVE_NO_MEMORY;
+		return false;
+	}
+
+	for (int32_t row = 0; row < bakedRows; row++)
+	{
+		const int32_t patternIndex = row / bakePatternRows;
+		const int32_t patternRow = row % bakePatternRows;
+		if (bakePatterns[patternIndex] == NULL)
+			continue;
+
+		const note_t *source = &bakePatterns[patternIndex]
+			[patternRow * MAX_CHANNELS];
+		for (int32_t channelIndex = 0; channelIndex < outputChannels;
+			channelIndex++)
+		{
+			linearRows[(size_t)row * outputChannels + channelIndex] =
+				adaptiveCellFromNote(&source[channelIndex]);
+		}
+	}
+
+	bakerAdaptiveXMStats_t emitterStats;
+	const bakerAdaptiveXMResult_t emitterResult = bakerAdaptiveXMBuild(
+		linearRows, (uint32_t)bakedRows, (uint8_t)outputChannels, linearRows,
+		(uint32_t)bakedRows, &emitterStats);
+	if (emitterResult != BAKER_ADAPTIVE_XM_OK)
+	{
+		mapAdaptiveEmitterError(emitterResult);
+		free(linearRows);
+		return false;
+	}
+
+	bakerAdaptivePatternSet_t *patternSet = NULL;
+	bakerAdaptivePatternStats_t patternStats;
+	const bakerAdaptivePatternResult_t patternResult =
+		bakerAdaptivePatternSetBuild(linearRows, emitterStats.outputRows,
+			(uint8_t)outputChannels, bakePatternRows, &patternSet,
+			&patternStats);
+	free(linearRows);
+	if (patternResult != BAKER_ADAPTIVE_PATTERN_OK)
+	{
+		bakeAdaptiveSaveError = patternResult == BAKER_ADAPTIVE_PATTERN_NO_MEMORY
+			? BAKE_ADAPTIVE_SAVE_NO_MEMORY :
+			patternResult == BAKER_ADAPTIVE_PATTERN_CAPACITY
+			? BAKE_ADAPTIVE_SAVE_CAPACITY : BAKE_ADAPTIVE_SAVE_INVALID;
+		return false;
+	}
+
+	uint16_t clockAnchors = 0;
+	if (!bakerAdaptivePatternSetAnchorEmptyPatterns(patternSet, 1,
+		&clockAnchors))
+	{
+		bakerAdaptivePatternSetFree(patternSet);
+		bakeAdaptiveSaveError = BAKE_ADAPTIVE_SAVE_INVALID;
+		return false;
+	}
+
+	note_t *exportPatterns[MAX_PATTERNS];
+	memset(exportPatterns, 0, sizeof (exportPatterns));
+	for (uint16_t patternIndex = 0; patternIndex < patternSet->patternCount;
+		patternIndex++)
+	{
+		const uint16_t rows = patternSet->rowCount[patternIndex];
+		exportPatterns[patternIndex] = calloc((size_t)rows * MAX_CHANNELS,
+			sizeof (note_t));
+		if (exportPatterns[patternIndex] == NULL)
+		{
+			for (int32_t i = 0; i < MAX_PATTERNS; i++)
+				free(exportPatterns[i]);
+			bakerAdaptivePatternSetFree(patternSet);
+			bakeAdaptiveSaveError = BAKE_ADAPTIVE_SAVE_NO_MEMORY;
+			return false;
+		}
+
+		for (uint16_t row = 0; row < rows; row++)
+		{
+			for (int32_t channelIndex = 0; channelIndex < outputChannels;
+				channelIndex++)
+			{
+				const bakerAdaptiveXMCell_t *source =
+					&patternSet->pattern[patternIndex]
+						[(size_t)row * outputChannels + channelIndex];
+				exportPatterns[patternIndex]
+					[(size_t)row * MAX_CHANNELS + channelIndex] =
+					noteFromAdaptiveCell(source);
+			}
+		}
+	}
+
+	bakeAdaptiveOutputRows = emitterStats.outputRows;
+	bakeAdaptivePatternCount = patternSet->patternCount;
+	bakeAdaptiveClockAnchors = clockAnchors;
+	song.songLength = patternSet->orderCount;
+	song.songLoopStart = 0;
+	song.numChannels = outputChannels;
+	song.BPM = bakeInitialBPM;
+	song.speed = song.initialSpeed = song.tick = 1;
+	memset(song.orders, 0, sizeof (song.orders));
+	memcpy(song.orders, patternSet->orders, patternSet->orderCount);
+	for (int32_t i = 0; i < MAX_PATTERNS; i++)
+	{
+		pattern[i] = exportPatterns[i];
+		patternNumRows[i] = i < patternSet->patternCount
+			? patternSet->rowCount[i] : 64;
+	}
+	bakerAdaptivePatternSetFree(patternSet);
+
+	const bool saved = saveXM(bakeFilenameU);
+	/* saveXM() may free empty pattern allocations while packing them. Free only
+	** the pointers it leaves installed, then let the caller restore the source
+	** module globals. */
+	for (int32_t i = 0; i < MAX_PATTERNS; i++)
+	{
+		free(pattern[i]);
+		pattern[i] = NULL;
+	}
+	return saved;
+}
+
 static bool saveBakeResult(int32_t bakedRows)
 {
 	if (bakedRows <= 0 || bakedRows > (int32_t)bakerCapacityTicks(bakePatternRows) ||
@@ -592,6 +767,16 @@ static bool saveBakeResult(int32_t bakedRows)
 	memcpy(savedPatternRows, patternNumRows, sizeof (savedPatternRows));
 
 	const int32_t outputChannels = compactBakeChannels(bakedRows);
+	if (bakeOutputTarget == BAKER_OUTPUT_ADAPTIVE_XM)
+	{
+		const bool saved = saveAdaptiveBakeResult(bakedRows, outputChannels);
+		memcpy(pattern, savedPatterns, sizeof (savedPatterns));
+		memcpy(patternNumRows, savedPatternRows, sizeof (savedPatternRows));
+		song = savedSong;
+		bakerAssetsUninstall();
+		return saved;
+	}
+
 	const int32_t patternCount = (bakedRows + bakePatternRows - 1) / bakePatternRows;
 	song.songLength = (uint16_t)patternCount;
 	song.songLoopStart = 0;
@@ -618,6 +803,17 @@ static bool saveBakeResult(int32_t bakedRows)
 	song = savedSong;
 	bakerAssetsUninstall();
 	return saved;
+}
+
+static const char *adaptiveBakeFailureMessage(void)
+{
+	if (bakeAdaptiveSaveError == BAKE_ADAPTIVE_SAVE_NO_MEMORY)
+		return "No file was written. There was not enough memory to build the Adaptive XM.";
+	if (bakeAdaptiveSaveError == BAKE_ADAPTIVE_SAVE_CAPACITY)
+		return "No file was written. The Adaptive XM exceeded the 256-pattern limit.";
+	if (bakeAdaptiveSaveError == BAKE_ADAPTIVE_SAVE_SOURCE_SPEED)
+		return "No file was written. An unexpected source TPL command remained in the canonical bake.";
+	return "No file was written. The Adaptive XM could not be assembled losslessly.";
 }
 
 static int32_t bakeCompositionThread(void *unused)
@@ -695,6 +891,10 @@ static int32_t bakeCompositionThread(void *unused)
 			: "No file was written. There was not enough memory to copy a Sample Morph instrument and sample.";
 		okBoxThreadSafe(0, "Bake Module", message, NULL);
 	}
+	else if (bakeAdaptiveSaveError != BAKE_ADAPTIVE_SAVE_OK)
+	{
+		okBoxThreadSafe(0, "Bake Module", adaptiveBakeFailureMessage(), NULL);
+	}
 	else if (bakeCollisions > 0 || bakeUnsupportedSubTicks > 0)
 	{
 		char message[256];
@@ -706,7 +906,16 @@ static int32_t bakeCompositionThread(void *unused)
 	else if (saved)
 	{
 		char message[256];
-		if (bakeOutputTarget == BAKER_OUTPUT_TAPEHEAD_XM)
+		if (bakeOutputTarget == BAKER_OUTPUT_ADAPTIVE_XM)
+		{
+			snprintf(message, sizeof (message),
+				"Adaptive XM bake complete: %d canonical ticks became %u XM rows in %u patterns with %u empty-pattern clock anchors. %u microtonal commands preserved.",
+				bakedRows, bakeAdaptiveOutputRows,
+				(unsigned)bakeAdaptivePatternCount,
+				(unsigned)bakeAdaptiveClockAnchors,
+				bakePreservedMicrotonalCommands);
+		}
+		else if (bakeOutputTarget == BAKER_OUTPUT_TAPEHEAD_XM)
 		{
 			snprintf(message, sizeof (message),
 				"Tapehead bake complete: %u relocated, %u duplicates merged, %u microtonal commands preserved, %u Sample Matrix launches skipped.",
@@ -880,6 +1089,10 @@ void bakerFinishOrCancelLive(void)
 			: "No file was written. There was not enough memory to copy a Sample Morph instrument and sample.";
 		okBox(0, "Live Bake", message, NULL);
 	}
+	else if (bakeAdaptiveSaveError != BAKE_ADAPTIVE_SAVE_OK)
+	{
+		okBox(0, "Live Bake", adaptiveBakeFailureMessage(), NULL);
+	}
 	else if (collisions > 0 || unsupportedSubTicks > 0)
 	{
 		char message[256];
@@ -895,7 +1108,16 @@ void bakerFinishOrCancelLive(void)
 	else if (saved)
 	{
 		char message[256];
-		if (bakeOutputTarget == BAKER_OUTPUT_TAPEHEAD_XM)
+		if (bakeOutputTarget == BAKER_OUTPUT_ADAPTIVE_XM)
+		{
+			snprintf(message, sizeof (message),
+				"Adaptive XM live bake complete: %d canonical ticks became %u XM rows in %u patterns with %u empty-pattern clock anchors. %u microtonal commands preserved.",
+				bakedRows, bakeAdaptiveOutputRows,
+				(unsigned)bakeAdaptivePatternCount,
+				(unsigned)bakeAdaptiveClockAnchors,
+				bakePreservedMicrotonalCommands);
+		}
+		else if (bakeOutputTarget == BAKER_OUTPUT_TAPEHEAD_XM)
 		{
 			snprintf(message, sizeof (message),
 				"Tapehead live bake complete: %u relocated, %u duplicates merged, %u microtonal commands preserved, %u Sample Matrix launches skipped.",

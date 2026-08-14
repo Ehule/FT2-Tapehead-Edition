@@ -8,7 +8,8 @@
 typedef enum bakerOutputTarget_t
 {
 	BAKER_OUTPUT_STANDARD_XM = 0,
-	BAKER_OUTPUT_TAPEHEAD_XM
+	BAKER_OUTPUT_TAPEHEAD_XM,
+	BAKER_OUTPUT_ADAPTIVE_XM
 } bakerOutputTarget_t;
 
 bool bakerIsRunning(void);

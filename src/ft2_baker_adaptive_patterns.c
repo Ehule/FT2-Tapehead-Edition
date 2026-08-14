@@ -24,6 +24,70 @@ void bakerAdaptivePatternSetFree(bakerAdaptivePatternSet_t *patternSet)
 	free(patternSet);
 }
 
+bool bakerAdaptivePatternSetAnchorEmptyPatterns(
+	bakerAdaptivePatternSet_t *patternSet, uint8_t initialTPL,
+	uint16_t *anchorCount)
+{
+	if (anchorCount != NULL)
+		*anchorCount = 0;
+	if (patternSet == NULL || initialTPL == 0 || initialTPL > 31 ||
+		patternSet->channels == 0 ||
+		patternSet->channels > BAKER_ADAPTIVE_XM_MAX_CHANNELS ||
+		patternSet->orderCount == 0 ||
+		patternSet->orderCount > BAKER_ADAPTIVE_PATTERN_MAX_COUNT ||
+		patternSet->patternCount != patternSet->orderCount)
+	{
+		return false;
+	}
+
+	uint8_t currentTPL = initialTPL;
+	uint16_t inserted = 0;
+	for (uint16_t order = 0; order < patternSet->orderCount; order++)
+	{
+		const uint8_t pattern = patternSet->orders[order];
+		if (pattern >= patternSet->patternCount ||
+			patternSet->pattern[pattern] == NULL ||
+			patternSet->rowCount[pattern] == 0 ||
+			patternSet->rowCount[pattern] > BAKER_ADAPTIVE_PATTERN_MAX_ROWS)
+		{
+			return false;
+		}
+
+		const size_t cells = (size_t)patternSet->rowCount[pattern] *
+			patternSet->channels;
+		bool empty = true;
+		for (size_t cell = 0; cell < cells; cell++)
+		{
+			const bakerAdaptiveXMCell_t *event =
+				&patternSet->pattern[pattern][cell];
+			if (event->note != 0 || event->instr != 0 || event->vol != 0 ||
+				event->efx != 0 || event->efxData != 0 ||
+				event->tuneType != 0 || event->tuneData != 0)
+			{
+				empty = false;
+			}
+			if (event->efx == 0x0F && event->efxData > 0 &&
+				event->efxData < 0x20)
+			{
+				currentTPL = event->efxData;
+			}
+		}
+
+		if (empty)
+		{
+			bakerAdaptiveXMCell_t *anchor =
+				patternSet->pattern[pattern];
+			anchor->efx = 0x0F;
+			anchor->efxData = currentTPL;
+			inserted++;
+		}
+	}
+
+	if (anchorCount != NULL)
+		*anchorCount = inserted;
+	return true;
+}
+
 bakerAdaptivePatternResult_t bakerAdaptivePatternSetBuild(
 	const bakerAdaptiveXMCell_t *linearRows, uint32_t linearRowCount,
 	uint8_t channels, uint16_t patternRows,

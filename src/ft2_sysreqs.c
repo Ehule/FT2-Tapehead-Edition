@@ -19,8 +19,6 @@
 #define SYSTEM_REQUEST_H 67
 #define SYSTEM_REQUEST_Y 249
 #define SYSTEM_REQUEST_Y_EXT 91
-#define SYSTEM_REQUEST_MAX_TEXT_W 300
-#define SYSTEM_REQUEST_TEXT_LINE_H 12
 
 // globalized
 okBoxData_t okBoxData;
@@ -49,7 +47,7 @@ static char *buttonText[NUM_SYSREQ_TYPES][MAX_PUSHBUTTONS] =
 	{ "Fast Bake", "Live", "Cancel", "", "" }, // Tapehead composition baker
 	{ "Used only", "All", "Cancel", "", "" }, // EXS sample exporter
 	{ "This folder", "Subfolders too", "Cancel", "", "" }, // Folder sample scope
-	{ "Standard XM", "Tapehead XM", "Cancel", "", "" } // Baker output target
+	{ "Standard XM", "Tapehead XM", "Adaptive XM", "Cancel", "" } // Baker output target
 };
 
 static SDL_Keycode shortCut[NUM_SYSREQ_TYPES][5] =
@@ -70,7 +68,7 @@ static SDL_Keycode shortCut[NUM_SYSREQ_TYPES][5] =
 	{ SDLK_f, SDLK_l, SDLK_c, 0,      0 }, // Tapehead composition baker
 	{ SDLK_u, SDLK_a, SDLK_c, 0,      0 }, // EXS sample exporter
 	{ SDLK_t, SDLK_s, SDLK_c, 0,      0 }, // Folder sample scope
-	{ SDLK_s, SDLK_t, SDLK_c, 0,      0 } // Baker output target
+	{ SDLK_s, SDLK_t, SDLK_a, SDLK_c, 0 } // Baker output target
 };
 
 typedef struct quitType_t
@@ -219,100 +217,6 @@ static bool mouseButtonUpLogic(uint8_t mouseButton)
 	return true;
 }
 
-static void appendWrappedLine(systemRequestLayout_t *layout, const char *start,
-	size_t length)
-{
-	if (layout->lineCount >= SYSREQ_MAX_MESSAGE_LINES) return;
-	if (length >= SYSREQ_MAX_MESSAGE_LENGTH) length = SYSREQ_MAX_MESSAGE_LENGTH - 1;
-	char *line = layout->lines[layout->lineCount];
-	memcpy(line, start, length);
-	line[length] = '\0';
-	layout->lineWidths[layout->lineCount++] = textWidth(line);
-}
-
-bool systemRequestCalculateLayout(const char *headline, const char *text,
-	uint16_t buttonSpan, uint16_t baseY, systemRequestLayout_t *layout)
-{
-	if (headline == NULL || text == NULL || layout == NULL) return false;
-	memset(layout, 0, sizeof (*layout));
-
-	const char *p = text;
-	while (*p != '\0' && layout->lineCount < SYSREQ_MAX_MESSAGE_LINES)
-	{
-		const char *paragraphEnd = strchr(p, '\n');
-		if (paragraphEnd == NULL) paragraphEnd = p + strlen(p);
-		if (paragraphEnd == p)
-		{
-			appendWrappedLine(layout, "", 0);
-		}
-		else
-		{
-			while (p < paragraphEnd && layout->lineCount < SYSREQ_MAX_MESSAGE_LINES)
-			{
-				while (p < paragraphEnd && *p == ' ') p++;
-				const char *lineStart = p, *best = NULL, *scan = p;
-				while (scan < paragraphEnd)
-				{
-					const char *wordEnd = scan;
-					while (wordEnd < paragraphEnd && *wordEnd != ' ') wordEnd++;
-					char candidate[SYSREQ_MAX_MESSAGE_LENGTH];
-					size_t length = (size_t)(wordEnd - lineStart);
-					if (length >= sizeof candidate) length = sizeof candidate - 1;
-					memcpy(candidate, lineStart, length);
-					candidate[length] = '\0';
-					if (textWidth(candidate) <= SYSTEM_REQUEST_MAX_TEXT_W)
-						best = wordEnd;
-					else
-						break;
-					scan = wordEnd;
-					while (scan < paragraphEnd && *scan == ' ') scan++;
-				}
-
-				if (best == NULL)
-				{
-					best = lineStart + 1;
-					while (best < paragraphEnd)
-					{
-						char candidate[SYSREQ_MAX_MESSAGE_LENGTH];
-						size_t length = (size_t)(best + 1 - lineStart);
-						if (length >= sizeof candidate) break;
-						memcpy(candidate, lineStart, length);
-						candidate[length] = '\0';
-						if (textWidth(candidate) > SYSTEM_REQUEST_MAX_TEXT_W) break;
-						best++;
-					}
-				}
-				appendWrappedLine(layout, lineStart, (size_t)(best - lineStart));
-				p = best;
-			}
-		}
-		p = paragraphEnd;
-		if (*p == '\n') p++;
-	}
-	if (layout->lineCount == 0) appendWrappedLine(layout, "", 0);
-
-	uint16_t widest = textWidth(headline);
-	for (uint16_t i = 0; i < layout->lineCount; i++)
-		if (layout->lineWidths[i] > widest) widest = layout->lineWidths[i];
-	if (buttonSpan > widest) widest = buttonSpan;
-	layout->frameWidth = widest + 100;
-	if (layout->frameWidth > 600) layout->frameWidth = 600;
-	layout->frameHeight = SYSTEM_REQUEST_H +
-		(layout->lineCount - 1) * SYSTEM_REQUEST_TEXT_LINE_H;
-	if (layout->frameHeight > SCREEN_H) layout->frameHeight = SCREEN_H;
-	layout->frameX = (SCREEN_W - layout->frameWidth) / 2;
-	layout->frameY = baseY;
-	if (layout->frameY + layout->frameHeight > SCREEN_H)
-		layout->frameY = SCREEN_H - layout->frameHeight;
-	layout->headlineX = (SCREEN_W - textWidth(headline)) / 2;
-	layout->textY = layout->frameY + 24;
-	layout->buttonY = layout->frameY + 42 +
-		(layout->lineCount - 1) * SYSTEM_REQUEST_TEXT_LINE_H;
-	for (uint16_t i = 0; i < layout->lineCount; i++)
-		layout->lineX[i] = (int16_t)((SCREEN_W - layout->lineWidths[i]) / 2);
-	return true;
-}
-
 // WARNING: This routine must ONLY be called from the main input/video thread!
 // If the checkBoxCallback argument is set, then you get a "Do not show again" checkbox.
 static int16_t okBoxInternal(int16_t type, const char *headline, const char *text,
@@ -368,28 +272,15 @@ static int16_t okBoxInternal(int16_t type, const char *headline, const char *tex
 	if (wlen > 600)
 		wlen = 600;
 
-	uint16_t headlineX = (SCREEN_W - hlen) / 2;
-	uint16_t textX = (SCREEN_W - tlen) / 2;
-	uint16_t x = (SCREEN_W - wlen) / 2;
+	const uint16_t headlineX = (SCREEN_W - hlen) / 2;
+	const uint16_t textX = (SCREEN_W - tlen) / 2;
+	const uint16_t x = (SCREEN_W - wlen) / 2;
 
 	// the dialog's y position differs in extended pattern editor mode
 	const bool bakerOptions = patternRows != NULL;
-	uint16_t dialogHeight = bakerOptions ? 119 : SYSTEM_REQUEST_H;
-	uint16_t y = ui.extendedPatternEditor ? SYSTEM_REQUEST_Y_EXT :
+	const uint16_t dialogHeight = bakerOptions ? 119 : SYSTEM_REQUEST_H;
+	const uint16_t y = ui.extendedPatternEditor ? SYSTEM_REQUEST_Y_EXT :
 		(bakerOptions ? SYSTEM_REQUEST_Y - 52 : SYSTEM_REQUEST_Y);
-	systemRequestLayout_t messageLayout;
-	const bool multiline = !bakerOptions && checkBoxCallback == NULL &&
-		checkBoxState == NULL && (strchr(text, '\n') != NULL ||
-		textWidth(text) > SYSTEM_REQUEST_MAX_TEXT_W);
-	if (multiline && systemRequestCalculateLayout(headline, text, tx, y,
-		&messageLayout))
-	{
-		wlen = messageLayout.frameWidth;
-		dialogHeight = messageLayout.frameHeight;
-		y = messageLayout.frameY;
-		x = messageLayout.frameX;
-		headlineX = messageLayout.headlineX;
-	}
 
 	// find widest button size
 	uint16_t buttonWidthHi = DEFAULT_PUSHBUTTON_WIDTH;
@@ -406,8 +297,7 @@ static int16_t okBoxInternal(int16_t type, const char *headline, const char *tex
 	{
 		p->caption = buttonText[type][i];
 		p->x = ((SCREEN_W - tx) / 2) + (i * 100);
-		p->y = multiline ? messageLayout.buttonY :
-			y + (bakerOptions ? 101 : (checkBoxState != NULL ? 48 : 42));
+		p->y = y + (bakerOptions ? 101 : (checkBoxState != NULL ? 48 : 42));
 		p->w = buttonWidthHi;
 		p->h = 16;
 		p->visible = true;
@@ -550,17 +440,7 @@ static int16_t okBoxInternal(int16_t type, const char *headline, const char *tex
 		// draw OK box
 		drawWindowAt(wlen, dialogHeight, y);
 		textOutShadow(headlineX, y +  4, PAL_FORGRND, PAL_BUTTON2, headline);
-		if (multiline)
-		{
-			for (uint16_t i = 0; i < messageLayout.lineCount; i++)
-				textOutShadow((uint16_t)messageLayout.lineX[i],
-					messageLayout.textY + i * SYSTEM_REQUEST_TEXT_LINE_H,
-					PAL_FORGRND, PAL_BUTTON2, messageLayout.lines[i]);
-		}
-		else
-		{
-			textOutShadow(textX, y + 24, PAL_FORGRND, PAL_BUTTON2, text);
-		}
+		textOutShadow(textX,     y + 24, PAL_FORGRND, PAL_BUTTON2, text);
 		if (bakerOptions)
 		{
 			char patternEstimate[40], maximumEstimate[48];

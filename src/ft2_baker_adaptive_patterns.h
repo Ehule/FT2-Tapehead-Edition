@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdbool.h>
 #include <stdint.h>
 #include "ft2_baker_adaptive_xm.h"
 
@@ -50,3 +51,11 @@ bakerAdaptivePatternResult_t bakerAdaptivePatternSetBuild(
 	bakerAdaptivePatternStats_t *stats);
 
 void bakerAdaptivePatternSetFree(bakerAdaptivePatternSet_t *patternSet);
+
+/* FT2's XM saver rewrites every all-zero pattern to 64 rows and trims trailing
+** all-zero patterns. For each referenced empty adaptive pattern, repeat the
+** currently active F01..F1F clock on its first row. Repeating the same speed
+** is timing-neutral, but preserves every intended pattern row count. */
+bool bakerAdaptivePatternSetAnchorEmptyPatterns(
+	bakerAdaptivePatternSet_t *patternSet, uint8_t initialTPL,
+	uint16_t *anchorCount);

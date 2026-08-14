@@ -880,8 +880,9 @@ static void addBakedFilenameSuffix(bakerOutputTarget_t outputTarget)
 		extension = FReq_FileName + strlen(FReq_FileName);
 
 	size_t baseLength = (size_t)(extension - FReq_FileName);
-	const char *suffix = outputTarget == BAKER_OUTPUT_TAPEHEAD_XM ?
-		"-BAKED-TAPEHEAD" : "-BAKED";
+	const char *suffix = outputTarget == BAKER_OUTPUT_ADAPTIVE_XM
+		? "-BAKED-ADAPTIVE" : outputTarget == BAKER_OUTPUT_TAPEHEAD_XM
+		? "-BAKED-TAPEHEAD" : "-BAKED";
 	size_t suffixLength = strlen(suffix);
 	if (baseLength >= suffixLength &&
 		!_strnicmp(&FReq_FileName[baseLength-suffixLength], suffix, suffixLength))
@@ -891,11 +892,12 @@ static void addBakedFilenameSuffix(bakerOutputTarget_t outputTarget)
 
 	/* If the user already typed the ordinary suffix and then chooses Tapehead
 	** output, extend it instead of producing -BAKED-BAKED-TAPEHEAD. */
-	if (outputTarget == BAKER_OUTPUT_TAPEHEAD_XM && baseLength >= 6 &&
+	if (outputTarget != BAKER_OUTPUT_STANDARD_XM && baseLength >= 6 &&
 		!_strnicmp(&FReq_FileName[baseLength-6], "-BAKED", 6))
 	{
-		suffix = "-TAPEHEAD";
-		suffixLength = 9;
+		suffix = outputTarget == BAKER_OUTPUT_ADAPTIVE_XM
+			? "-ADAPTIVE" : "-TAPEHEAD";
+		suffixLength = strlen(suffix);
 	}
 
 	const size_t extensionLength = strlen(extension) + 1;
@@ -950,12 +952,13 @@ static void diskOpSave(bool checkOverwrite, bool bakeCompositionRequested)
 					return;
 
 				const int16_t outputChoice = okBox(SYSREQ_TYPE_BAKE_OUTPUT,
-					"Bake Output", "Standard strips M/N; Tapehead keeps M/N in an XM file", NULL);
-				if (outputChoice != 1 && outputChoice != 2)
+					"Bake Output", "Adaptive keeps M/N and compresses empty ticks with XM TPL", NULL);
+				if (outputChoice < 1 || outputChoice > 3)
 					return;
 
-				const bakerOutputTarget_t outputTarget = outputChoice == 2 ?
-					BAKER_OUTPUT_TAPEHEAD_XM : BAKER_OUTPUT_STANDARD_XM;
+				const bakerOutputTarget_t outputTarget = outputChoice == 3
+					? BAKER_OUTPUT_ADAPTIVE_XM : outputChoice == 2
+					? BAKER_OUTPUT_TAPEHEAD_XM : BAKER_OUTPUT_STANDARD_XM;
 				addBakedFilenameSuffix(outputTarget);
 
 				if (checkOverwrite && fileExistsAnsi(FReq_FileName))

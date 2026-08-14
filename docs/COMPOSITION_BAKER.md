@@ -89,12 +89,22 @@ loaded composition into the baked result.
 2. Choose the destination directory and filename.
 3. Hold **Shift** and click **Save**.
 4. Choose **Fast Bake** or **Live**.
-5. Choose **Standard XM** or **Tapehead XM**.
+5. Choose **Standard XM**, **Tapehead XM**, or **Adaptive XM**.
 
 Standard output receives `-BAKED.xm`. Tapehead output receives
-`-BAKED-TAPEHEAD.xm`. Normal Save behavior is unchanged when Shift is not held.
+`-BAKED-TAPEHEAD.xm`. Experimental Adaptive output receives
+`-BAKED-ADAPTIVE.xm`. Normal Save behavior is unchanged when Shift is not held.
 
-The window has a compact **Pattern Rows** cycling control with 16, 32, 64, 128, and 256-row choices. Every generated pattern, including the final one, uses that length, making each pattern a predictable Deck Matrix loop unit. The nearby approximate Pattern and Maximum durations use the BPM active when the dialog opens; timing commands encountered later remain part of the baked performance. The selection is retained in `tapehead.ini`, with 256 as the compatibility-safe default.
+**Adaptive XM** is the separate experimental timing path. It preserves the
+Tapehead M/N extension, keeps every event-bearing canonical tick at TPL 1, and
+compresses only completely empty tick spans with ordinary XM `F01`–`F1F`
+commands. It never replaces or changes the existing Standard XM or Tapehead XM
+paths. Its final pattern uses the exact captured row count instead of adding a
+padded tail. FT2 normally rewrites all-zero XM patterns to 64 rows, so a
+repeated current TPL command anchors each otherwise empty adaptive pattern in
+the serialized XM without changing its timing.
+
+The window has a compact **Pattern Rows** cycling control with 16, 32, 64, 128, and 256-row choices. Standard XM and Tapehead XM give every generated pattern, including the final one, that length, making each pattern a predictable Deck Matrix loop unit. Adaptive XM uses that length as its pattern maximum but shortens its final pattern to the exact captured endpoint. The nearby approximate Pattern and Maximum durations use the BPM active when the dialog opens; timing commands encountered later remain part of the baked performance. The selection is retained in `tapehead.ini`, with 256 as the compatibility-safe default.
 
 The window also contains **Merge exact duplicate voices**. It is enabled by
 default and remembers its most recent setting for the current program run.
@@ -122,9 +132,15 @@ source begins at TPL 1, 3, 6, 12, or changes TPL during playback.
 This lets fractional, mixed, and fast ratios—including `5:1`—cross several
 private rows without forcing those events into one master-row cell.
 
-Output uses **TPL 1**. Source `F01`–`F1F` timing commands have
+Standard XM and Tapehead XM output use **TPL 1**. Source `F01`–`F1F` timing commands have
 already shaped the expanded timeline and are removed. BPM commands remain
 ordinary XM data.
+
+Adaptive XM begins at TPL 1, preserves those same canonical event ticks at TPL
+1, and combines only empty spans using TPL values up to 31. A one-tick empty
+reset row restores TPL 1 before every later event row, so continuous effects,
+retriggers, BPM changes, strumming, and M/N data retain their canonical Baker
+behavior.
 
 ## Live Bake
 

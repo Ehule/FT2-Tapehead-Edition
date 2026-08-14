@@ -50,10 +50,13 @@ def main() -> None:
     assert "microtonalEffectIsPitchExtension(flattened.efx)" in baker
     assert "bakeOutputTarget == BAKER_OUTPUT_STANDARD_XM" in baker
     assert "bakePreservedMicrotonalCommands++" in baker
+    assert "BAKER_OUTPUT_ADAPTIVE_XM" in baker
+    assert "saveAdaptiveBakeResult" in baker
     assert "saveXM(bakeFilenameU) : saveStandardXM(bakeFilenameU)" in baker
     assert "Strip the extension deliberately" in baker
     assert "SYSREQ_TYPE_BAKE_OUTPUT" in diskop
-    assert '"-BAKED-TAPEHEAD" : "-BAKED"' in diskop
+    assert '"-BAKED-ADAPTIVE"' in diskop
+    assert '"-BAKED-TAPEHEAD"' in diskop
     assert "standardXMSave && microtonalEffectIsPitchExtension(bytes[3])" in saver
     print("Microtonal playback, strum and compatibility-bake hooks verified.")
 
