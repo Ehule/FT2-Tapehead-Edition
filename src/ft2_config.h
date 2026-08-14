@@ -337,6 +337,7 @@ typedef struct tapeheadConfig_t
 	bool f8ExtractBlock;
 	bool monoOutputs;
 	bool midiPerformanceControl;
+	bool showSplashScreen;
 	bool hdMode;
 	bool launcherMode;
 	bool launcherStandalone;

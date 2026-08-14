@@ -26,6 +26,7 @@ set(TAPEHEAD_RUNTIME_ASSETS
     "${ft2-clone_SOURCE_DIR}/release/other/FT2.CFG"
     "${ft2-clone_SOURCE_DIR}/release/other/tapehead.ini"
     "${ft2-clone_SOURCE_DIR}/release/other/fastTracksLogoBadges.bmp"
+    "${ft2-clone_SOURCE_DIR}/release/other/tapeheadSplash.png"
 )
 
 foreach(asset IN LISTS TAPEHEAD_RUNTIME_ASSETS)

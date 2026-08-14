@@ -9,7 +9,7 @@ fi
 
 SOURCE_DIR="release/other"
 DEST_DIR="$1"
-ASSETS="FT2.CFG tapehead.ini fastTracksLogoBadges.bmp"
+ASSETS="FT2.CFG tapehead.ini fastTracksLogoBadges.bmp tapeheadSplash.png"
 
 mkdir -p "$DEST_DIR"
 

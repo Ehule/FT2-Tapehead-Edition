@@ -748,6 +748,9 @@ static void writeDefaultTapeheadConfig(const UNICHAR *filePathU)
 	fputs("; Changes are loaded when the program starts.\n", f);
 	fputs("; Invalid or missing values use the safe built-in defaults.\n\n", f);
 	fputs("[Video]\n\n", f);
+	fputs("; Show the Tapehead artwork for up to five seconds at startup.\n", f);
+	fputs("; Press any key or mouse button to dismiss it immediately.\n", f);
+	fputs("showSplashScreen=true\n\n", f);
 	fputs("; Experimental crisp HD renderer. The layout and mouse map stay exactly\n", f);
 	fputs("; 632x400, but the final image is rebuilt at 2x or 3x resolution.\n", f);
 	fputs("; Disable this here if the HD window is unsuitable for the current display.\n", f);
@@ -849,6 +852,8 @@ void loadTapeheadConfig(void)
 	tapeheadConfig.f8ExtractBlock = true;
 	tapeheadConfig.monoOutputs = false;
 	tapeheadConfig.midiPerformanceControl = false;
+	/* Compatibility default for tapehead.ini files created before the splash. */
+	tapeheadConfig.showSplashScreen = true;
 	tapeheadConfig.midiProfile = TAPEHEAD_MIDI_PROFILE_NONE;
 	tapeheadConfig.apc40RGBBrightness = 100;
 	tapeheadConfig.trackTrimMaxPercent = 200;
@@ -958,7 +963,11 @@ void loadTapeheadConfig(void)
 
 		if (section == TAPEHEAD_SECTION_VIDEO)
 		{
-			if (!_stricmp(key, "HDMode"))
+			if (!_stricmp(key, "showSplashScreen"))
+			{
+				parseBoolValue(value, &tapeheadConfig.showSplashScreen);
+			}
+			else if (!_stricmp(key, "HDMode"))
 			{
 				parseBoolValue(value, &tapeheadConfig.hdMode);
 			}

@@ -7,6 +7,7 @@ rtmidi: src\rtmidi\LICENSE.txt
 minivorbis: "src\smploaders\minivorbis license.txt"
 minimp3: "src\smploaders\minimp3 license.txt"
 miniflac: "src\smploaders\miniflac license.txt"
+stb_image: "src\third_party\LICENSE.stb"
 SDL2: vs2019_project\ft2-clone\sdl\LICENSE.txt
 
 Graphics, except a few bitmaps: by Magnus Högdahl
