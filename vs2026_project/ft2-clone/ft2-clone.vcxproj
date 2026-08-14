@@ -302,6 +302,9 @@
     <ClCompile Include="..\..\src\ft2_baker.c" />
     <ClCompile Include="..\..\src\ft2_baker_assets.c" />
     <ClCompile Include="..\..\src\ft2_baker_core.c" />
+    <ClCompile Include="..\..\src\ft2_baker_adaptive_patterns.c" />
+    <ClCompile Include="..\..\src\ft2_baker_adaptive_xm.c" />
+    <ClCompile Include="..\..\src\ft2_baker_timeline_planner.c" />
     <ClCompile Include="..\..\src\ft2_bmp.c" />
     <ClCompile Include="..\..\src\ft2_checkboxes.c" />
     <ClCompile Include="..\..\src\ft2_config.c" />
@@ -413,6 +416,9 @@
     <ClInclude Include="..\..\src\ft2_baker.h" />
     <ClInclude Include="..\..\src\ft2_baker_assets.h" />
     <ClInclude Include="..\..\src\ft2_baker_core.h" />
+    <ClInclude Include="..\..\src\ft2_baker_adaptive_patterns.h" />
+    <ClInclude Include="..\..\src\ft2_baker_adaptive_xm.h" />
+    <ClInclude Include="..\..\src\ft2_baker_timeline_planner.h" />
     <ClInclude Include="..\..\src\ft2_bmp.h" />
     <ClInclude Include="..\..\src\ft2_checkboxes.h" />
     <ClInclude Include="..\..\src\ft2_config.h" />
