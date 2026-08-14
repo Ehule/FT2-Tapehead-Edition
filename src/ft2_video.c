@@ -45,6 +45,32 @@ static const uint8_t textCursorData[12] =
 	PAL_FORGRND, PAL_FORGRND, PAL_FORGRND
 };
 
+#if defined _WIN32 || defined __linux__
+static void setTapeheadWindowIcon(void)
+{
+	SDL_Surface *icon = NULL;
+	char path[PATH_MAX + 1];
+	char *basePath = SDL_GetBasePath();
+	if (basePath != NULL)
+	{
+		const int32_t charsWritten = snprintf(path, sizeof (path), "%s%s",
+			basePath, "tapehead-icon.bmp");
+		if (charsWritten > 0 && charsWritten < (int32_t)sizeof (path))
+			icon = SDL_LoadBMP(path);
+		SDL_free(basePath);
+	}
+
+	if (icon == NULL)
+		icon = SDL_LoadBMP("src/gfxdata/icon/tapehead/tapehead-icon.bmp");
+
+	if (icon != NULL)
+	{
+		SDL_SetWindowIcon(video.window, icon);
+		SDL_FreeSurface(icon);
+	}
+}
+#endif
+
 video_t video; // globalized
 
 static bool songIsModified;
@@ -1402,6 +1428,10 @@ bool setupWindow(void)
 		showErrorMsgBox("Couldn't create SDL window:\n%s", SDL_GetError());
 		return false;
 	}
+
+#if defined _WIN32 || defined __linux__
+	setTapeheadWindowIcon();
+#endif
 
 #ifdef __APPLE__ // for macOS we need to do this here for reasons I have forgotten
 	SDL_PumpEvents();

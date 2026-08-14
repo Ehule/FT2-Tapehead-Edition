@@ -30,4 +30,8 @@ BEGIN
 	END
 END
 
+#ifdef TAPEHEAD_ICON_AVAILABLE
+IDI_MAIN_ICON ICON "gfxdata\\icon\\tapehead\\tapehead.ico"
+#else
 IDI_MAIN_ICON ICON "gfxdata\\icon\\ft2-clone.ico"
+#endif

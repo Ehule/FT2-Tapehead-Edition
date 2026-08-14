@@ -23,3 +23,8 @@ for asset in $ASSETS; do
         cp "$SOURCE_DIR/$asset" "$DEST_DIR/$asset"
     fi
 done
+
+OPTIONAL_APP_ICON="src/gfxdata/icon/tapehead/tapehead-icon.bmp"
+if [ -f "$OPTIONAL_APP_ICON" ] && [ "$OPTIONAL_APP_ICON" != "$DEST_DIR/tapehead-icon.bmp" ]; then
+    cp "$OPTIONAL_APP_ICON" "$DEST_DIR/tapehead-icon.bmp"
+fi

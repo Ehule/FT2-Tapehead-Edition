@@ -487,17 +487,21 @@
     <ClInclude Include="..\..\src\smploaders\minivorbis.h" />
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="..\..\src\ft2-clone.rc" />
+    <ResourceCompile Include="..\..\src\ft2-clone.rc">
+      <PreprocessorDefinitions Condition="Exists('$(ProjectDir)..\..\src\gfxdata\icon\tapehead\tapehead.ico')">TAPEHEAD_ICON_AVAILABLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ResourceCompile>
   </ItemGroup>
   <ItemGroup>
     <TapeheadRuntimeAsset Include="$(ProjectDir)..\..\release\other\FT2.CFG" />
     <TapeheadRuntimeAsset Include="$(ProjectDir)..\..\release\other\tapehead.ini" />
     <TapeheadRuntimeAsset Include="$(ProjectDir)..\..\release\other\fastTracksLogoBadges.bmp" />
     <TapeheadRuntimeAsset Include="$(ProjectDir)..\..\release\other\tapeheadSplash.png" />
+    <TapeheadOptionalRuntimeAsset Include="$(ProjectDir)..\..\src\gfxdata\icon\tapehead\tapehead-icon.bmp" Condition="Exists('$(ProjectDir)..\..\src\gfxdata\icon\tapehead\tapehead-icon.bmp')" />
   </ItemGroup>
   <Target Name="CopyTapeheadRuntimeAssets" AfterTargets="Build">
     <Error Condition="!Exists('%(TapeheadRuntimeAsset.Identity)')" Text="Missing required Tapehead runtime asset: %(TapeheadRuntimeAsset.Identity)" />
     <Copy SourceFiles="@(TapeheadRuntimeAsset)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(TapeheadOptionalRuntimeAsset)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" Condition="'@(TapeheadOptionalRuntimeAsset)' != ''" />
   </Target>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

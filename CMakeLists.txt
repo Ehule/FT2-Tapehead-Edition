@@ -22,12 +22,26 @@ file(GLOB ft2-clone_SRC
 
 add_executable(ft2-clone ${ft2-clone_SRC})
 
+if(WIN32)
+    target_sources(ft2-clone PRIVATE
+        "${ft2-clone_SOURCE_DIR}/src/ft2-clone.rc")
+
+    if(EXISTS "${ft2-clone_SOURCE_DIR}/src/gfxdata/icon/tapehead/tapehead.ico")
+        set_source_files_properties(
+            "${ft2-clone_SOURCE_DIR}/src/ft2-clone.rc"
+            PROPERTIES COMPILE_DEFINITIONS TAPEHEAD_ICON_AVAILABLE)
+    endif()
+endif()
+
 set(TAPEHEAD_RUNTIME_ASSETS
     "${ft2-clone_SOURCE_DIR}/release/other/FT2.CFG"
     "${ft2-clone_SOURCE_DIR}/release/other/tapehead.ini"
     "${ft2-clone_SOURCE_DIR}/release/other/fastTracksLogoBadges.bmp"
     "${ft2-clone_SOURCE_DIR}/release/other/tapeheadSplash.png"
 )
+
+set(TAPEHEAD_OPTIONAL_APP_ICON
+    "${ft2-clone_SOURCE_DIR}/src/gfxdata/icon/tapehead/tapehead-icon.bmp")
 
 foreach(asset IN LISTS TAPEHEAD_RUNTIME_ASSETS)
     if(NOT EXISTS "${asset}")
@@ -41,6 +55,15 @@ add_custom_command(TARGET ft2-clone POST_BUILD
         "$<TARGET_FILE_DIR:ft2-clone>"
     COMMENT "Copying Tapehead Edition runtime assets"
 )
+
+if((WIN32 OR (UNIX AND NOT APPLE)) AND EXISTS "${TAPEHEAD_OPTIONAL_APP_ICON}")
+    add_custom_command(TARGET ft2-clone POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${TAPEHEAD_OPTIONAL_APP_ICON}"
+            "$<TARGET_FILE_DIR:ft2-clone>"
+        COMMENT "Copying optional Tapehead application icon"
+    )
+endif()
 
 target_include_directories(ft2-clone SYSTEM
     PRIVATE ${SDL2_INCLUDE_DIRS})
@@ -86,3 +109,22 @@ install(TARGETS ft2-clone
 
 install(FILES ${TAPEHEAD_RUNTIME_ASSETS}
     DESTINATION bin)
+
+if((WIN32 OR (UNIX AND NOT APPLE)) AND EXISTS "${TAPEHEAD_OPTIONAL_APP_ICON}")
+    install(FILES "${TAPEHEAD_OPTIONAL_APP_ICON}"
+        DESTINATION bin)
+endif()
+
+if(UNIX AND NOT APPLE)
+    install(FILES
+        "${ft2-clone_SOURCE_DIR}/release/other/Freedesktop.org Resources/Fasttracker II clone.desktop"
+        DESTINATION share/applications
+        RENAME ft2-clone.desktop)
+
+    if(EXISTS "${ft2-clone_SOURCE_DIR}/src/gfxdata/icon/tapehead/png/tapehead-512.png")
+        install(FILES
+            "${ft2-clone_SOURCE_DIR}/src/gfxdata/icon/tapehead/png/tapehead-512.png"
+            DESTINATION share/icons/hicolor/512x512/apps
+            RENAME ft2-clone.png)
+    endif()
+endif()
