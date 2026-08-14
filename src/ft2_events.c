@@ -34,6 +34,7 @@
 #include "ft2_sample_ed.h"
 #include "ft2_sample_ed_features.h"
 #include "ft2_structs.h"
+#include "ft2_splash.h"
 
 #define CRASH_TEXT "Oh no! The Fasttracker II clone has crashed...\nA backup of the song was hopefully " \
                    "saved to the current module directory.\n\nPlease report this bug if you can.\n" \
@@ -398,6 +399,8 @@ static void handleSDLEvents(void)
 	while (SDL_PollEvent(&event))
 	{
 		handleWaitVblQuirk(&event);
+		if (tapeheadSplashConsumeDismissEvent(&event))
+			continue;
 
 		if (editor.busy)
 		{

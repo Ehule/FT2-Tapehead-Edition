@@ -347,6 +347,7 @@
     <ClCompile Include="..\..\src\ft2_sample_loader.c" />
     <ClCompile Include="..\..\src\ft2_sample_saver.c" />
     <ClCompile Include="..\..\src\ft2_scrollbars.c" />
+    <ClCompile Include="..\..\src\ft2_splash.c" />
     <ClCompile Include="..\..\src\ft2_smpfx.c" />
     <ClCompile Include="..\..\src\ft2_structs.c" />
     <ClCompile Include="..\..\src\ft2_sysreqs.c" />
@@ -468,6 +469,8 @@
     <ClInclude Include="..\..\src\ft2_undo.h" />
     <ClInclude Include="..\..\src\ft2_unicode.h" />
     <ClInclude Include="..\..\src\ft2_video.h" />
+    <ClInclude Include="..\..\src\ft2_splash.h" />
+    <ClInclude Include="..\..\src\third_party\stb_image.h" />
     <ClInclude Include="..\..\src\ft2_wav_renderer.h" />
     <ClInclude Include="..\..\src\mixer\ft2_windowed_sinc.h" />
     <ClInclude Include="..\..\src\mixer\ft2_mix.h" />
@@ -490,6 +493,7 @@
     <TapeheadRuntimeAsset Include="$(ProjectDir)..\..\release\other\FT2.CFG" />
     <TapeheadRuntimeAsset Include="$(ProjectDir)..\..\release\other\tapehead.ini" />
     <TapeheadRuntimeAsset Include="$(ProjectDir)..\..\release\other\fastTracksLogoBadges.bmp" />
+    <TapeheadRuntimeAsset Include="$(ProjectDir)..\..\release\other\tapeheadSplash.png" />
   </ItemGroup>
   <Target Name="CopyTapeheadRuntimeAssets" AfterTargets="Build">
     <Error Condition="!Exists('%(TapeheadRuntimeAsset.Identity)')" Text="Missing required Tapehead runtime asset: %(TapeheadRuntimeAsset.Identity)" />

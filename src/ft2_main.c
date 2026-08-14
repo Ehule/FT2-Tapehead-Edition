@@ -43,6 +43,7 @@
 #include "ft2_smpfx.h"
 #include "ft2_sample_launcher.h"
 #include "ft2_pattern_launcher_ui.h"
+#include "ft2_splash.h"
 
 static void initializeVars(void);
 static void cleanUpAndExit(void); // never call this inside the main loop
@@ -257,6 +258,12 @@ int main(int argc, char *argv[])
 
 	hpc_ResetCounters(&video.vblankHpc); // quirk: this is needed for potential okBox() calls in handleModuleLoadFromArg()
 	handleModuleLoadFromArg(argc, argv);
+
+	if (tapeheadConfig.showSplashScreen && !showTapeheadSplash())
+	{
+		cleanUpAndExit();
+		return 0;
+	}
 
 	editor.mainLoopOngoing = true;
 	hpc_ResetCounters(&video.vblankHpc); // this must be the last thing we do before entering the main loop
