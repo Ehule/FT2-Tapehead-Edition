@@ -20,6 +20,7 @@ TEST_SCRIPTS = (
 	"test_baker_allocator.py",
 	"test_baker_timeline_planner.py",
 	"test_baker_adaptive_xm.py",
+	"test_baker_adaptive_patterns.py",
 	"test_baker_assets.py",
 	"test_baker_dialog_layout.py",
 	"test_sample_launcher_native.py",
