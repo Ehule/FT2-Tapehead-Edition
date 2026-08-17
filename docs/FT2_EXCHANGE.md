@@ -1,8 +1,10 @@
 # TapeSister ↔ FT2 Tapehead exchange
 
 Tapehead and TapeSister exchange WAV files through a shared directory. They do
-not link to, inspect, or command one another's runtime state. Version 1 is
-compatible with the contract implemented by TapeSister draft PR #34.
+not link to or command one another's project state. Each application refreshes
+a small presence marker in that directory so a sender can reuse a receiver
+that is already open. Version 1 is compatible with the contract implemented by
+TapeSister draft PR #34.
 
 ## Configure both applications
 
@@ -33,6 +35,10 @@ proposed instrument/sample destination, and occupied-instrument conflicts.
 Choose **Later** to leave both the folder and module untouched and suppress
 that folder for this session. Right-click **Instrument Editor** and choose
 **Check inbox** to reopen deferred work manually.
+
+The same right-click menu includes **Open folder** (`O`). It opens Tapehead's
+Disk Op screen in Sample mode at the configured exchange root, even when no
+unacknowledged transfer remains.
 
 For `instrument_samples`, select one destination instrument. Manifest sample
 numbers map to those exact slots, including sparse mappings. Importing replaces
@@ -67,6 +73,13 @@ it creates a unique `tapehead_to_tapesister_NNNNNN.partial` folder, writes all
 WAVs through Tapehead's normal WAV writer, writes the manifest last, and then
 renames the folder to remove `.partial`. Existing transfers are never
 overwritten. Failure cleans up only the partial folder created by that action.
+
+Both applications refresh advisory `.tapehead.running` and
+`.tapesister.running` markers once per second. A normal **Publish** reuses a
+live TapeSister and lets its inbox poll discover the new transfer instead of
+launching another process. **Publish + New** deliberately starts another
+TapeSister instance after publication. A stale or missing presence marker
+falls back to the normal configured-executable launch.
 
 ## Authoritative version-1 manifest
 
@@ -136,9 +149,11 @@ rate behavior.
 8. Send **Instr. range** across instruments with gaps and multiple samples.
    Verify exactly the first populated slot per occupied instrument is exported
    to sequential tiles.
-9. Leave `ExecutablePath` blank and confirm publishing still completes. Then
-   set a valid path and confirm TapeSister starts only after the final folder
-   is visible.
+9. With TapeSister already open, send normally and confirm no second instance
+   opens. Repeat with **Publish + New** and confirm another instance opens.
+   Close TapeSister, wait over five seconds, and confirm normal publishing
+   launches it only after the final folder is visible. A blank
+   `ExecutablePath` must still allow publication.
 10. Round-trip WAVs with fine/root tuning and forward, ping-pong, and backward
     loops. Verify tuning is retained, loop endpoints remain valid, and the
     backward loop plays repeatedly in reverse.

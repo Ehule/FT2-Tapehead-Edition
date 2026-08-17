@@ -39,6 +39,12 @@ def main() -> None:
     assert "findPendingOffer(manualRequest" in exchange
     assert "ui.sysReqShown" in exchange and "sampleLoaderIsBusy()" in exchange
     assert "EXCHANGE_POLL_INTERVAL_MS 1000" in exchange
+    assert 'tapeheadPresenceName[]' in exchange
+    assert 'tapeSisterPresenceName[]' in exchange
+    assert 'refreshTapeheadPresence();' in exchange
+    assert 'tapeSisterIsRunning()' in exchange
+    assert 'forceNewInstance' in exchange
+    assert 'openTapeSisterExchangeFolder()' in exchange
     assert "OCCUPIED" in exchange and "clears all other sample slots" in exchange
 
     # Both send layouts and deterministic source mappings are explicit.
@@ -99,6 +105,7 @@ def main() -> None:
     ordered(palette, "showTextBox(TB_CONF_TAPESISTER_EXECUTABLE)",
             "drawTextBox(TB_CONF_TAPESISTER_EXECUTABLE)")
     assert "saveTapeSisterConfigPaths();" in textboxes
+    assert "openTapeSisterExchangeFolder" in diskop
     assert "TAPESISTER_PATH_BROWSER_EXCHANGE" in diskop
     assert "TAPESISTER_PATH_BROWSER_EXECUTABLE" in diskop
     assert 'pushButtons[PB_DISKOP_SAVE].caption = "Select"' in diskop

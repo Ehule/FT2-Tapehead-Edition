@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <wctype.h>
 
 #ifdef _WIN32
@@ -20,6 +21,7 @@
 #endif
 
 #include "ft2_config.h"
+#include "ft2_diskop.h"
 #include "ft2_header.h"
 #include "ft2_sample_loader.h"
 #include "ft2_sample_saver.h"
@@ -32,6 +34,7 @@
 ** longest configured root/executable value. */
 #define EXCHANGE_RUNTIME_PATH_CAPACITY (TAPEHEAD_CONFIG_PATH_CAPACITY + 512)
 #define EXCHANGE_POLL_INTERVAL_MS 1000
+#define EXCHANGE_PRESENCE_MAX_AGE_SECONDS 5
 
 typedef struct exchangeRuntimeOffer_t
 {
@@ -48,9 +51,17 @@ typedef struct exchangeSource_t
 	uint8_t samples[TAPEHEAD_EXCHANGE_MAX_ITEMS];
 } exchangeSource_t;
 
-static uint32_t lastPollTick;
+static uint32_t lastPollTick, lastPresenceTick;
 static uint64_t *deferredFolders;
 static size_t deferredFolderCount, deferredFolderCapacity;
+
+#ifdef _WIN32
+static const UNICHAR tapeheadPresenceName[] = L".tapehead.running";
+static const UNICHAR tapeSisterPresenceName[] = L".tapesister.running";
+#else
+static const UNICHAR tapeheadPresenceName[] = ".tapehead.running";
+static const UNICHAR tapeSisterPresenceName[] = ".tapesister.running";
+#endif
 
 static UNICHAR *pathFromUtf8(const char *path)
 {
@@ -162,6 +173,71 @@ static bool pathIsDirectory(const UNICHAR *path)
 {
 	bool directory = false;
 	return pathAttributes(path, &directory, NULL) && directory;
+}
+
+static uint64_t currentModifiedTime(void)
+{
+#ifdef _WIN32
+	FILETIME now;
+	GetSystemTimeAsFileTime(&now);
+	return ((uint64_t)now.dwHighDateTime << 32) | now.dwLowDateTime;
+#else
+	struct timespec now;
+	if (clock_gettime(CLOCK_REALTIME, &now) != 0)
+		return (uint64_t)time(NULL) * UINT64_C(1000000000);
+	return (uint64_t)now.tv_sec * UINT64_C(1000000000) +
+		(uint64_t)now.tv_nsec;
+#endif
+}
+
+static uint64_t presenceMaxAge(void)
+{
+#ifdef _WIN32
+	return (uint64_t)EXCHANGE_PRESENCE_MAX_AGE_SECONDS * UINT64_C(10000000);
+#else
+	return (uint64_t)EXCHANGE_PRESENCE_MAX_AGE_SECONDS * UINT64_C(1000000000);
+#endif
+}
+
+static bool presencePath(const UNICHAR *name,
+	UNICHAR path[EXCHANGE_RUNTIME_PATH_CAPACITY])
+{
+	UNICHAR *root = pathFromUtf8(tapeheadConfig.tapeSisterExchangePath);
+	const bool valid = root != NULL && pathIsDirectory(root) &&
+		joinPath(path, EXCHANGE_RUNTIME_PATH_CAPACITY, root, name);
+	free(root);
+	return valid;
+}
+
+static void refreshTapeheadPresence(void)
+{
+	UNICHAR path[EXCHANGE_RUNTIME_PATH_CAPACITY];
+	if (!presencePath(tapeheadPresenceName, path))
+		return;
+	FILE *file = UNICHAR_FOPEN(path, "wb");
+	if (file == NULL)
+		return;
+#ifdef _WIN32
+	fprintf(file, "pid=%lu\n", (unsigned long)GetCurrentProcessId());
+#else
+	fprintf(file, "pid=%ld\n", (long)getpid());
+#endif
+	fclose(file);
+}
+
+static bool tapeSisterIsRunning(void)
+{
+	UNICHAR path[EXCHANGE_RUNTIME_PATH_CAPACITY];
+	uint64_t modified;
+	if (!presencePath(tapeSisterPresenceName, path) ||
+		!pathAttributes(path, NULL, &modified))
+	{
+		return false;
+	}
+	const uint64_t now = currentModifiedTime();
+	const uint64_t maximumAge = presenceMaxAge();
+	return modified > now ? modified - now <= maximumAge :
+		now - modified <= maximumAge;
 }
 
 static bool makeDirectory(const UNICHAR *path)
@@ -804,11 +880,13 @@ static void confirmAndPublish(const exchangeSource_t *source)
 	}
 	appendMessage(message, sizeof (message),
 		"WAV files and the manifest will be published atomically.");
-	if (okBox(SYSREQ_TYPE_TAPESISTER_PUBLISH, "Send to TapeSister", message,
-		NULL) != 1)
+	const int16_t choice = okBox(SYSREQ_TYPE_TAPESISTER_PUBLISH,
+		"Send to TapeSister", message, NULL);
+	if (choice != 1 && choice != 2)
 	{
 		return;
 	}
+	const bool forceNewInstance = choice == 2;
 	char folderName[64];
 	if (!publishSource(source, folderName, sizeof (folderName)))
 	{
@@ -817,7 +895,12 @@ static void confirmAndPublish(const exchangeSource_t *source)
 		return;
 	}
 	char result[256];
-	if (tapeheadConfig.tapeSisterExecutablePath[0] == '\0')
+	if (!forceNewInstance && tapeSisterIsRunning())
+	{
+		snprintf(result, sizeof (result),
+			"Published %s. Open TapeSister will receive it.", folderName);
+	}
+	else if (tapeheadConfig.tapeSisterExecutablePath[0] == '\0')
 	{
 		snprintf(result, sizeof (result),
 			"Published %s. TapeSister executable path is blank.", folderName);
@@ -829,8 +912,9 @@ static void confirmAndPublish(const exchangeSource_t *source)
 	}
 	else
 	{
-		snprintf(result, sizeof (result), "Published %s and launched TapeSister.",
-			folderName);
+		snprintf(result, sizeof (result), forceNewInstance ?
+			"Published %s and launched another TapeSister." :
+			"Published %s and launched TapeSister.", folderName);
 	}
 	okBox(0, "Send to TapeSister", result, NULL);
 }
@@ -838,14 +922,23 @@ static void confirmAndPublish(const exchangeSource_t *source)
 void tapeSisterExchangeInit(void)
 {
 	lastPollTick = SDL_GetTicks() - EXCHANGE_POLL_INTERVAL_MS;
+	lastPresenceTick = SDL_GetTicks();
 	free(deferredFolders);
 	deferredFolders = NULL;
 	deferredFolderCount = 0;
 	deferredFolderCapacity = 0;
+	refreshTapeheadPresence();
 }
 
 void tapeSisterExchangePoll(bool manualRequest)
 {
+	const uint32_t now = SDL_GetTicks();
+	if (manualRequest || (uint32_t)(now - lastPresenceTick) >=
+		EXCHANGE_POLL_INTERVAL_MS)
+	{
+		refreshTapeheadPresence();
+		lastPresenceTick = now;
+	}
 	if (tapeheadConfig.tapeSisterExchangePath[0] == '\0')
 	{
 		if (manualRequest)
@@ -854,7 +947,6 @@ void tapeSisterExchangePoll(bool manualRequest)
 	}
 	if (!manualRequest)
 	{
-		const uint32_t now = SDL_GetTicks();
 		if ((uint32_t)(now - lastPollTick) < EXCHANGE_POLL_INTERVAL_MS ||
 			ui.sysReqShown || editor.editTextFlag || editor.samplingAudioFlag ||
 			sampleLoaderIsBusy() || okBoxData.active)
@@ -878,10 +970,18 @@ void tapeSisterExchangeOpenMenu(void)
 {
 	const int16_t choice = okBox(SYSREQ_TYPE_TAPESISTER_MENU,
 		"TapeSister Exchange",
-		"Send samples from Tapehead or manually check the shared inbox.", NULL);
+		"Send samples, check the shared inbox, or open the exchange folder.", NULL);
 	if (choice == 3)
 	{
 		tapeSisterExchangePoll(true);
+		return;
+	}
+	if (choice == 4)
+	{
+		if (tapeheadConfig.tapeSisterExchangePath[0] == '\0')
+			okBox(0, "TapeSister Exchange", "Configure the exchange path first.", NULL);
+		else if (!openTapeSisterExchangeFolder())
+			okBox(0, "TapeSister Exchange", "The configured exchange folder could not be opened.", NULL);
 		return;
 	}
 	if (choice != 1 && choice != 2)

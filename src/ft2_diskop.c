@@ -3089,6 +3089,36 @@ void openTapeSisterPathBrowser(bool executablePath)
 	showDiskOpScreen();
 }
 
+bool openTapeSisterExchangeFolder(void)
+{
+	UNICHAR *configuredPathU = tapeSisterUtf8ToPath(
+		tapeheadConfig.tapeSisterExchangePath);
+	if (configuredPathU == NULL || UNICHAR_CHDIR(configuredPathU) != 0)
+	{
+		free(configuredPathU);
+		return false;
+	}
+
+	/* Let the ordinary Disk Op initialization run first, then make the shared
+	** exchange directory the live Sample path. This keeps the configured sample
+	** directory intact while still making exchange WAVs immediately accessible. */
+	showDiskOpScreen();
+	setDiskOpItem(DISKOP_ITEM_SAMPLE);
+	if (UNICHAR_CHDIR(configuredPathU) != 0 ||
+		UNICHAR_GETCWD(FReq_SmpCurPathU, PATH_MAX) == NULL)
+	{
+		free(configuredPathU);
+		return false;
+	}
+	free(configuredPathU);
+
+	FReq_CurPathU = FReq_SmpCurPathU;
+	FReq_EntrySelected = -1;
+	editor.diskOpReadDir = true;
+	diskOp_DrawDirectory();
+	return true;
+}
+
 static void acceptTapeSisterPathBrowser(void)
 {
 	UNICHAR selectedPathU[PATH_MAX + 1];

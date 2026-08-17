@@ -17,10 +17,11 @@ ExecutablePath=
 - `ExchangePath` is the shared directory configured as TapeSister's **FT2
   Exchange Path**. Tapehead checks it at startup, about once per second while
   the UI is idle, and when **Check inbox** is requested manually.
-- `ExecutablePath` is the full path to the TapeSister executable. Tapehead
-  starts it directly after publishing a transfer; it never passes the value
-  through a command shell. This key may be blank—publication still succeeds
-  and TapeSister can be opened manually.
+- `ExecutablePath` is the full path to the TapeSister executable. After
+  publishing, Tapehead reuses a live TapeSister detected through the exchange
+  folder; otherwise it starts this path directly without a command shell.
+  **Publish + New** forces another instance. This key may be blank—publication
+  still succeeds and TapeSister can be opened manually.
 
 Both values use 4096-byte configuration storage instead of the legacy
 80-character sample-directory fields. On Windows, absolute paths beyond the

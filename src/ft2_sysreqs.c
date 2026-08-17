@@ -51,8 +51,8 @@ static char *buttonText[NUM_SYSREQ_TYPES][MAX_PUSHBUTTONS] =
 	{ "Used only", "All", "Cancel", "", "" }, // EXS sample exporter
 	{ "This folder", "Subfolders too", "Cancel", "", "" }, // Folder sample scope
 	{ "Standard XM", "Tapehead XM", "Adaptive XM", "Cancel", "" }, // Baker output target
-	{ "Current instr.", "Instr. range", "Check inbox", "Cancel", "" },
-	{ "Publish", "Cancel", "", "", "" },
+	{ "Current instr.", "Instr. range", "Check inbox", "Open folder", "Cancel" },
+	{ "Publish", "Publish + New", "Cancel", "", "" },
 	{ "Import/Replace", "Later", "", "", "" },
 	{ "Import", "Later", "", "", "" }
 };
@@ -76,8 +76,8 @@ static SDL_Keycode shortCut[NUM_SYSREQ_TYPES][5] =
 	{ SDLK_u, SDLK_a, SDLK_c, 0,      0 }, // EXS sample exporter
 	{ SDLK_t, SDLK_s, SDLK_c, 0,      0 }, // Folder sample scope
 	{ SDLK_s, SDLK_t, SDLK_a, SDLK_c, 0 }, // Baker output target
-	{ SDLK_c, SDLK_r, SDLK_i, SDLK_ESCAPE, 0 },
-	{ SDLK_p, SDLK_c, 0, 0, 0 },
+	{ SDLK_c, SDLK_r, SDLK_i, SDLK_o, SDLK_ESCAPE },
+	{ SDLK_p, SDLK_n, SDLK_c, 0, 0 },
 	{ SDLK_i, SDLK_l, 0, 0, 0 },
 	{ SDLK_i, SDLK_l, 0, 0, 0 }
 };
