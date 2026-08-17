@@ -94,6 +94,10 @@ def main() -> None:
     assert "SDL_GetTicks()" in textboxes and "openTapeSisterPathBrowser" in textboxes
     assert "hideTextBox(TB_CONF_TAPESISTER_EXCHANGE)" in config
     assert '"Double-click a path to browse"' in palette
+    ordered(palette, "showTextBox(TB_CONF_TAPESISTER_EXCHANGE)",
+            "drawTextBox(TB_CONF_TAPESISTER_EXCHANGE)")
+    ordered(palette, "showTextBox(TB_CONF_TAPESISTER_EXECUTABLE)",
+            "drawTextBox(TB_CONF_TAPESISTER_EXECUTABLE)")
     assert "saveTapeSisterConfigPaths();" in textboxes
     assert "TAPESISTER_PATH_BROWSER_EXCHANGE" in diskop
     assert "TAPESISTER_PATH_BROWSER_EXECUTABLE" in diskop

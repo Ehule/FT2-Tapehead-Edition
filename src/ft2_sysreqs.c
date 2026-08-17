@@ -21,6 +21,7 @@
 #define SYSTEM_REQUEST_Y_EXT 91
 #define SYSTEM_REQUEST_MAX_TEXT_W 300
 #define SYSTEM_REQUEST_TEXT_LINE_H 12
+#define SYSTEM_REQUEST_TOP_SCREEN_H 173
 
 // globalized
 okBoxData_t okBoxData;
@@ -321,6 +322,11 @@ bool systemRequestCalculateLayout(const char *headline, const char *text,
 	return true;
 }
 
+bool systemRequestOverlapsTopScreen(uint16_t frameY)
+{
+	return frameY < SYSTEM_REQUEST_TOP_SCREEN_H;
+}
+
 // WARNING: This routine must ONLY be called from the main input/video thread!
 // If the checkBoxCallback argument is set, then you get a "Do not show again" checkbox.
 static int16_t okBoxInternal(int16_t type, const char *headline, const char *text,
@@ -608,6 +614,11 @@ static int16_t okBoxInternal(int16_t type, const char *headline, const char *tex
 	mouse.lastUsedObjectType = oldLastUsedObjectType;
 	unstuckLastUsedGUIElement();
 
+	/* Multiline dialogs can grow upward across the fixed 173-pixel split.
+	** Rebuild that covered top surface before the bottom editor so a following
+	** modal cannot expose stale dialog pixels. */
+	if (!ui.extendedPatternEditor && systemRequestOverlapsTopScreen(y))
+		showTopScreen(RESTORE_SCREENS);
 	showBottomScreen();
 
 	SDL_EventState(SDL_DROPFILE, SDL_ENABLE);

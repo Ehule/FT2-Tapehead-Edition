@@ -28,6 +28,10 @@ static void assertSafe(const systemRequestLayout_t *layout)
 
 int main(void)
 {
+	assert(!systemRequestOverlapsTopScreen(249));
+	assert(!systemRequestOverlapsTopScreen(173));
+	assert(systemRequestOverlapsTopScreen(172));
+
 	systemRequestLayout_t layout;
 	assert(systemRequestCalculateLayout("System message", "Short message", 80,
 		249, &layout));

@@ -660,6 +660,8 @@ void showPaletteEditor(void)
 	drawFramework(474, 139, 156, 14, FRAMEWORK_TYPE2);
 	showTextBox(TB_CONF_TAPESISTER_EXCHANGE);
 	showTextBox(TB_CONF_TAPESISTER_EXECUTABLE);
+	drawTextBox(TB_CONF_TAPESISTER_EXCHANGE);
+	drawTextBox(TB_CONF_TAPESISTER_EXECUTABLE);
 	textOutShadow(400, 158, PAL_FORGRND, PAL_DSKTOP2, "Double-click a path to browse");
 	pushButtons[PB_CONFIG_PAL_PRESET].caption = (char *)presetNames[config.cfg_StdPalNum];
 	pushButtons[PB_CONFIG_PAL_COLOR_MODE].caption = (char *)modeNames[MIN(tapeheadConfig.patternColorMode, 2)];

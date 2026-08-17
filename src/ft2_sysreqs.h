@@ -42,6 +42,7 @@ typedef struct systemRequestLayout_t
 
 bool systemRequestCalculateLayout(const char *headline, const char *text,
 	uint16_t buttonSpan, uint16_t baseY, systemRequestLayout_t *layout);
+bool systemRequestOverlapsTopScreen(uint16_t frameY);
 
 // If the checkBoxCallback argument is set, then you get a "Do not show again" checkbox.
 int16_t okBoxThreadSafe(int16_t type, const char *headline, const char *text, void (*checkBoxCallback)(void));
