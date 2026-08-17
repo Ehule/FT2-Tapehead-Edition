@@ -6,8 +6,10 @@ compatible with the contract implemented by TapeSister draft PR #34.
 
 ## Configure both applications
 
-Set TapeSister's **FT2 Exchange Path** and Tapehead's `ExchangePath` to the
-same existing directory. In `tapehead.ini` beside the Tapehead executable:
+Set TapeSister's **FT2 Exchange Path** and Tapehead's **Exchange** field to the
+same existing directory. In Tapehead, open **Configuration → Layout**. Click a
+path field to type or paste it, or double-click it to use Tapehead's built-in
+browser. The values are stored in `tapehead.ini` beside the executable as:
 
 ```ini
 [TapeSister]

@@ -36,7 +36,9 @@ def main() -> None:
         tapehead_ini.write_text(
             "[TapeSister]\n"
             f"ExchangePath={long_exchange}\n"
-            f"ExecutablePath={long_executable}\n",
+            f"ExecutablePath={long_executable}\n"
+            "CustomKey=keep-me\n"
+            "[Other]\nCustomSetting=still-here\n",
             encoding="utf-8",
         )
         subprocess.run(
@@ -44,6 +46,12 @@ def main() -> None:
             check=True,
             cwd=ROOT,
         )
+        written = tapehead_ini.read_text(encoding="utf-8")
+        assert written.count("[TapeSister]") == 1
+        assert f"ExchangePath={long_exchange}" in written
+        assert f"ExecutablePath={long_executable}" in written
+        assert "CustomKey=keep-me" in written
+        assert "CustomSetting=still-here" in written
 
         tapehead_ini.write_text(
             "[TapeSister]\nExchangePath=/tmp/shared\nExecutablePath=\n",

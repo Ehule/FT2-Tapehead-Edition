@@ -21,6 +21,11 @@ def main() -> None:
     loader = (ROOT / "src/ft2_sample_loader.c").read_text()
     main_c = (ROOT / "src/ft2_main.c").read_text()
     mouse = (ROOT / "src/ft2_mouse.c").read_text()
+    config = (ROOT / "src/ft2_config.c").read_text()
+    diskop = (ROOT / "src/ft2_diskop.c").read_text()
+    palette = (ROOT / "src/ft2_palette.c").read_text()
+    pushbuttons = (ROOT / "src/ft2_pushbuttons.c").read_text()
+    textboxes = (ROOT / "src/ft2_textboxes.c").read_text()
     saver = (ROOT / "src/ft2_sample_saver.c").read_text()
     xm_saver = (ROOT / "src/ft2_module_saver.c").read_text()
     xm_loader = (ROOT / "src/modloaders/ft2_load_xm.c").read_text()
@@ -80,6 +85,26 @@ def main() -> None:
     assert "SAMPLE_REVERSE_LOOP" in saver
     assert "SAMPLE_REVERSE_LOOP" in xm_saver and "& ~SAMPLE_REVERSE_LOOP" in xm_saver
     assert "SAMPLE_REVERSE_LOOP" in xm_loader and "& ~SAMPLE_REVERSE_LOOP" in xm_loader
+
+    # Config > Layout exposes full scrolling paths and a dedicated, non-loading
+    # Disk Op selector mode. Preset/PAT controls are compacted above the fields.
+    assert "TB_CONF_TAPESISTER_EXCHANGE" in textboxes
+    assert "TB_CONF_TAPESISTER_EXECUTABLE" in textboxes
+    assert "TAPEHEAD_CONFIG_PATH_CAPACITY - 1" in textboxes
+    assert "SDL_GetTicks()" in textboxes and "openTapeSisterPathBrowser" in textboxes
+    assert "hideTextBox(TB_CONF_TAPESISTER_EXCHANGE)" in config
+    assert '"Double-click a path to browse"' in palette
+    assert "saveTapeSisterConfigPaths();" in textboxes
+    assert "TAPESISTER_PATH_BROWSER_EXCHANGE" in diskop
+    assert "TAPESISTER_PATH_BROWSER_EXECUTABLE" in diskop
+    assert 'pushButtons[PB_DISKOP_SAVE].caption = "Select"' in diskop
+    selector_branch = diskop[diskop.index("if (mode == MOUSE_MODE_NORMAL && tapeSisterPathBrowser"):
+                             diskop.index("// remove file selection")]
+    assert "openFile(" not in selector_branch
+    assert '{ 475,  88, 154, 16' in pushbuttons
+    assert '{ 475, 105, 154, 16' in pushbuttons
+    assert 'textOutShadow(400,  92' in palette
+    assert 'textOutShadow(400, 109' in palette
 
     print("TapeSister exchange wiring checks passed.")
 

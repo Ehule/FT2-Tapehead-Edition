@@ -86,7 +86,8 @@ populated slot in the current instrument or the first populated slot from up
 to 16 instruments. Incoming transfers always show their exact instrument and
 sample destinations—and any replacements—before Tapehead changes the module.
 Configure the shared folder and optional TapeSister executable in
-`[TapeSister]`; see the [exchange guide](docs/FT2_EXCHANGE.md).
+**Configuration → Layout**. The path fields are editable and open Tapehead's
+built-in browser on double-click; see the [exchange guide](docs/FT2_EXCHANGE.md).
 
 ## First run
 

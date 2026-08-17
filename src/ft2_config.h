@@ -372,5 +372,6 @@ extern tapeheadConfig_t tapeheadConfig;
 void loadTapeheadConfig(void);
 void saveTapeheadPatternColorMode(void);
 void saveTapeheadBakerPatternRows(void);
+void saveTapeSisterConfigPaths(void);
 
 extern config_t config;

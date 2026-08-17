@@ -43,5 +43,16 @@ int main(int argc, char **argv)
 		fprintf(stderr, "TapeSister path storage is too small\n");
 		return 1;
 	}
+
+	saveTapeSisterConfigPaths();
+	tapeheadConfig.tapeSisterExchangePath[0] = '\0';
+	tapeheadConfig.tapeSisterExecutablePath[0] = '\0';
+	loadTapeheadConfig();
+	if (strcmp(tapeheadConfig.tapeSisterExchangePath, argv[2]) != 0 ||
+		strcmp(tapeheadConfig.tapeSisterExecutablePath, argv[3]) != 0)
+	{
+		fprintf(stderr, "TapeSister UI paths were not saved\n");
+		return 1;
+	}
 	return 0;
 }

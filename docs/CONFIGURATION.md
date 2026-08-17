@@ -25,9 +25,19 @@ ExecutablePath=
 Both values use 4096-byte configuration storage instead of the legacy
 80-character sample-directory fields. On Windows, absolute paths beyond the
 ordinary `MAX_PATH` boundary are passed to wide-character file APIs using an
-extended path prefix. The compact legacy Config pages do not have a safe path
-browser slot, so these two settings are intentionally edited in `tapehead.ini`.
-Restart Tapehead after changing them.
+extended path prefix.
+
+Both values can be changed live in **Configuration → Layout**:
+
+- Click **Exchange** or **Program** to edit the scrolling path field directly.
+- Double-click **Exchange** to open Tapehead's browser and select the current
+  shared folder.
+- Double-click **Program** to open the browser, select the TapeSister
+  executable, then press **Select**.
+
+Leaving either text field or accepting a browser selection writes the values
+back to `tapehead.ini`; no restart is required. Manual edits to `tapehead.ini`
+made outside the application are still read on the next launch.
 
 See [`FT2_EXCHANGE.md`](FT2_EXCHANGE.md) for confirmation behavior, the exact
 version-1 manifest, and a round-trip test checklist.
