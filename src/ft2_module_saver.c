@@ -347,7 +347,9 @@ bool saveXM(UNICHAR *filenameU)
 
 				dst->volume = s->volume;
 				dst->finetune = s->finetune;
-				dst->flags = s->flags;
+				/* SAMPLE_REVERSE_LOOP is private WAV metadata. XM has no reverse-loop
+				** flag, so retain its audible ping-pong-compatible loop bits only. */
+				dst->flags = s->flags & ~SAMPLE_REVERSE_LOOP;
 				dst->panning = s->panning;
 				dst->relativeNote = s->relativeNote;
 

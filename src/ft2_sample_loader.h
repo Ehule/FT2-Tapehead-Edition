@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include "ft2_header.h"
 #include "ft2_unicode.h"
+#include "ft2_tapesister_protocol.h"
 
 enum
 {
@@ -22,7 +23,8 @@ enum
 	SAMPLE_FOLDER_IMPORT_INSTRUMENTS = 0,
 	SAMPLE_FOLDER_IMPORT_CURRENT_INSTRUMENT = 1,
 	SAMPLE_FOLDER_IMPORT_LAUNCHER = 2,
-	SAMPLE_FOLDER_IMPORT_MATRIX_OPEN = 3
+	SAMPLE_FOLDER_IMPORT_MATRIX_OPEN = 3,
+	SAMPLE_FOLDER_IMPORT_TAPESISTER = 4
 };
 
 bool loadSampleFolder(const UNICHAR *folderPathU, const UNICHAR *const *fileNamesU,
@@ -33,6 +35,10 @@ bool loadSamplesToMatrix(const UNICHAR *folderPathU,
 bool sampleMatrixImportTakeResult(uint32_t *added, uint32_t *requested,
 	uint32_t *omitted);
 void removeSampleIsLoadingFlag(void);
+bool sampleLoaderIsBusy(void);
+bool loadTapeSisterExchange(const UNICHAR *folderPathU,
+	const tapeheadExchangeOffer_t *offer,
+	const tapeheadExchangeDestination_t *destinations);
 
 // globals for sample loaders
 extern bool loadAsInstrFlag, smpFilenameSet;

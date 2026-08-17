@@ -95,6 +95,8 @@ enum
 	START_IN_FULLSCR = 128,
 };
 
+#define TAPEHEAD_CONFIG_PATH_CAPACITY 4096
+
 enum
 {
 	PATTERN_COLOR_EDIT = 0,
@@ -360,6 +362,8 @@ typedef struct tapeheadConfig_t
 	bool transportFreezeResumeRetrigger;
 	char midiControlInput[256];
 	char midiControlOutput[256];
+	char tapeSisterExchangePath[TAPEHEAD_CONFIG_PATH_CAPACITY];
+	char tapeSisterExecutablePath[TAPEHEAD_CONFIG_PATH_CAPACITY];
 	uint8_t midiDubTrackChannels[MAX_CHANNELS];
 	uint32_t undoMemoryMB;
 } tapeheadConfig_t;

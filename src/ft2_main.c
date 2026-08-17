@@ -44,6 +44,7 @@
 #include "ft2_sample_launcher.h"
 #include "ft2_pattern_launcher_ui.h"
 #include "ft2_splash.h"
+#include "ft2_tapesister_exchange.h"
 
 static void initializeVars(void);
 static void cleanUpAndExit(void); // never call this inside the main loop
@@ -168,6 +169,7 @@ int main(int argc, char *argv[])
 
 	loadConfigOrSetDefaults(); // config must be loaded at this exact point
 	loadTapeheadConfig();
+	tapeSisterExchangeInit();
 
 	if (!setupWindow() || !setupRenderer())
 	{
@@ -274,6 +276,7 @@ int main(int argc, char *argv[])
 		handleThreadEvents();
 		readInput();
 		handleEvents();
+		tapeSisterExchangePoll(false);
 		handleRecPlusExhaustion();
 		handlePolyMatrixQHandoff();
 		handlePatternLauncherStop();

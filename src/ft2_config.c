@@ -771,6 +771,11 @@ static void writeDefaultTapeheadConfig(const UNICHAR *filePathU)
 	fputs("[DiskOp]\n\n", f);
 	fputs("; Format shown in the middle Sample save slot. Accepted values: EXS or IFF.\n", f);
 	fputs("SampleExportSlot=EXS\n\n", f);
+	fputs("[TapeSister]\n\n", f);
+	fputs("; Shared folder used for atomic TapeSister/Tapehead transfers.\n", f);
+	fputs("ExchangePath=\n", f);
+	fputs("; TapeSister executable. Blank still permits publishing transfers.\n", f);
+	fputs("ExecutablePath=\n\n", f);
 	fputs("[Baker]\n\n", f);
 	fputs("; Rows per flattened loop pattern: 16, 32, 64, 128 or 256.\n", f);
 	fputs("PatternRows=256\n\n", f);
@@ -866,6 +871,8 @@ void loadTapeheadConfig(void)
 	tapeheadConfig.transportFreezeResumeRetrigger = false;
 	tapeheadConfig.midiControlInput[0] = '\0';
 	tapeheadConfig.midiControlOutput[0] = '\0';
+	tapeheadConfig.tapeSisterExchangePath[0] = '\0';
+	tapeheadConfig.tapeSisterExecutablePath[0] = '\0';
 	tapeheadConfig.hdMode = false;
 	tapeheadConfig.launcherMode = false;
 	tapeheadConfig.launcherStandalone = false;
@@ -894,7 +901,7 @@ void loadTapeheadConfig(void)
 		return;
 	}
 
-	char line[256];
+	char line[TAPEHEAD_CONFIG_PATH_CAPACITY + 128];
 	enum
 	{
 		TAPEHEAD_SECTION_NONE,
@@ -902,6 +909,7 @@ void loadTapeheadConfig(void)
 		TAPEHEAD_SECTION_PATTERN,
 		TAPEHEAD_SECTION_LAUNCHER,
 		TAPEHEAD_SECTION_DISKOP,
+		TAPEHEAD_SECTION_TAPESISTER,
 		TAPEHEAD_SECTION_BAKER,
 		TAPEHEAD_SECTION_KEYBOARD,
 		TAPEHEAD_SECTION_AUDIO,
@@ -930,6 +938,8 @@ void loadTapeheadConfig(void)
 				section = TAPEHEAD_SECTION_LAUNCHER;
 			else if (!_stricmp(text + 1, "DiskOp"))
 				section = TAPEHEAD_SECTION_DISKOP;
+			else if (!_stricmp(text + 1, "TapeSister"))
+				section = TAPEHEAD_SECTION_TAPESISTER;
 			else if (!_stricmp(text + 1, "Baker"))
 				section = TAPEHEAD_SECTION_BAKER;
 			else if (!_stricmp(text + 1, "Keyboard"))
@@ -1040,6 +1050,18 @@ void loadTapeheadConfig(void)
 				tapeheadConfig.sampleExportEXS = true;
 			else if (!_stricmp(value, "IFF"))
 				tapeheadConfig.sampleExportEXS = false;
+		}
+		else if (section == TAPEHEAD_SECTION_TAPESISTER &&
+			!_stricmp(key, "ExchangePath"))
+		{
+			snprintf(tapeheadConfig.tapeSisterExchangePath,
+				sizeof (tapeheadConfig.tapeSisterExchangePath), "%s", value);
+		}
+		else if (section == TAPEHEAD_SECTION_TAPESISTER &&
+			!_stricmp(key, "ExecutablePath"))
+		{
+			snprintf(tapeheadConfig.tapeSisterExecutablePath,
+				sizeof (tapeheadConfig.tapeSisterExecutablePath), "%s", value);
 		}
 		else if (section == TAPEHEAD_SECTION_BAKER && !_stricmp(key, "PatternRows"))
 		{

@@ -28,7 +28,7 @@ void (*loaderMsgBox)(const char *, ...);
 int16_t (*loaderSysReq)(int16_t, const char *, const char *, void (*)(void));
 // ----------------
 
-#define NUM_SYSREQ_TYPES 14
+#define NUM_SYSREQ_TYPES 18
 
 #define MAX_PUSHBUTTONS 5
 static char *buttonText[NUM_SYSREQ_TYPES][MAX_PUSHBUTTONS] =
@@ -49,7 +49,11 @@ static char *buttonText[NUM_SYSREQ_TYPES][MAX_PUSHBUTTONS] =
 	{ "Fast Bake", "Live", "Cancel", "", "" }, // Tapehead composition baker
 	{ "Used only", "All", "Cancel", "", "" }, // EXS sample exporter
 	{ "This folder", "Subfolders too", "Cancel", "", "" }, // Folder sample scope
-	{ "Standard XM", "Tapehead XM", "Adaptive XM", "Cancel", "" } // Baker output target
+	{ "Standard XM", "Tapehead XM", "Adaptive XM", "Cancel", "" }, // Baker output target
+	{ "Current instr.", "Instr. range", "Check inbox", "Cancel", "" },
+	{ "Publish", "Cancel", "", "", "" },
+	{ "Import/Replace", "Later", "", "", "" },
+	{ "Import", "Later", "", "", "" }
 };
 
 static SDL_Keycode shortCut[NUM_SYSREQ_TYPES][5] =
@@ -70,7 +74,11 @@ static SDL_Keycode shortCut[NUM_SYSREQ_TYPES][5] =
 	{ SDLK_f, SDLK_l, SDLK_c, 0,      0 }, // Tapehead composition baker
 	{ SDLK_u, SDLK_a, SDLK_c, 0,      0 }, // EXS sample exporter
 	{ SDLK_t, SDLK_s, SDLK_c, 0,      0 }, // Folder sample scope
-	{ SDLK_s, SDLK_t, SDLK_a, SDLK_c, 0 } // Baker output target
+	{ SDLK_s, SDLK_t, SDLK_a, SDLK_c, 0 }, // Baker output target
+	{ SDLK_c, SDLK_r, SDLK_i, SDLK_ESCAPE, 0 },
+	{ SDLK_p, SDLK_c, 0, 0, 0 },
+	{ SDLK_i, SDLK_l, 0, 0, 0 },
+	{ SDLK_i, SDLK_l, 0, 0, 0 }
 };
 
 typedef struct quitType_t

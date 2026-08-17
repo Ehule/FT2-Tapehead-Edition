@@ -29,6 +29,7 @@
 #include "ft2_replayer.h"
 #include "ft2_tables.h"
 #include "ft2_pattern_launcher_ui.h"
+#include "ft2_tapesister_exchange.h"
 
 #define NUM_CURSORS 6
 
@@ -768,6 +769,15 @@ void mouseButtonDownHandler(uint8_t mouseButton)
 	{
 		patternLauncherHandleStandaloneClick(mouse.x, mouse.y, mouseButton,
 			keyb.leftShiftPressed);
+		return;
+	}
+
+	/* Tapehead Edition: right-click the established Instr. Ed. button for the
+	** reciprocal TapeSister send/inbox command. Left-click behavior is untouched. */
+	if (mouseButton == SDL_BUTTON_RIGHT && !ui.sysReqShown &&
+		mouse.x >= 359 && mouse.x < 418 && mouse.y >= 104 && mouse.y < 120)
+	{
+		tapeSisterExchangeOpenMenu();
 		return;
 	}
 

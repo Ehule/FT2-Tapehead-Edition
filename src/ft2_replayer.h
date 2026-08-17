@@ -75,6 +75,11 @@ enum
 
 enum // sample flags
 {
+	/* WAV's standard backward-loop type has no native XM flag. Keep a private
+	** marker beside FT2's ping-pong mixer selection so it can play as a true
+	** repeated reverse loop and round-trip through WAV without leaking bit 3
+	** into XM sample headers. */
+	SAMPLE_REVERSE_LOOP = 8,
 	SAMPLE_16BIT = 16,
 	SAMPLE_STEREO = 32,
 	SAMPLE_ADPCM = 64, // not an existing flag, but used by loader
@@ -88,7 +93,7 @@ enum // envelope flags
 };
 
 #define GET_LOOPTYPE(smpFlags) ((smpFlags) & (LOOP_FORWARD | LOOP_PINGPONG))
-#define DISABLE_LOOP(smpFlags) ((smpFlags) &= ~(LOOP_FORWARD | LOOP_PINGPONG))
+#define DISABLE_LOOP(smpFlags) ((smpFlags) &= ~(LOOP_FORWARD | LOOP_PINGPONG | SAMPLE_REVERSE_LOOP))
 #define SAMPLE_LENGTH_BYTES(smp) ((smp->flags & SAMPLE_16BIT) ? (smp->length * 2) : smp->length)
 #define FINETUNE_MOD2XM(f) (((uint8_t)(f) & 0x0F) << 4)
 #define FINETUNE_XM2MOD(f) ((uint8_t)(f) >> 4)

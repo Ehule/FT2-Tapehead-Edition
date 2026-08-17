@@ -296,7 +296,9 @@ static bool loadInstrHeader(FILE *f, int32_t insNum)
 			s->loopLength = srcSmp->loopLength;
 			s->volume = srcSmp->volume;
 			s->finetune = srcSmp->finetune;
-			s->flags = srcSmp->flags;
+			/* Bit 3 is reserved in XM and is Tapehead's private in-memory marker
+			** for a standard WAV backward loop. Never adopt it from an XM file. */
+			s->flags = srcSmp->flags & ~SAMPLE_REVERSE_LOOP;
 			s->panning = srcSmp->panning;
 			s->relativeNote = srcSmp->relativeNote;
 

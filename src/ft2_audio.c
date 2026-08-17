@@ -447,6 +447,7 @@ static void voiceTrigger(int32_t ch, sample_t *s, int32_t position)
 
 	v->hasLooped = false; // for cubic/sinc interpolation special case
 	v->oneShot = false;
+	v->reverseLoop = (s->flags & SAMPLE_REVERSE_LOOP) != 0;
 	v->samplingBackwards = false;
 	v->loopType = loopType;
 	v->sampleEnd = (loopType == LOOP_DISABLED) ? length : loopEnd;
@@ -471,6 +472,7 @@ static void voiceApplyTapeheadOneShot(voice_t *v, const sample_t *s,
 {
 	const bool sample16Bit = !!(s->flags & SAMPLE_16BIT);
 	v->oneShot = true;
+	v->reverseLoop = false;
 	v->hasLooped = false;
 	v->loopStart = 0;
 	v->loopLength = s->length;

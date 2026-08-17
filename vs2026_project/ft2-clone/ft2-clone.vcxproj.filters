@@ -48,6 +48,8 @@
     <ClCompile Include="..\..\src\ft2_sample_ed_features.c" />
     <ClCompile Include="..\..\src\ft2_sample_loader.c" />
     <ClCompile Include="..\..\src\ft2_sample_saver.c" />
+    <ClCompile Include="..\..\src\ft2_tapesister_exchange.c" />
+    <ClCompile Include="..\..\src\ft2_tapesister_protocol.c" />
     <ClCompile Include="..\..\src\ft2_sampling.c" />
     <ClCompile Include="..\..\src\ft2_scrollbars.c" />
     <ClCompile Include="..\..\src\ft2_structs.c" />
@@ -310,6 +312,15 @@
       <Filter>headers</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\ft2_sample_saver.h">
+      <Filter>headers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\ft2_tapesister_exchange.h">
+      <Filter>headers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\ft2_tapesister_protocol.h">
+      <Filter>headers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\ft2_wav_metadata.h">
       <Filter>headers</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\ft2_sampling.h">
