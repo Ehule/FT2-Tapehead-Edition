@@ -26,6 +26,7 @@ TEST_SCRIPTS = (
 	"test_wav_metadata.py",
 	"test_tapesister_exchange_wiring.py",
 	"test_sysreq_layout.py",
+	"test_overlay_layout.py",
 	"test_baker_adaptive_save.py",
 	"test_baker_assets.py",
 	"test_baker_dialog_layout.py",
