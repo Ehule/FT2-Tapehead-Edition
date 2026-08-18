@@ -22,6 +22,25 @@ All private transports use the same rational tick accumulator, including `1:1`. 
 
 Song transport continues along its private order list while the Pattern Matrix changes the pattern heard by the master. This separation is intentional: the Matrix can perform one layer while Song-mode FasTracks freewheel underneath it.
 
+## Song-wide per-track LEN
+
+Each tracker track has one LEN for the whole module rather than one setting per
+pattern. A Song-mode FastTrack therefore carries the same row domain through
+its private order list—effectively one independent song order per track. A LEN
+of zero is `OFF` and follows the pattern domain established by its ordinary
+length and the longest explicit track LEN.
+
+An explicit LEN takes precedence over a shorter pattern. If LEN is 25 and the
+current source pattern has 20 rows, the private head still completes a 25-row
+cycle; rows 20–24 are safe blank extension space. A 40-row source still wraps
+that lane at row 24. Values through 256 are supported and stored in Tapehead's
+backward-compatible XM extension together with pattern-local CONTROL choices.
+
+The persistent header accepts the mouse wheel (`Shift` = eight-row steps,
+`Ctrl` = OFF). On an APC40 mkII, hold Shift and turn Track Control encoders
+1–8; the flashing bar rings show the temporary LEN layer. The interactive
+encoder/mouse ceiling is configured by `[Pattern] TrackLengthControlMax=256`.
+
 The pattern editor renders each Song-mode channel from that private order's
 actual source pattern. The Transpose panel's optional `VIEW` mode can therefore
 modify the events visibly passing under each private head without touching

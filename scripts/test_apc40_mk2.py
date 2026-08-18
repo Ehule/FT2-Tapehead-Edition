@@ -34,6 +34,9 @@ assert 'fputs("TransportFreezeNavigation=Silent\\n", f);' in config_source
 assert 'fputs("TransportFreezeResume=Next\\n\\n", f);' in config_source
 assert "RecordArm01=FastTrackClutchToggle:1" in ini_text
 assert "Footswitch=TransportPunch" in ini_text
+assert "tapeheadAPC40Mk2TrackLengthRingValue" in apc_source
+assert "lengthRingLit" in apc_source
+assert "trackLengthControlMax" in apc_source
 
 # Startup must gate all feedback on the one successful Mode 2 send. The clear
 # and authoritative refresh follow it, while ordinary refresh contains no

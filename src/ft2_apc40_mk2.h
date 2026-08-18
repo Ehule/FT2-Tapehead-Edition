@@ -19,6 +19,8 @@ size_t tapeheadAPC40Mk2BuildIntroduction(uint8_t mode, uint8_t *message,
 	size_t capacity);
 uint8_t tapeheadAPC40Mk2RatioRingValue(uint8_t ratioIndex,
 	uint8_t ratioCount);
+uint8_t tapeheadAPC40Mk2TrackLengthRingValue(uint16_t length,
+	uint16_t maximum);
 uint8_t tapeheadAPC40Mk2ScaleRGBColor(uint8_t color, uint8_t brightness);
 size_t tapeheadAPC40Mk2BuildRGBTransition(uint8_t note, uint8_t primary,
 	uint8_t secondary, uint8_t animation, uint8_t *messages, size_t capacity);

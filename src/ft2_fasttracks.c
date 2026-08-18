@@ -29,11 +29,14 @@
 #define FAST_TRACKS_XM_META_PATTERN_SIZE (1 + (FAST_TRACKS_MAX_CHANNELS * 2))
 #define FAST_TRACKS_XM_META_SIZE (MAX_PATTERNS * FAST_TRACKS_XM_META_PATTERN_SIZE)
 
-/* Zero is deliberately the complete default representation: every track
-** inherits the FT2 pattern length and no CONTROL channel is selected. The
-** plus-one CONTROL encoding avoids a runtime initializer in the audio path. */
-static uint16_t fastTracksPatternLength[MAX_PATTERNS][FAST_TRACKS_MAX_CHANNELS];
+/* LEN is one song/module-wide value per tracker track. An explicit value can
+** extend a shorter source pattern with blank rows, while a shorter LEN wraps
+** independently inside a longer pattern. CONTROL stays pattern-local. Zero
+** follows the effective pattern domain established by the longest lane. */
+static uint16_t fastTracksTrackLength[FAST_TRACKS_MAX_CHANNELS];
 static uint8_t fastTracksControlTrackPlusOne[MAX_PATTERNS];
+/* THPLEN01 stored LEN beside every pattern. Keep accepting that layout and
+** migrate its first explicit song-order value into the song-wide lane. */
 static uint16_t pendingFastTracksPatternLength[MAX_PATTERNS][FAST_TRACKS_MAX_CHANNELS];
 static uint8_t pendingFastTracksControlTrackPlusOne[MAX_PATTERNS];
 static bool pendingFastTracksMetadataValid;
@@ -210,7 +213,22 @@ uint16_t fastTracksPOCGetTrackLength(uint16_t patternNumber, int32_t channelInde
 	if (patternNumber >= MAX_PATTERNS || !fastTracksPOCChannelIsValid(channelIndex))
 		return 0;
 
-	return fastTracksPatternLength[patternNumber][channelIndex];
+	return fastTracksTrackLength[channelIndex];
+}
+
+uint16_t fastTracksPOCGetExtendedPatternLength(uint16_t patternNumber)
+{
+	if (patternNumber >= MAX_PATTERNS)
+		return 1;
+
+	uint16_t length = (uint16_t)CLAMP(patternNumRows[patternNumber], 1,
+		MAX_PATT_LEN);
+	for (int32_t channelIndex = 0; channelIndex < FAST_TRACKS_MAX_CHANNELS;
+		channelIndex++)
+	{
+		length = MAX(length, fastTracksTrackLength[channelIndex]);
+	}
+	return length;
 }
 
 uint16_t fastTracksPOCGetEffectiveTrackLength(uint16_t patternNumber, int32_t channelIndex)
@@ -218,17 +236,14 @@ uint16_t fastTracksPOCGetEffectiveTrackLength(uint16_t patternNumber, int32_t ch
 	if (patternNumber >= MAX_PATTERNS || !fastTracksPOCChannelIsValid(channelIndex))
 		return 1;
 
-	int32_t patternLength = patternNumRows[patternNumber];
-	if (patternLength <= 0)
-		patternLength = 1;
-	else if (patternLength > MAX_PATT_LEN)
-		patternLength = MAX_PATT_LEN;
-
-	const uint16_t storedLength = fastTracksPatternLength[patternNumber][channelIndex];
+	const uint16_t storedLength = fastTracksTrackLength[channelIndex];
 	if (storedLength == 0)
-		return (uint16_t)patternLength;
+		return fastTracksPOCGetExtendedPatternLength(patternNumber);
 
-	return (uint16_t)MIN(storedLength, patternLength);
+	/* LEN deliberately outranks the source pattern's ordinary row count. Rows
+	** in the extension tail are resolved as blank by the replayer, allowing a
+	** short pattern to occupy a longer polymetric lane without data overread. */
+	return storedLength;
 }
 
 uint16_t fastTracksPOCGetFastTrackLength(uint16_t patternNumber, int32_t channelIndex)
@@ -292,16 +307,9 @@ bool fastTracksPOCPatternMetadataIsDefault(uint16_t patternNumber)
 {
 	if (patternNumber >= MAX_PATTERNS)
 		return true;
-	if (fastTracksControlTrackPlusOne[patternNumber] != 0)
-		return false;
-
-	for (int32_t i = 0; i < FAST_TRACKS_MAX_CHANNELS; i++)
-	{
-		if (fastTracksPatternLength[patternNumber][i] != 0)
-			return false;
-	}
-
-	return true;
+	/* Song-wide LEN is module metadata, not ownership of any one pattern slot.
+	** Only the pattern-local CONTROL choice reserves an otherwise empty slot. */
+	return fastTracksControlTrackPlusOne[patternNumber] == 0;
 }
 
 void fastTracksPOCGetPatternMetadata(uint16_t patternNumber,
@@ -314,7 +322,7 @@ void fastTracksPOCGetPatternMetadata(uint16_t patternNumber,
 	if (patternNumber >= MAX_PATTERNS)
 		return;
 
-	memcpy(metadata->trackLength, fastTracksPatternLength[patternNumber],
+	memcpy(metadata->trackLength, fastTracksTrackLength,
 		sizeof (metadata->trackLength));
 	metadata->controlTrack = fastTracksPOCGetControlTrack(patternNumber);
 }
@@ -327,7 +335,7 @@ void fastTracksPOCSetPatternMetadata(uint16_t patternNumber,
 
 	for (int32_t i = 0; i < FAST_TRACKS_MAX_CHANNELS; i++)
 	{
-		fastTracksPatternLength[patternNumber][i] =
+		fastTracksTrackLength[i] =
 			MIN(metadata->trackLength[i], MAX_PATT_LEN);
 	}
 	fastTracksControlTrackPlusOne[patternNumber] =
@@ -343,7 +351,8 @@ void fastTracksPOCSetTrackLength(uint16_t patternNumber, int32_t channelIndex,
 	if (patternNumber >= MAX_PATTERNS || !fastTracksPOCChannelIsValid(channelIndex))
 		return;
 
-	fastTracksPatternLength[patternNumber][channelIndex] = MIN(length, MAX_PATT_LEN);
+	fastTracksTrackLength[channelIndex] = MIN(length, MAX_PATT_LEN);
+	fastTracksPOCResetCycleCounters();
 	ui.updatePatternEditor = true;
 }
 
@@ -365,8 +374,6 @@ void fastTracksPOCResetPatternMetadata(uint16_t patternNumber)
 	if (patternNumber >= MAX_PATTERNS)
 		return;
 
-	memset(fastTracksPatternLength[patternNumber], 0,
-		sizeof (fastTracksPatternLength[patternNumber]));
 	fastTracksControlTrackPlusOne[patternNumber] = 0;
 	if (patternNumber == song.pattNum)
 		fastTracksPOCResetCycleCounters();
@@ -375,7 +382,7 @@ void fastTracksPOCResetPatternMetadata(uint16_t patternNumber)
 
 void fastTracksPOCResetAllPatternMetadata(void)
 {
-	memset(fastTracksPatternLength, 0, sizeof (fastTracksPatternLength));
+	memset(fastTracksTrackLength, 0, sizeof (fastTracksTrackLength));
 	memset(fastTracksControlTrackPlusOne, 0, sizeof (fastTracksControlTrackPlusOne));
 	fastTracksMasterCycleRow = 0;
 	fastTracksPOCResetCycleCounters();
@@ -388,9 +395,6 @@ void fastTracksPOCCopyPatternMetadata(uint16_t sourcePattern,
 	if (sourcePattern >= MAX_PATTERNS || destinationPattern >= MAX_PATTERNS)
 		return;
 
-	memcpy(fastTracksPatternLength[destinationPattern],
-		fastTracksPatternLength[sourcePattern],
-		sizeof (fastTracksPatternLength[destinationPattern]));
 	fastTracksControlTrackPlusOne[destinationPattern] =
 		fastTracksControlTrackPlusOne[sourcePattern];
 }
@@ -1385,7 +1389,7 @@ bool fastTracksPOCWriteXMExtension(FILE *f)
 	for (uint16_t patternNumber = 0; patternNumber < MAX_PATTERNS; patternNumber++)
 	{
 		if (fwrite(&fastTracksControlTrackPlusOne[patternNumber], 1, 1, f) != 1 ||
-			fwrite(fastTracksPatternLength[patternNumber], sizeof (uint16_t),
+			fwrite(fastTracksTrackLength, sizeof (uint16_t),
 				FAST_TRACKS_MAX_CHANNELS, f) != FAST_TRACKS_MAX_CHANNELS)
 		{
 			return false;
@@ -1463,11 +1467,47 @@ void fastTracksPOCCommitXMExtension(void)
 	fastTracksPOCResetAllPatternMetadata();
 	if (pendingFastTracksMetadataValid)
 	{
-		memcpy(fastTracksPatternLength, pendingFastTracksPatternLength,
-			sizeof (fastTracksPatternLength));
 		memcpy(fastTracksControlTrackPlusOne,
 			pendingFastTracksControlTrackPlusOne,
 			sizeof (fastTracksControlTrackPlusOne));
+
+		/* Prefer the first explicit value encountered by the actual song. This
+		** preserves the performer's opening setup when loading an older file
+		** whose THPLEN01 metadata varied from pattern to pattern. */
+		bool resolved[FAST_TRACKS_MAX_CHANNELS] = { false };
+		for (int32_t order = 0; order < song.songLength; order++)
+		{
+			const uint16_t patternNumber = song.orders[order];
+			if (patternNumber >= MAX_PATTERNS)
+				continue;
+			for (int32_t channelIndex = 0; channelIndex < FAST_TRACKS_MAX_CHANNELS;
+				channelIndex++)
+			{
+				const uint16_t length =
+					pendingFastTracksPatternLength[patternNumber][channelIndex];
+				if (!resolved[channelIndex] && length != 0)
+				{
+					fastTracksTrackLength[channelIndex] = length;
+					resolved[channelIndex] = true;
+				}
+			}
+		}
+		/* Also recover metadata belonging only to unused patterns. */
+		for (uint16_t patternNumber = 0; patternNumber < MAX_PATTERNS;
+			patternNumber++)
+		{
+			for (int32_t channelIndex = 0; channelIndex < FAST_TRACKS_MAX_CHANNELS;
+				channelIndex++)
+			{
+				const uint16_t length =
+					pendingFastTracksPatternLength[patternNumber][channelIndex];
+				if (!resolved[channelIndex] && length != 0)
+				{
+					fastTracksTrackLength[channelIndex] = length;
+					resolved[channelIndex] = true;
+				}
+			}
+		}
 	}
 	pendingFastTracksMetadataValid = false;
 }

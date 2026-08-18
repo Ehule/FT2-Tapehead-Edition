@@ -115,9 +115,12 @@ void fastTracksPOCResetForLoadedModule(void);
 void fastTracksPOCSetMasterEnabled(bool enabled);
 void fastTracksPOCMasterToggle(void);
 
-/* Per-pattern polymeter metadata. A stored length of zero inherits the
-** ordinary FT2 pattern length. CONTROL is stored as one optional channel. */
+/* Song/module-wide polymeter LEN plus pattern-local CONTROL metadata. A LEN
+** of zero inherits each source pattern's ordinary FT2 length; a nonzero LEN
+** persists through Song mode. A nonzero LEN outranks shorter source patterns;
+** their extension rows play as blank space. */
 uint16_t fastTracksPOCGetTrackLength(uint16_t patternNumber, int32_t channelIndex);
+uint16_t fastTracksPOCGetExtendedPatternLength(uint16_t patternNumber);
 uint16_t fastTracksPOCGetEffectiveTrackLength(uint16_t patternNumber, int32_t channelIndex);
 uint16_t fastTracksPOCGetFastTrackLength(uint16_t patternNumber, int32_t channelIndex);
 bool fastTracksPOCUsesTrackLengths(void);

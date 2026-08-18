@@ -30,6 +30,7 @@ static bool fastSelected[MAX_CHANNELS], fastReversed[MAX_CHANNELS];
 static bool fastClutched[MAX_CHANNELS], fastMaster, transmissionClutch;
 static fastTracksMode_t fastMode[MAX_CHANNELS];
 static uint8_t fastRatio[MAX_CHANNELS];
+static uint16_t fastTrackLength[MAX_CHANNELS];
 static bool sampleDeck, patternExposed[MAX_PATTERNS];
 static bool sampleLoaded[SAMPLE_LAUNCHER_MAX_TILES];
 static uint8_t patternPage, sampleBank;
@@ -88,6 +89,10 @@ void audioSetMatrixMixerGains(uint16_t qGain, uint16_t polyGain)
 { audioQGain = qGain; audioPolyGain = polyGain; }
 void lockAudio(void) { audio.locked = true; }
 void unlockAudio(void) { audio.locked = false; }
+bool undoPatternBegin(uint16_t patternNum, const char *description)
+{ (void)patternNum; (void)description; return true; }
+void undoPatternCommit(void) { }
+void setSongModifiedFlag(void) { song.isModified = true; }
 void resetSyncQueues(void) { }
 void stopVoice(int32_t voiceIndex) { (void)voiceIndex; }
 void stopVoices(void) { stopVoicesCount++; }
@@ -156,6 +161,11 @@ void fastTracksPOCResetAllRatios(void)
 	for (int32_t i = 0; i < MAX_CHANNELS; i++)
 		if (fastSelected[i]) fastRatio[i] = FAST_TRACKS_ONE_TO_ONE_RATIO_INDEX;
 }
+uint16_t fastTracksPOCGetTrackLength(uint16_t patternNumber, int32_t i)
+{ (void)patternNumber; return fastTrackLength[i]; }
+void fastTracksPOCSetTrackLength(uint16_t patternNumber, int32_t i,
+	uint16_t length)
+{ (void)patternNumber; fastTrackLength[i] = length; }
 bool fastTracksPOCIsReversed(int32_t i) { return fastReversed[i]; }
 void fastTracksPOCToggleDirection(int32_t i) { fastReversed[i] ^= 1; }
 bool fastTracksPOCIsClutched(int32_t i) { return fastClutched[i]; }
@@ -251,6 +261,7 @@ static void resetFixture(int32_t numChannels)
 	memset(fastClutched, 0, sizeof (fastClutched));
 	memset(fastMode, 0, sizeof (fastMode));
 	memset(fastRatio, FAST_TRACKS_ONE_TO_ONE_RATIO_INDEX, sizeof (fastRatio));
+	memset(fastTrackLength, 0, sizeof (fastTrackLength));
 	memset(patternExposed, 1, sizeof (patternExposed));
 	memset(sampleLoaded, 1, sizeof (sampleLoaded));
 	memset(pattern, 0, sizeof (pattern));
@@ -271,6 +282,7 @@ static void resetFixture(int32_t numChannels)
 	memset(&tapeheadConfig, 0, sizeof (tapeheadConfig));
 	tapeheadConfig.trackTrimMaxPercent = 200;
 	tapeheadConfig.trackTrimDisplayWidth = 2;
+	tapeheadConfig.trackLengthControlMax = MAX_PATT_LEN;
 	tapeheadConfig.patternJogAudition = TAPEHEAD_PATTERN_JOG_AUDITION_LATCHED;
 	memset(&audio, 0, sizeof (audio));
 	config.masterVol = 128;
@@ -447,6 +459,24 @@ static void testTrackSelectionAndFastTracksActions(void)
 	assert(tapeheadActionFastTrackClutchToggle(2));
 	assert(fastClutched[2]);
 	assert(!tapeheadActionFastTrackReverseToggle(3));
+}
+
+static void testTrackLengthControllerUsesConfigurableCeiling(void)
+{
+	resetFixture(8);
+	assert(tapeheadActionTrackLengthFromController(0) == 0);
+	assert(tapeheadActionTrackLengthFromController(1) == 1);
+	assert(tapeheadActionTrackLengthFromController(127) == MAX_PATT_LEN);
+
+	tapeheadConfig.trackLengthControlMax = 64;
+	assert(tapeheadActionTrackLengthFromController(127) == 64);
+	assert(tapeheadActionTrackLengthSet(2, 64));
+	assert(fastTrackLength[2] == 64);
+	assert(song.isModified && !audio.locked);
+	assert(!tapeheadActionTrackLengthSet(2, 64));
+	assert(!tapeheadActionTrackLengthSet(8, 12));
+	assert(tapeheadActionTrackLengthSet(2, 0));
+	assert(fastTrackLength[2] == 0);
 }
 
 static void testMatrixFocusBanksAndSlotsAreIndependent(void)
@@ -965,6 +995,7 @@ int main(void)
 	testRevealHistoryIsDeterministic();
 	testOrdinaryMuteAndUnmuteAllRemainExplicit();
 	testTrackSelectionAndFastTracksActions();
+	testTrackLengthControllerUsesConfigurableCeiling();
 	testMatrixFocusBanksAndSlotsAreIndependent();
 	testTransportActionsRemainDistinct();
 	testModuleLoadClearsPerformanceRuntime();

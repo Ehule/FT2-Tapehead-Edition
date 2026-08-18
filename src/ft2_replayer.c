@@ -2663,7 +2663,8 @@ static int32_t getControlVisualRow(int32_t controlTrack)
 			controlTrack, song.row);
 	}
 
-	const int32_t visibleRows = CLAMP(song.currNumRows, 1, MAX_PATT_LEN);
+	const int32_t visibleRows = fastTracksPOCGetExtendedPatternLength(
+		song.pattNum);
 	visualRow %= visibleRows;
 	if (visualRow < 0)
 		visualRow += visibleRows;
@@ -3125,7 +3126,8 @@ void tickReplayer(void) // periodically called from audio callback
 					const note_t *sourceNote = nilPatternLine;
 					if (fastTracksPOCResolveCrossing(i, sourceChannel,
 						&crossings[crossing],
-						&sourcePattern, &sourceRow) && pattern[sourcePattern] != NULL)
+						&sourcePattern, &sourceRow) && pattern[sourcePattern] != NULL &&
+						sourceRow < patternNumRows[sourcePattern])
 					{
 						sourceNote = &pattern[sourcePattern]
 							[(sourceRow * MAX_CHANNELS) + sourceChannel];
@@ -3159,8 +3161,15 @@ void tickReplayer(void) // periodically called from audio callback
 			{
 				const int32_t localRow = fastTracksPOCResolveMasterSourceRow(
 					song.pattNum, sourceChannel, song.row);
-				sourceNote = &pattern[song.pattNum]
-					[(localRow * MAX_CHANNELS) + sourceChannel];
+				if (localRow < patternNumRows[song.pattNum])
+				{
+					sourceNote = &pattern[song.pattNum]
+						[(localRow * MAX_CHANNELS) + sourceChannel];
+				}
+				else
+				{
+					sourceNote = nilPatternLine;
+				}
 			}
 			note_t localEvent = *sourceNote;
 			if (localLengthEnabled)

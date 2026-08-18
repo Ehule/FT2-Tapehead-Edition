@@ -64,7 +64,11 @@ assert "getControlVisualRow" in replayer
 assert "song.curReplayerRow = (uint8_t)getControlVisualRow" in replayer
 assert '"FT uses LEN"' in config
 assert '"FastTracksUseTrackLengths"' in config
+assert '"TrackLengthControlMax"' in config
 assert "fastTracksPOCGetFastTrackLength" in fasttracks
+assert "fastTracksTrackLength[FAST_TRACKS_MAX_CHANNELS]" in fasttracks
+assert "return storedLength;" in fasttracks
+assert "sourceRow < patternNumRows[sourcePattern]" in replayer
 assert "lengthHeaderY + 8" in pattern_draw
 assert "displayedRow >= fastTracksPOCGetEffectiveTrackLength" in pattern_draw
 assert "drawTrackPlayheadOutline" in pattern_draw
@@ -73,3 +77,4 @@ assert "drawPlayhead = displayedRow == fastTrack->sourceRow" in pattern_draw
 assert "fastTrack->sourceRow + (i - pattCoord->numUpperRows)" not in pattern_draw
 assert "panelWidth - 15" in pattern_draw
 assert "panelWidth - 11" in mouse
+assert "tapeheadConfig.trackLengthControlMax" in mouse

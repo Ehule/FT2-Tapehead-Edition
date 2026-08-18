@@ -1073,7 +1073,8 @@ static void drawFastTracksPOCStatus(uint16_t yPos, const fastTracksSnapshot_t *s
 		if (reversed)
 		{
 			fillRect((uint16_t)statusX, yPos, 5, 8, PAL_BLCKMRK);
-			textOutTiny(statusX + 1, yPos + 1, "R", 0xFFFF3030);
+			textOutTiny(statusX + 1, yPos + 1, "R",
+				video.palette[PAL_FASTTRACKS_PHASE]);
 			statusX += 6;
 		}
 
@@ -1116,15 +1117,16 @@ static void drawFastTracksPOCStatus(uint16_t yPos, const fastTracksSnapshot_t *s
 				badgeX = MAX(badgeX, statusX);
 			fillRect((uint16_t)badgeX, yPos, (uint16_t)badgeWidth, 8,
 				PAL_BLCKMRK);
-			textOutTiny(badgeX + 1, yPos + 1, songText, 0xFFFFB020);
+			textOutTiny(badgeX + 1, yPos + 1, songText,
+				video.palette[PAL_FASTTRACKS_SONG]);
 		}
 
 		const bool masterAligned = track->masterAligned;
 		if (masterAligned)
 		{
-			/* Deliberately literal green: exact master synchronization should be
-			** recognizable independently of the current FT2 palette. */
-			const uint32_t syncColor = breatheColorToward(0xFF00D040, video.palette[panelColor]);
+			/* Exact synchronization keeps its own configurable status color. */
+			const uint32_t syncColor = breatheColorToward(
+				video.palette[PAL_FASTTRACKS_SYNC], video.palette[panelColor]);
 			drawFastTracksPOCLed(syncLedX, (uint16_t)(yPos + 2), syncColor);
 		}
 		else if (!songMode)
@@ -1138,9 +1140,10 @@ static void drawFastTracksPOCStatus(uint16_t yPos, const fastTracksSnapshot_t *s
 			if (phaseOffset > numRows / 2)
 				phaseOffset -= numRows;
 
-			/* Red retains the established Fast Tracks phase meaning. During clutch,
-			** the configurable block-mark color remains the temporary emphasis. */
-			const uint32_t phaseBaseColor = clutchHeld ? video.palette[PAL_BLCKMRK] : 0xFFFF3030;
+			/* FastTracks phase has its own palette entry. During clutch, the
+			** block-mark color remains the temporary emphasis. */
+			const uint32_t phaseBaseColor = clutchHeld ? video.palette[PAL_BLCKMRK] :
+				video.palette[PAL_FASTTRACKS_PHASE];
 			const uint32_t phaseColor = breatheColorToward(phaseBaseColor, video.palette[panelColor]);
 			if (phaseOffset < 0)
 			{
@@ -1220,7 +1223,8 @@ static void drawTrackLengthStatus(uint16_t yPos, uint16_t patternNumber)
 				video.palette[PAL_DESKTOP]));
 
 		const bool isControl = controlTrack == channelIndex;
-		const uint32_t controlColor = isControl ? 0xFFFF3030 :
+		const uint32_t controlColor = isControl ?
+			video.palette[PAL_CONTROL_PLAYHEAD] :
 			breatheColorToward(video.palette[PAL_BLCKTXT],
 				video.palette[PAL_DESKTOP]);
 		drawControlEjectSymbol((uint16_t)(xPos + panelWidth - 11),
@@ -1286,7 +1290,9 @@ void writePattern(int32_t currRow, int32_t currPattern)
 	const int32_t afterCurrRow = currRow + 1;
 	const int32_t numChannels = ui.numChannelsShown;
 	note_t *pattPtr = pattern[currPattern];
-	const int32_t numRows = patternNumRows[currPattern];
+	const int32_t physicalRows = patternNumRows[currPattern];
+	const int32_t numRows = fastTracksPOCGetExtendedPatternLength(
+		(uint16_t)currPattern);
 	fastTracksSnapshot_t fastTracksSnapshot;
 	fastTracksPOCGetSnapshot(&fastTracksSnapshot);
 
@@ -1306,7 +1312,8 @@ void writePattern(int32_t currRow, int32_t currPattern)
 
 			drawRowNums(textY, (uint8_t)row, selectedRowFlag);
 
-			const note_t *p = (pattPtr == NULL) ? emptyPattern : &pattPtr[(uint32_t)row * MAX_CHANNELS];
+			const note_t *p = pattPtr == NULL || row >= physicalRows
+				? emptyPattern : &pattPtr[(uint32_t)row * MAX_CHANNELS];
 			const int32_t xWidth = ui.patternChannelWidth;
 			const uint32_t color = noteTextColors[selectedRowFlag];
 
@@ -1332,11 +1339,13 @@ void writePattern(int32_t currRow, int32_t currPattern)
 					/* Playback can wrap at LEN, but the display deliberately keeps the
 					** complete source pattern stationary so the unused tail can be dimmed
 					** and the independent playhead has a visible path to follow. */
-					const int32_t sourceNumRows = CLAMP(
-						patternNumRows[displayedPattern], 1, MAX_PATT_LEN);
+					const int32_t sourceNumRows =
+						fastTracksPOCGetExtendedPatternLength(
+							(uint16_t)displayedPattern);
 					displayedRow = row;
 
 					drawPtr = pattern[displayedPattern] == NULL ||
+						displayedRow >= patternNumRows[displayedPattern] ||
 						displayedRow >= sourceNumRows
 						? emptyPattern
 						: &pattern[displayedPattern]
@@ -1409,11 +1418,12 @@ void writePattern(int32_t currRow, int32_t currPattern)
 				if (drawPlayhead)
 				{
 					uint32_t playheadColor = fastTrackVisible && !lenOwnsFastTrack
-						? 0xFFFFB020 : 0xFF40D8FF;
+						? video.palette[PAL_FASTTRACKS_PLAYHEAD]
+						: video.palette[PAL_TRACK_LENGTH_PLAYHEAD];
 					if (fastTracksPOCGetControlTrack((uint16_t)displayedPattern) ==
 						absoluteChannel)
 					{
-						playheadColor = 0xFFFF3030;
+						playheadColor = video.palette[PAL_CONTROL_PLAYHEAD];
 					}
 
 					drawTrackPlayheadOutline((uint16_t)(xPos + 1),

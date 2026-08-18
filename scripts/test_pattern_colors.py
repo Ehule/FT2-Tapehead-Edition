@@ -12,6 +12,9 @@ radios = (ROOT / "src/ft2_radiobuttons.c").read_text()
 
 for name in ("NOTE", "INSTRUMENT", "VOLUME", "TUNING", "EFFECT", "EMPTY"):
     assert f"PAL_PATTERN_{name}" in header
+for name in ("TRACK_LENGTH_PLAYHEAD", "FASTTRACKS_PLAYHEAD", "CONTROL_PLAYHEAD",
+             "FASTTRACKS_SYNC", "FASTTRACKS_PHASE", "FASTTRACKS_SONG"):
+    assert f"PAL_{name}" in header
 
 helper = palette[palette.index("bool patternFieldColorsActive"):
                  palette.index("bool paletteListMouseWheel")]
@@ -52,12 +55,17 @@ for preset in ("Arctic", "LiTHe dark", "Aurora Borealis", "Rose", "Blues",
                "Jungle", "User defined"):
     assert f'"{preset}"' in palette
 
-assert "i >= 6 && !colorFound[i]" in palette
+assert "i >= 6 && i < 12 && !colorFound[i]" in palette
 assert "colors[i] = colors[0]" in palette
-assert "for (int32_t i = 0; i < 12; i++)" in palette
+assert "TAPEHEAD_PALETTE_EDIT_COUNT" in palette
+assert "retain new color defaults" in palette
 
 for key in ("PatternNoteColor", "PatternInstrumentColor", "PatternVolumeColor",
             "PatternTuningColor", "PatternEffectColor", "PatternEmptyColor"):
+    assert key in config
+for key in ("TrackLengthPlayheadColor", "FastTracksPlayheadColor",
+            "ControlPlayheadColor", "FastTracksSyncColor",
+            "FastTracksPhaseColor", "FastTracksSongColor"):
     assert key in config
 assert 'UNICHAR_FOPEN(tempPathU, "w")' in config
 assert 'inPattern = !_stricmp(text, "[Pattern]")' in config

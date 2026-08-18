@@ -59,6 +59,39 @@ HDStyle=crisp
 
 The logical FT2 layout and mouse coordinates remain 632×400.
 
+## Pattern LEN and colors
+
+```ini
+[Pattern]
+PatternColorMode=edit
+FastTracksUseTrackLengths=true
+TrackLengthControlMax=256
+```
+
+LEN is one song/module-wide setting per tracker track. For example, setting
+track 1 to 25 makes that lane 25 rows in every Pattern- and Song-mode source.
+LEN takes precedence over a shorter source pattern: a 20-row pattern supplies
+five safe blank extension rows. A longer 40-row pattern still lets that track
+wrap at 25. The longest explicit LEN establishes the extended pattern domain;
+`LEN OFF` follows that domain. CONTROL selection remains pattern-local.
+
+`FastTracksUseTrackLengths=true` makes private FastTracks heads use those LEN
+domains. Set it to `false` to make FastTracks ignore LEN while ordinary LEN and
+CONTROL behavior remains available.
+
+`TrackLengthControlMax` accepts `1`–`256` and affects only interactive input:
+the LEN header mouse wheel and Shift + APC40 Track Control encoders. The
+default exposes all 256 rows; a lower ceiling gives the absolute hardware more
+precision. Existing module LEN values above the ceiling remain valid until
+edited.
+
+The scrollable **Configuration → Layout** palette includes six transport
+entries in addition to the pattern-field colors: `LEN Head`, `FT Head`,
+`CONTROL Head`, `FT Sync LED`, `FT Phase LED`, and `FT Song Badge`. Saving the
+configuration writes their corresponding `*Color=#RRGGBB` keys under
+`[Pattern]`; `tapehead.pal` import/export carries the same colors while older
+palette files retain the built-in cyan, amber, red, and green defaults.
+
 ## Launcher
 
 ```ini
@@ -203,6 +236,8 @@ CC actions are `TrackTrim:1..32`, `FastTrackRatio:1..32`, `TempoRelative`,
 `MatrixCrossfader`, plus the binary `TransportPunch`. Trim maps
 `0..127` to `0..200%`. FastTrack ratio maps the same CC range across the 17
 musical ratios from `1/2` through `5/1`, including the centered `1/1` value.
+While `ShiftModifier` is held, a `FastTrackRatio:n` CC instead maps zero to
+`LEN OFF` and `1..127` across `1..TrackLengthControlMax` for track `n`.
 Matrix Master maps `0..127` to silence..unity for Q and Poly together.
 Crossfader A isolates Q, the center keeps Q and Poly at unity, and B isolates
 Poly; short audio ramps smooth both controls.

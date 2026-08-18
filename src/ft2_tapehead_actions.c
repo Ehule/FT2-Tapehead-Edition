@@ -12,6 +12,7 @@
 #include "ft2_sample_launcher.h"
 #include "ft2_sample_morph.h"
 #include "ft2_structs.h"
+#include "ft2_undo.h"
 #include "scopes/ft2_scopes.h"
 
 static uint8_t revealHistory[MAX_CHANNELS];
@@ -520,6 +521,47 @@ bool tapeheadActionFastTrackRatioSet(int32_t channelIndex, int32_t ratioIndex)
 	const uint8_t oldIndex = fastTracksPOCGetRatioIndex(channelIndex);
 	fastTracksPOCSetRatioIndex(channelIndex, (uint8_t)ratioIndex);
 	return fastTracksPOCGetRatioIndex(channelIndex) != oldIndex;
+}
+
+uint16_t tapeheadActionTrackLengthFromController(uint8_t value)
+{
+	const uint16_t maximum = CLAMP(tapeheadConfig.trackLengthControlMax, 1,
+		MAX_PATT_LEN);
+	if (value == 0)
+		return 0; /* the absolute encoder's bottom stop is LEN OFF */
+	if (maximum == 1)
+		return 1;
+
+	/* Reserve CC zero for OFF, then distribute 1..127 across 1..maximum.
+	** Lowering TrackLengthControlMax therefore improves useful resolution. */
+	return (uint16_t)(1 + ((((uint32_t)value - 1) * (maximum - 1) + 63) /
+		126));
+}
+
+bool tapeheadActionTrackLengthSet(int32_t channelIndex, uint16_t length)
+{
+	if (!channelIndexIsActive(channelIndex))
+		return false;
+
+	length = MIN(length, MAX_PATT_LEN);
+	const uint16_t oldLength = fastTracksPOCGetTrackLength(editor.editPattern,
+		channelIndex);
+	if (oldLength == length)
+		return false;
+	if (!undoPatternBegin(editor.editPattern, "Set track length"))
+		return false;
+
+	const bool audioWasntLocked = !audio.locked;
+	if (audioWasntLocked)
+		lockAudio();
+	fastTracksPOCSetTrackLength(editor.editPattern, channelIndex, length);
+	setSongModifiedFlag();
+	undoPatternCommit();
+	if (audioWasntLocked)
+		unlockAudio();
+
+	ui.updatePatternEditor = true;
+	return true;
 }
 
 bool tapeheadActionFastTrackRatioNext(int32_t channelIndex)

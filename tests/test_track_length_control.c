@@ -33,7 +33,10 @@ static void testDefaultsBoundsAndCopy(void)
 	fastTracksPOCSetControlTrack(3, 2);
 	assert(fastTracksPOCGetTrackLength(3, 2) == 13);
 	assert(fastTracksPOCGetTrackLength(3, 3) == MAX_PATT_LEN);
-	assert(fastTracksPOCGetEffectiveTrackLength(3, 3) == 64);
+	assert(fastTracksPOCGetEffectiveTrackLength(3, 3) == MAX_PATT_LEN);
+	assert(fastTracksPOCGetExtendedPatternLength(3) == MAX_PATT_LEN);
+	assert(fastTracksPOCGetEffectiveTrackLength(3, 0) == MAX_PATT_LEN);
+	assert(fastTracksPOCGetTrackLength(4, 2) == 13); /* song-wide lane */
 	assert(fastTracksPOCGetControlTrack(3) == 2);
 	assert(!fastTracksPOCPatternMetadataIsDefault(3));
 
@@ -41,7 +44,8 @@ static void testDefaultsBoundsAndCopy(void)
 	assert(fastTracksPOCGetTrackLength(4, 2) == 13);
 	assert(fastTracksPOCGetControlTrack(4) == 2);
 	fastTracksPOCResetPatternMetadata(3);
-	assert(fastTracksPOCPatternMetadataIsDefault(3));
+	assert(fastTracksPOCPatternMetadataIsDefault(3)); /* LEN owns no pattern slot */
+	assert(fastTracksPOCGetControlTrack(3) == -1);
 	assert(fastTracksPOCGetTrackLength(4, 2) == 13);
 }
 
@@ -54,8 +58,8 @@ static void testMasterPhaseAndResizeSafety(void)
 
 	patternNumRows[8] = 7;
 	assert(fastTracksPOCGetTrackLength(8, 1) == 13);
-	assert(fastTracksPOCGetEffectiveTrackLength(8, 1) == 7);
-	assert(fastTracksPOCResolveMasterSourceRow(8, 1, 27) == 6);
+	assert(fastTracksPOCGetEffectiveTrackLength(8, 1) == 13);
+	assert(fastTracksPOCResolveMasterSourceRow(8, 1, 27) == 1);
 
 	patternNumRows[8] = 64;
 	assert(fastTracksPOCGetTrackLength(8, 1) == 13);
@@ -241,12 +245,12 @@ static void testFastTracksLengthDomainToggle(void)
 	fastTracksPOCSetUsesTrackLengths(true);
 }
 
-static void testSongModeUsesEachPatternsLength(void)
+static void testSongModeKeepsSongWideLengthAndExtendsShortPatterns(void)
 {
 	fastTracksPOCResetAllPatternMetadata();
-	patternNumRows[1] = patternNumRows[2] = 8;
-	fastTracksPOCSetTrackLength(1, 0, 2);
-	fastTracksPOCSetTrackLength(2, 0, 4);
+	patternNumRows[1] = 8;
+	patternNumRows[2] = 3;
+	fastTracksPOCSetTrackLength(1, 0, 4);
 	song.pattNum = 1;
 	song.songLength = 2;
 	song.orders[0] = 1;
@@ -256,6 +260,10 @@ static void testSongModeUsesEachPatternsLength(void)
 	setPrivateTransport(FAST_TRACKS_MODE_SONG, false);
 	fastTracksCrossing_t crossing = advanceOneRow();
 	assert(crossing.sourceOrder == 0 && crossing.sourceRow == 1);
+	crossing = advanceOneRow();
+	assert(crossing.sourceOrder == 0 && crossing.sourceRow == 2);
+	crossing = advanceOneRow();
+	assert(crossing.sourceOrder == 0 && crossing.sourceRow == 3);
 	crossing = advanceOneRow();
 	assert(crossing.sourceOrder == 1 && crossing.sourceRow == 0);
 	for (int32_t row = 1; row <= 3; row++)
@@ -268,7 +276,7 @@ static void testSongModeUsesEachPatternsLength(void)
 
 	setPrivateTransport(FAST_TRACKS_MODE_SONG, true);
 	crossing = advanceOneRow();
-	assert(crossing.sourceOrder == 1 && crossing.sourceRow == 3);
+	assert(crossing.sourceOrder == 1 && crossing.sourceRow == 3); /* blank tail */
 	int32_t sourcePattern = -1, sourceRow = -1;
 	assert(fastTracksPOCResolveCrossing(0, 0, &crossing,
 		&sourcePattern, &sourceRow));
@@ -292,7 +300,7 @@ int main(void)
 	testLogicalCycleCompletionForwardAndReverse();
 	testPrimeLengthsAndRatioDurations();
 	testFastTracksLengthDomainToggle();
-	testSongModeUsesEachPatternsLength();
+	testSongModeKeepsSongWideLengthAndExtendsShortPatterns();
 	puts("Track LEN/CONTROL metadata tests passed.");
 	return 0;
 }

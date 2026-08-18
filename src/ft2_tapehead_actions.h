@@ -65,6 +65,8 @@ bool tapeheadActionFastTrackRatioAllPrevious(void);
 bool tapeheadActionFastTrackRatioAllOrMatrixBankNext(void);
 bool tapeheadActionFastTrackRatioAllOrMatrixBankPrevious(void);
 bool tapeheadActionFastTrackRatioSet(int32_t channelIndex, int32_t ratioIndex);
+uint16_t tapeheadActionTrackLengthFromController(uint8_t value);
+bool tapeheadActionTrackLengthSet(int32_t channelIndex, uint16_t length);
 bool tapeheadActionFastTrackRatioNext(int32_t channelIndex);
 bool tapeheadActionFastTrackRatioPrevious(int32_t channelIndex);
 bool tapeheadActionFastTrackRatioReset(int32_t channelIndex);

@@ -57,6 +57,16 @@ static void testRatioRing(void)
 	}
 }
 
+static void testTrackLengthRing(void)
+{
+	assert(tapeheadAPC40Mk2TrackLengthRingValue(0, 256) == 0);
+	assert(tapeheadAPC40Mk2TrackLengthRingValue(1, 256) == 1);
+	assert(tapeheadAPC40Mk2TrackLengthRingValue(128, 256) == 64);
+	assert(tapeheadAPC40Mk2TrackLengthRingValue(256, 256) == 127);
+	assert(tapeheadAPC40Mk2TrackLengthRingValue(300, 256) == 127);
+	assert(tapeheadAPC40Mk2TrackLengthRingValue(64, 64) == 127);
+}
+
 static void testRGBTransitionClearsObsoleteAnimation(void)
 {
 	uint8_t messages[12];
@@ -173,6 +183,7 @@ int main(void)
 {
 	testIntroduction();
 	testRatioRing();
+	testTrackLengthRing();
 	testRGBTransitionClearsObsoleteAnimation();
 	testRGBBrightnessPalette();
 	testBuiltInMappings();

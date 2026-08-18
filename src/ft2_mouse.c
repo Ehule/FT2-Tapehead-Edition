@@ -506,8 +506,10 @@ static bool handleTrackLengthHeaderWheel(bool directionUp)
 	else
 	{
 		const uint16_t step = (modifiers & KMOD_SHIFT) ? 8 : 1;
-		if (directionUp)
-			newLength = (uint16_t)MIN((int32_t)MAX_PATT_LEN,
+		const uint16_t controlMax = CLAMP(
+			tapeheadConfig.trackLengthControlMax, 1, MAX_PATT_LEN);
+		if (directionUp && oldLength < controlMax)
+			newLength = (uint16_t)MIN((int32_t)controlMax,
 				(int32_t)oldLength + step);
 		else if (oldLength <= step)
 			newLength = 0;

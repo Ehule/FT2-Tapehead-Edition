@@ -648,9 +648,18 @@ void tapeheadMidiMapProcessPending(void)
 
 			case TAPEHEAD_MIDI_ACTION_FAST_TRACK_RATIO:
 			{
-				const int32_t lastRatio = fastTracksPOCGetRatioCount() - 1;
-				const int32_t ratioIndex = (event.value * lastRatio + 63) / 127;
-				tapeheadActionFastTrackRatioSet(event.argument, ratioIndex);
+				if (tapeheadActionShiftModifierIsHeld())
+				{
+					tapeheadActionTrackLengthSet(event.argument,
+						tapeheadActionTrackLengthFromController(event.value));
+				}
+				else
+				{
+					const int32_t lastRatio = fastTracksPOCGetRatioCount() - 1;
+					const int32_t ratioIndex =
+						(event.value * lastRatio + 63) / 127;
+					tapeheadActionFastTrackRatioSet(event.argument, ratioIndex);
+				}
 			}
 			break;
 

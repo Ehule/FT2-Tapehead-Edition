@@ -1851,7 +1851,7 @@ void pastePattern(void)
 			pasteNote(&ptnCopyBuff[(i * MAX_CHANNELS) + x], &p[(i * MAX_CHANNELS) + x]);
 	}
 	if (ptnCopyMetadataValid)
-		fastTracksPOCSetPatternMetadata(curPattern, &ptnCopyMetadata);
+		fastTracksPOCSetControlTrack(curPattern, ptnCopyMetadata.controlTrack);
 	resumeMusic();
 
 	killPatternIfUnused(curPattern);

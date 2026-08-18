@@ -19,7 +19,7 @@
 
 uint8_t cfg_ColorNum = 0; // globalized
 static uint8_t paletteListOffset;
-static pal16 patternColors[12][6];
+static pal16 patternColors[12][TAPEHEAD_CUSTOM_COLOR_COUNT];
 static bool patternColorsInitialized;
 
 static uint8_t cfg_Red, cfg_Green, cfg_Blue, cfg_Contrast;
@@ -34,19 +34,33 @@ static uint8_t cfg_Red, cfg_Green, cfg_Blue, cfg_Contrast;
 #define PAL_LIST_ROW_H 13
 #define PAL_LIST_VISIBLE_ROWS 6
 
-static const uint8_t FTC_EditOrder[12] = { PAL_PATTEXT, PAL_BLCKMRK, PAL_BLCKTXT, PAL_MOUSEPT, PAL_DESKTOP, PAL_BUTTONS,
-	PAL_PATTERN_NOTE, PAL_PATTERN_INSTRUMENT, PAL_PATTERN_VOLUME, PAL_PATTERN_TUNING, PAL_PATTERN_EFFECT, PAL_PATTERN_EMPTY };
+static const uint8_t FTC_EditOrder[TAPEHEAD_PALETTE_EDIT_COUNT] =
+{
+	PAL_PATTEXT, PAL_BLCKMRK, PAL_BLCKTXT, PAL_MOUSEPT, PAL_DESKTOP,
+	PAL_BUTTONS, PAL_PATTERN_NOTE, PAL_PATTERN_INSTRUMENT,
+	PAL_PATTERN_VOLUME, PAL_PATTERN_TUNING, PAL_PATTERN_EFFECT,
+	PAL_PATTERN_EMPTY, PAL_TRACK_LENGTH_PLAYHEAD, PAL_FASTTRACKS_PLAYHEAD,
+	PAL_CONTROL_PLAYHEAD, PAL_FASTTRACKS_SYNC, PAL_FASTTRACKS_PHASE,
+	PAL_FASTTRACKS_SONG
+};
 static const uint8_t scaleOrder[3] = { 8, 4, 9 };
-static const char *paletteFileKeys[12] =
+static const char *paletteFileKeys[TAPEHEAD_PALETTE_EDIT_COUNT] =
 {
 	"PatternText", "BlockMark", "TextOnBlock", "Mouse", "Desktop", "Buttons",
-	"PatternNote", "PatternInstrument", "PatternVolume", "PatternTuning", "PatternEffect", "PatternEmpty"
+	"PatternNote", "PatternInstrument", "PatternVolume", "PatternTuning",
+	"PatternEffect", "PatternEmpty", "TrackLengthPlayhead",
+	"FastTracksPlayhead", "ControlPlayhead", "FastTracksSync",
+	"FastTracksPhase", "FastTracksSong"
 };
-static const char *paletteEntryNames[12] =
+static const char *paletteEntryNames[TAPEHEAD_PALETTE_EDIT_COUNT] =
 {
 	"PAT Text", "Block Mark", "Block Text", "Mouse", "Desktop", "Buttons",
-	"PAT Note", "PAT Inst.", "PAT Volume", "PAT Tuning", "PAT Effect", "PAT Empty"
+	"PAT Note", "PAT Inst.", "PAT Volume", "PAT Tuning", "PAT Effect",
+	"PAT Empty", "LEN Head", "FT Head", "CONTROL Head", "FT Sync LED",
+	"FT Phase LED", "FT Song Badge"
 };
+
+static uint8_t color8To6(uint8_t color);
 
 static void initPatternColors(void)
 {
@@ -61,6 +75,21 @@ static void initPatternColors(void)
 			patternColors[layout][field].r = (uint8_t)CLAMP((int32_t)text.r + d[0], 0, 63);
 			patternColors[layout][field].g = (uint8_t)CLAMP((int32_t)text.g + d[1], 0, 63);
 			patternColors[layout][field].b = (uint8_t)CLAMP((int32_t)text.b + d[2], 0, 63);
+		}
+
+		static const uint32_t transportDefaults[TAPEHEAD_TRANSPORT_COLOR_COUNT] =
+		{
+			0x40D8FF, 0xFFB020, 0xFF3030,
+			0x00D040, 0xFF3030, 0xFFB020
+		};
+		for (int32_t field = 0; field < TAPEHEAD_TRANSPORT_COLOR_COUNT; field++)
+		{
+			const uint32_t rgb = transportDefaults[field];
+			pal16 *dst = &patternColors[layout]
+				[TAPEHEAD_PATTERN_FIELD_COLOR_COUNT + field];
+			dst->r = color8To6(RGB32_R(rgb));
+			dst->g = color8To6(RGB32_G(rgb));
+			dst->b = color8To6(RGB32_B(rgb));
 		}
 	}
 	patternColorsInitialized = true;
@@ -168,7 +197,7 @@ void setPalette(pal16 *p, bool redrawScreen)
 	}
 
 	initPatternColors();
-	for (int32_t field = 0; field < 6; field++)
+	for (int32_t field = 0; field < TAPEHEAD_CUSTOM_COLOR_COUNT; field++)
 	{
 		const pal16 c = patternColors[config.cfg_StdPalNum][field];
 		video.palette[PAL_PATTERN_NOTE + field] = ((PAL_PATTERN_NOTE + field) << 24) |
@@ -492,8 +521,8 @@ void configPalImport(void)
 		return;
 	}
 
-	uint32_t colors[12] = { 0 };
-	bool colorFound[12] = { false };
+	uint32_t colors[TAPEHEAD_PALETTE_EDIT_COUNT] = { 0 };
+	bool colorFound[TAPEHEAD_PALETTE_EDIT_COUNT] = { false };
 	uint8_t contrasts[2] =
 	{
 		palContrast[PAL_USER_DEFINED][0], palContrast[PAL_USER_DEFINED][1]
@@ -538,7 +567,7 @@ void configPalImport(void)
 		char *value = trimPaletteText(equals + 1);
 		bool recognized = false;
 
-		for (int32_t i = 0; i < 12; i++)
+		for (int32_t i = 0; i < TAPEHEAD_PALETTE_EDIT_COUNT; i++)
 		{
 			if (!_stricmp(key, paletteFileKeys[i]))
 			{
@@ -581,9 +610,10 @@ void configPalImport(void)
 		return;
 	}
 
-	for (int32_t i = 0; i < 12; i++)
+	for (int32_t i = 0; i < TAPEHEAD_PALETTE_EDIT_COUNT; i++)
 	{
-		if (i >= 6 && !colorFound[i]) colors[i] = colors[0];
+		if (i >= 6 && i < 12 && !colorFound[i]) colors[i] = colors[0];
+		if (i >= 12 && !colorFound[i]) continue; /* retain new color defaults */
 		pal16 *dst = i < 6 ? &palTable[PAL_USER_DEFINED][FTC_EditOrder[i]] :
 			&patternColors[PAL_USER_DEFINED][i - 6];
 		dst->r = color8To6((uint8_t)(colors[i] >> 16));
@@ -619,7 +649,7 @@ void configPalExport(void)
 	fputs("; Copy this file between installations or edit the hex values manually.\n", f);
 	fputs("; Press I in Config > Layout to import it into User defined.\n\n", f);
 	fputs("[TapeheadPalette]\n", f);
-	for (int32_t i = 0; i < 12; i++)
+	for (int32_t i = 0; i < TAPEHEAD_PALETTE_EDIT_COUNT; i++)
 	{
 		const pal16 color = i < 6 ? palTable[layout][FTC_EditOrder[i]] : patternColors[layout][i - 6];
 		fprintf(f, "%s=#%02X%02X%02X\n", paletteFileKeys[i],
@@ -861,7 +891,8 @@ bool paletteListMouseWheel(bool directionUp, int32_t x, int32_t y)
 		return false;
 
 	if (directionUp && paletteListOffset > 0) paletteListOffset--;
-	else if (!directionUp && paletteListOffset < 6) paletteListOffset++;
+	else if (!directionUp && paletteListOffset < TAPEHEAD_PALETTE_EDIT_COUNT -
+		PAL_LIST_VISIBLE_ROWS) paletteListOffset++;
 	setScrollBarPos(SB_PAL_LIST, paletteListOffset, DONT_TRIGGER_CALLBACK);
 	showPaletteEditor();
 	return true;
@@ -874,7 +905,8 @@ bool paletteListMouseDown(int32_t x, int32_t y)
 	if (x >= PAL_LIST_X && x < 484 && y >= PAL_LIST_Y && y < PAL_LIST_Y + (PAL_LIST_ROW_H * PAL_LIST_VISIBLE_ROWS))
 	{
 		const uint8_t row = (uint8_t)((y - PAL_LIST_Y) / PAL_LIST_ROW_H);
-		cfg_ColorNum = (uint8_t)MIN(paletteListOffset + row, 11);
+		cfg_ColorNum = (uint8_t)MIN(paletteListOffset + row,
+			TAPEHEAD_PALETTE_EDIT_COUNT - 1);
 		updatePaletteEditor();
 		showPaletteEditor();
 		return true;
@@ -884,7 +916,8 @@ bool paletteListMouseDown(int32_t x, int32_t y)
 
 void sbPalListPos(uint32_t pos)
 {
-	paletteListOffset = (uint8_t)MIN(pos, 6);
+	paletteListOffset = (uint8_t)MIN(pos, TAPEHEAD_PALETTE_EDIT_COUNT -
+		PAL_LIST_VISIBLE_ROWS);
 	showPaletteEditor();
 }
 
@@ -904,17 +937,17 @@ void cyclePatternColorMode(void)
 	showPaletteEditor();
 }
 
-void getUserPatternColors(uint32_t colors[6])
+void getUserPatternColors(uint32_t colors[TAPEHEAD_CUSTOM_COLOR_COUNT])
 {
 	initPatternColors();
-	for (int32_t i = 0; i < 6; i++)
+	for (int32_t i = 0; i < TAPEHEAD_CUSTOM_COLOR_COUNT; i++)
 		colors[i] = RGB32(COLOR_6BIT_TO_8BIT(patternColors[PAL_USER_DEFINED][i].r),
 			COLOR_6BIT_TO_8BIT(patternColors[PAL_USER_DEFINED][i].g), COLOR_6BIT_TO_8BIT(patternColors[PAL_USER_DEFINED][i].b));
 }
 
 void setUserPatternColor(uint8_t field, uint32_t rgb)
 {
-	if (field >= 6) return;
+	if (field >= TAPEHEAD_CUSTOM_COLOR_COUNT) return;
 	initPatternColors();
 	patternColors[PAL_USER_DEFINED][field].r = color8To6(RGB32_R(rgb));
 	patternColors[PAL_USER_DEFINED][field].g = color8To6(RGB32_G(rgb));
