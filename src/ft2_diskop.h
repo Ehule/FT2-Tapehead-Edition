@@ -49,6 +49,8 @@ void showDiskOpScreen(void);
 void hideDiskOpScreen(void);
 void exitDiskOpScreen(void);
 void toggleDiskOpScreen(void);
+void openTapeSisterPathBrowser(bool executablePath);
+bool openTapeSisterExchangeFolder(void);
 void sbDiskOpSetPos(uint32_t pos);
 void pbDiskOpListUp(void);
 void pbDiskOpListDown(void);

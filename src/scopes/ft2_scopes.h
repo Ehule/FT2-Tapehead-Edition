@@ -44,7 +44,7 @@ typedef struct scope_t
 	volatile bool active;
 	const int8_t *base8;
 	const int16_t *base16;
-	bool wasCleared, sample16Bit, samplingBackwards, hasLooped;
+	bool wasCleared, sample16Bit, samplingBackwards, hasLooped, reverseLoop;
 	uint8_t loopType;
 	int16_t volume;
 	int32_t loopStart, loopLength, loopEnd, sampleEnd, position;

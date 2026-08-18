@@ -60,7 +60,12 @@ textBox_t textBoxes[NUM_TEXTBOXES] =
 	{ 486,   31, 143,  12, 2, 1, 80,         false, true },
 	{ 486,   46, 143,  12, 2, 1, 80,         false, true },
 	{ 486,   61, 143,  12, 2, 1, 80,         false, true },
-	{ 486,   76, 143,  12, 2, 1, 80,         false, true }
+	{ 486,   76, 143,  12, 2, 1, 80,         false, true },
+
+	// ------ CONFIG LAYOUT: TAPESISTER PATH TEXTBOXES ------
+	// x,   y,   w,   h,  tx,ty, maxc,                                rmb,   cmc
+	{ 475,  123, 154,  12, 2, 1, TAPEHEAD_CONFIG_PATH_CAPACITY - 1,   false, true },
+	{ 475,  140, 154,  12, 2, 1, TAPEHEAD_CONFIG_PATH_CAPACITY - 1,   false, true }
 };
 
 static int16_t markX1, markX2;
@@ -346,6 +351,11 @@ void exitTextEditing(void)
 	{
 		updateCurrSongFilename(); // for window title
 		updateWindowTitle(true);
+	}
+	else if (mouse.lastEditBox == TB_CONF_TAPESISTER_EXCHANGE ||
+		mouse.lastEditBox == TB_CONF_TAPESISTER_EXECUTABLE)
+	{
+		saveTapeSisterConfigPaths();
 	}
 
 	keyb.ignoreCurrKeyUp = true; // prevent a note being played (on enter key)
@@ -666,6 +676,8 @@ void handleTextBoxWhileMouseDown(void)
 
 bool testTextBoxMouseDown(void)
 {
+	static uint32_t lastPathClickTime;
+	static int16_t lastPathClickBox = -1;
 	uint16_t start, end;
 
 	oldMouseX = mouse.x;
@@ -697,6 +709,28 @@ bool testTextBoxMouseDown(void)
 		{
 			if (!mouse.rightButtonPressed && t->rightMouseButton)
 				break;
+
+			if (!mouse.rightButtonPressed &&
+				(i == TB_CONF_TAPESISTER_EXCHANGE || i == TB_CONF_TAPESISTER_EXECUTABLE))
+			{
+				const uint32_t now = SDL_GetTicks();
+				if (lastPathClickBox == (int16_t)i && now - lastPathClickTime <= 400)
+				{
+					lastPathClickBox = -1;
+					lastPathClickTime = 0;
+					if (editor.editTextFlag)
+						exitTextEditing();
+					openTapeSisterPathBrowser(i == TB_CONF_TAPESISTER_EXECUTABLE);
+					return true;
+				}
+
+				lastPathClickBox = (int16_t)i;
+				lastPathClickTime = now;
+			}
+			else
+			{
+				lastPathClickBox = -1;
+			}
 
 			// if we were editing another text box and clicked on another one, properly end it
 			if (editor.editTextFlag && i != mouse.lastEditBox)
@@ -762,6 +796,8 @@ void setupInitialTextBoxPointers(void)
 	textBoxes[TB_CONF_DEF_SAMPS_DIR].textPtr = config.samplesPath;
 	textBoxes[TB_CONF_DEF_PATTS_DIR].textPtr = config.patternsPath;
 	textBoxes[TB_CONF_DEF_TRACKS_DIR].textPtr = config.tracksPath;
+	textBoxes[TB_CONF_TAPESISTER_EXCHANGE].textPtr = tapeheadConfig.tapeSisterExchangePath;
+	textBoxes[TB_CONF_TAPESISTER_EXECUTABLE].textPtr = tapeheadConfig.tapeSisterExecutablePath;
 }
 
 void setTextCursorToEnd(textBox_t *t)

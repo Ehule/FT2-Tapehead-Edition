@@ -410,8 +410,8 @@ pushButton_t pushButtons[NUM_PUSHBUTTONS] =
 	{ 606, 71, 23, 13, 1, 4, ARROW_RIGHT_STRING, NULL,    configPalContUp,   NULL },
 	{ 566, 57, 13, 13, 0, 0, "I",                NULL,    NULL,              configPalImport },
 	{ 580, 57, 13, 13, 0, 0, "E",                NULL,    NULL,              configPalExport },
-	{ 468, 99, 112, 16, 0, 0, "User defined",     NULL,    NULL,              cyclePalettePreset },
-	{ 492, 141, 70, 16, 0, 0, "Edit",             NULL,    NULL,              cyclePatternColorMode },
+	{ 475,  88, 154, 16, 0, 0, "User defined",     NULL,    NULL,              cyclePalettePreset },
+	{ 475, 105, 154, 16, 0, 0, "Edit",             NULL,    NULL,              cyclePatternColorMode },
 
 	// ------ CONFIG MISCELLANEOUS PUSHBUTTONS ------
 	//x,   y,   w,  h,  p, d, text #1,            text #2, funcOnDown,          funcOnUp

@@ -412,7 +412,8 @@ static bool saveWAVSampleFromPointers(UNICHAR *filenameU, instr_t *ins,
 		samplerChunk.dwSamplePeriod = 1000000000 / wavHeader.sampleRate;
 		samplerChunk.dwMIDIUnityNote = 60; // 60 = MIDI middle-C
 		samplerChunk.cSampleLoops = 1;
-		samplerChunk.loop.dwType = GET_LOOPTYPE(smp->flags)-1; // 0 = forward, 1 = ping-pong
+		samplerChunk.loop.dwType = (smp->flags & SAMPLE_REVERSE_LOOP) != 0
+			? 2 : GET_LOOPTYPE(smp->flags)-1; // 0 forward, 1 ping-pong, 2 backward
 		samplerChunk.loop.dwStart = smp->loopStart;
 		samplerChunk.loop.dwEnd = (smp->loopStart + smp->loopLength) - 1;
 
@@ -515,6 +516,15 @@ static bool saveWAVSampleFromPointers(UNICHAR *filenameU, instr_t *ins,
 
 	setMouseBusy(false);
 	return true;
+}
+
+bool saveWAVSampleDirect(const UNICHAR *filenameU, instr_t *instrument,
+	sample_t *sample)
+{
+	if (filenameU == NULL)
+		return false;
+	return saveWAVSampleFromPointers((UNICHAR *)filenameU, instrument, sample,
+		false);
 }
 
 /*

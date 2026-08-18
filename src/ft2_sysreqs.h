@@ -14,6 +14,10 @@ enum
 #define SYSREQ_TYPE_EXS_EXPORT 11
 #define SYSREQ_TYPE_FOLDER_SCOPE 12
 #define SYSREQ_TYPE_BAKE_OUTPUT 13
+#define SYSREQ_TYPE_TAPESISTER_MENU 14
+#define SYSREQ_TYPE_TAPESISTER_PUBLISH 15
+#define SYSREQ_TYPE_TAPESISTER_REPLACE 16
+#define SYSREQ_TYPE_TAPESISTER_IMPORT 17
 
 // for thread-safe version of okBox()
 typedef struct okBoxData_t
@@ -38,6 +42,7 @@ typedef struct systemRequestLayout_t
 
 bool systemRequestCalculateLayout(const char *headline, const char *text,
 	uint16_t buttonSpan, uint16_t baseY, systemRequestLayout_t *layout);
+bool systemRequestOverlapsTopScreen(uint16_t frameY);
 
 // If the checkBoxCallback argument is set, then you get a "Do not show again" checkbox.
 int16_t okBoxThreadSafe(int16_t type, const char *headline, const char *text, void (*checkBoxCallback)(void));

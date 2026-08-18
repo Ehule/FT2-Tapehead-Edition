@@ -34,6 +34,7 @@ Start here:
 - [Deck Matrix](docs/DECK_MATRIX.md)
 - [FasTracks and the frozen `Zxx` map](docs/FAST_TRACKS.md)
 - [Configuration reference](docs/CONFIGURATION.md)
+- [TapeSister exchange](docs/FT2_EXCHANGE.md)
 - [Changelog](CHANGELOG.md)
 
 ## What makes Tapehead different
@@ -76,6 +77,17 @@ Pattern, independent pattern duplication, module-wide Undo/Redo, Sample Map,
 sample extraction shortcuts, previewable interpolation and Melodic Walk,
 Pattern Matrix navigation, VIEW Transpose, per-track trim and performance mute,
 configurable MIDI Dub routing, and native JACK/PipeWire-JACK output buses.
+
+### TapeSister exchange
+
+Tapehead and TapeSister can exchange up to 16 samples through an atomic,
+file-based inbox. Right-click the **Instrument Editor** button to send every
+populated slot in the current instrument or the first populated slot from up
+to 16 instruments. Incoming transfers always show their exact instrument and
+sample destinations—and any replacements—before Tapehead changes the module.
+Configure the shared folder and optional TapeSister executable in
+**Configuration → Layout**. The path fields are editable and open Tapehead's
+built-in browser on double-click; see the [exchange guide](docs/FT2_EXCHANGE.md).
 
 ## First run
 

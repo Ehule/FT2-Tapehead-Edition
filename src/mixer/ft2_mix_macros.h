@@ -372,7 +372,10 @@
 		do \
 		{ \
 			position -= v->loopLength; \
-			v->samplingBackwards ^= 1; \
+			if (v->reverseLoop) \
+				v->samplingBackwards = true; \
+			else \
+				v->samplingBackwards ^= 1; \
 		} \
 		while (position >= v->sampleEnd); \
 		v->hasLooped = true; \

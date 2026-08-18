@@ -513,6 +513,88 @@ void saveTapeheadBakerPatternRows(void)
 	free(filePathU);
 }
 
+void saveTapeSisterConfigPaths(void)
+{
+	UNICHAR *filePathU = getFullTapeheadConfigPathU();
+	if (filePathU == NULL) return;
+
+	const size_t pathLen = UNICHAR_STRLEN(filePathU);
+	UNICHAR *tempPathU = (UNICHAR *)malloc((pathLen + 5) * sizeof (UNICHAR));
+	if (tempPathU == NULL) { free(filePathU); return; }
+	UNICHAR_STRCPY(tempPathU, filePathU);
+#ifdef _WIN32
+	UNICHAR_STRCAT(tempPathU, L".tmp");
+#else
+	UNICHAR_STRCAT(tempPathU, ".tmp");
+#endif
+
+	FILE *in = UNICHAR_FOPEN(filePathU, "r");
+	FILE *out = UNICHAR_FOPEN(tempPathU, "w");
+	if (out == NULL)
+	{
+		if (in != NULL) fclose(in);
+		free(tempPathU);
+		free(filePathU);
+		return;
+	}
+
+	bool inTapeSister = false, sawTapeSister = false, wrotePaths = false;
+	char line[TAPEHEAD_CONFIG_PATH_CAPACITY + 128];
+	while (in != NULL && fgets(line, sizeof (line), in) != NULL)
+	{
+		char copy[TAPEHEAD_CONFIG_PATH_CAPACITY + 128];
+		snprintf(copy, sizeof copy, "%s", line);
+		char *text = trimText(copy);
+		if (text[0] == '[')
+		{
+			if (inTapeSister && !wrotePaths)
+			{
+				fprintf(out, "ExchangePath=%s\n", tapeheadConfig.tapeSisterExchangePath);
+				fprintf(out, "ExecutablePath=%s\n", tapeheadConfig.tapeSisterExecutablePath);
+				wrotePaths = true;
+			}
+			inTapeSister = !_stricmp(text, "[TapeSister]");
+			if (inTapeSister)
+				sawTapeSister = true;
+		}
+
+		const bool owned = inTapeSister &&
+			(!_strnicmp(text, "ExchangePath=", 13) || !_strnicmp(text, "ExecutablePath=", 15));
+		if (!owned)
+			fputs(line, out);
+	}
+	if (in != NULL) fclose(in);
+
+	if (inTapeSister && !wrotePaths)
+	{
+		fprintf(out, "ExchangePath=%s\n", tapeheadConfig.tapeSisterExchangePath);
+		fprintf(out, "ExecutablePath=%s\n", tapeheadConfig.tapeSisterExecutablePath);
+		wrotePaths = true;
+	}
+	if (!sawTapeSister)
+	{
+		fputs("\n[TapeSister]\n", out);
+		fprintf(out, "ExchangePath=%s\n", tapeheadConfig.tapeSisterExchangePath);
+		fprintf(out, "ExecutablePath=%s\n", tapeheadConfig.tapeSisterExecutablePath);
+	}
+
+	bool ok = fclose(out) == 0;
+	if (ok)
+	{
+#ifdef _WIN32
+		ok = MoveFileExW(tempPathU, filePathU,
+			MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+#else
+		ok = UNICHAR_RENAME(tempPathU, filePathU) == 0;
+#endif
+	}
+	if (!ok)
+		UNICHAR_REMOVE(tempPathU);
+
+	free(tempPathU);
+	free(filePathU);
+}
+
 void saveConfig2(void) // called by "Save config" button
 {
 	saveConfig(CONFIG_SHOW_ERRORS);
@@ -771,6 +853,11 @@ static void writeDefaultTapeheadConfig(const UNICHAR *filePathU)
 	fputs("[DiskOp]\n\n", f);
 	fputs("; Format shown in the middle Sample save slot. Accepted values: EXS or IFF.\n", f);
 	fputs("SampleExportSlot=EXS\n\n", f);
+	fputs("[TapeSister]\n\n", f);
+	fputs("; Shared folder used for atomic TapeSister/Tapehead transfers.\n", f);
+	fputs("ExchangePath=\n", f);
+	fputs("; TapeSister executable. Blank still permits publishing transfers.\n", f);
+	fputs("ExecutablePath=\n\n", f);
 	fputs("[Baker]\n\n", f);
 	fputs("; Rows per flattened loop pattern: 16, 32, 64, 128 or 256.\n", f);
 	fputs("PatternRows=256\n\n", f);
@@ -866,6 +953,8 @@ void loadTapeheadConfig(void)
 	tapeheadConfig.transportFreezeResumeRetrigger = false;
 	tapeheadConfig.midiControlInput[0] = '\0';
 	tapeheadConfig.midiControlOutput[0] = '\0';
+	tapeheadConfig.tapeSisterExchangePath[0] = '\0';
+	tapeheadConfig.tapeSisterExecutablePath[0] = '\0';
 	tapeheadConfig.hdMode = false;
 	tapeheadConfig.launcherMode = false;
 	tapeheadConfig.launcherStandalone = false;
@@ -894,7 +983,7 @@ void loadTapeheadConfig(void)
 		return;
 	}
 
-	char line[256];
+	char line[TAPEHEAD_CONFIG_PATH_CAPACITY + 128];
 	enum
 	{
 		TAPEHEAD_SECTION_NONE,
@@ -902,6 +991,7 @@ void loadTapeheadConfig(void)
 		TAPEHEAD_SECTION_PATTERN,
 		TAPEHEAD_SECTION_LAUNCHER,
 		TAPEHEAD_SECTION_DISKOP,
+		TAPEHEAD_SECTION_TAPESISTER,
 		TAPEHEAD_SECTION_BAKER,
 		TAPEHEAD_SECTION_KEYBOARD,
 		TAPEHEAD_SECTION_AUDIO,
@@ -930,6 +1020,8 @@ void loadTapeheadConfig(void)
 				section = TAPEHEAD_SECTION_LAUNCHER;
 			else if (!_stricmp(text + 1, "DiskOp"))
 				section = TAPEHEAD_SECTION_DISKOP;
+			else if (!_stricmp(text + 1, "TapeSister"))
+				section = TAPEHEAD_SECTION_TAPESISTER;
 			else if (!_stricmp(text + 1, "Baker"))
 				section = TAPEHEAD_SECTION_BAKER;
 			else if (!_stricmp(text + 1, "Keyboard"))
@@ -1040,6 +1132,18 @@ void loadTapeheadConfig(void)
 				tapeheadConfig.sampleExportEXS = true;
 			else if (!_stricmp(value, "IFF"))
 				tapeheadConfig.sampleExportEXS = false;
+		}
+		else if (section == TAPEHEAD_SECTION_TAPESISTER &&
+			!_stricmp(key, "ExchangePath"))
+		{
+			snprintf(tapeheadConfig.tapeSisterExchangePath,
+				sizeof (tapeheadConfig.tapeSisterExchangePath), "%s", value);
+		}
+		else if (section == TAPEHEAD_SECTION_TAPESISTER &&
+			!_stricmp(key, "ExecutablePath"))
+		{
+			snprintf(tapeheadConfig.tapeSisterExecutablePath,
+				sizeof (tapeheadConfig.tapeSisterExecutablePath), "%s", value);
 		}
 		else if (section == TAPEHEAD_SECTION_BAKER && !_stricmp(key, "PatternRows"))
 		{
@@ -2312,6 +2416,8 @@ void hideConfigScreen(void)
 	hidePushButton(PB_CONFIG_PAL_EXPORT);
 	hidePushButton(PB_CONFIG_PAL_PRESET);
 	hidePushButton(PB_CONFIG_PAL_COLOR_MODE);
+	hideTextBox(TB_CONF_TAPESISTER_EXCHANGE);
+	hideTextBox(TB_CONF_TAPESISTER_EXECUTABLE);
 	hideScrollBar(SB_PAL_R);
 	hideScrollBar(SB_PAL_G);
 	hideScrollBar(SB_PAL_B);

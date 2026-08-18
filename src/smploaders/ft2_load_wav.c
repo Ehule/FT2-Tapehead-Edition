@@ -8,12 +8,14 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <math.h>
 #include "../ft2_header.h"
 #include "../ft2_mouse.h"
 #include "../ft2_audio.h"
 #include "../ft2_sample_ed.h"
 #include "../ft2_sysreqs.h"
 #include "../ft2_sample_loader.h"
+#include "../ft2_wav_metadata.h"
 
 enum
 {
@@ -596,8 +598,6 @@ bool loadWAV(FILE *f, uint32_t filesize)
 	bool sample16Bit = !!(s->flags & SAMPLE_16BIT);
 	reallocateSmpData(s, sampleLength, sample16Bit); // readjust memory needed
 
-	setSampleC4Hz(s, sampleRate);
-
 	s->volume = 64;
 	s->panning = 128;
 	s->length = sampleLength;
@@ -605,7 +605,13 @@ bool loadWAV(FILE *f, uint32_t filesize)
 	// ---- READ "smpl" chunk ----
 	if (smplPtr != 0 && smplLen > 52)
 	{
-		uint32_t numLoops, loopType, loopStart, loopEnd;
+		uint32_t unityNote, pitchFraction, numLoops, loopType, loopStart, loopEnd;
+
+		fseek(f, smplPtr+12, SEEK_SET);
+		fread(&unityNote, 4, 1, f);
+		fread(&pitchFraction, 4, 1, f);
+		setSampleC4Hz(s, tapeheadWavC4Rate(sampleRate, unityNote,
+			pitchFraction));
 
 		fseek(f, smplPtr+28, SEEK_SET); // seek to first wanted byte
 
@@ -618,14 +624,28 @@ bool loadWAV(FILE *f, uint32_t filesize)
 			fread(&loopStart, 4, 1, f);
 			fread(&loopEnd, 4, 1, f);
 
-			loopEnd++;
-			if (loopEnd <= sampleLength)
+			uint32_t decodedLoopStart, decodedLoopLength;
+			const tapeheadWavLoopKind_t loopKind = tapeheadWavDecodeLoop(loopType,
+				loopStart, loopEnd, sampleLength, &decodedLoopStart,
+				&decodedLoopLength);
+			if (loopKind != TAPEHEAD_WAV_LOOP_INVALID)
 			{
-				s->loopStart = loopStart;
-				s->loopLength = loopEnd - loopStart;
-				s->flags |= (loopType == 0) ? LOOP_FORWARD : LOOP_PINGPONG;
+				s->loopStart = (int32_t)decodedLoopStart;
+				s->loopLength = (int32_t)decodedLoopLength;
+				if (loopKind == TAPEHEAD_WAV_LOOP_FORWARD)
+					s->flags |= LOOP_FORWARD;
+				else
+				{
+					s->flags |= LOOP_PINGPONG;
+					if (loopKind == TAPEHEAD_WAV_LOOP_REVERSE)
+						s->flags |= SAMPLE_REVERSE_LOOP;
+				}
 			}
 		}
+	}
+	else
+	{
+		setSampleC4Hz(s, sampleRate);
 	}
 	// ---------------------------
 

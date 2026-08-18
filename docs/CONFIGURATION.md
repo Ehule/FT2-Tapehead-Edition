@@ -6,6 +6,43 @@ Restart after editing values that do not also have a live UI control.
 
 Invalid or missing values fall back to safe built-in defaults.
 
+## TapeSister exchange
+
+```ini
+[TapeSister]
+ExchangePath=
+ExecutablePath=
+```
+
+- `ExchangePath` is the shared directory configured as TapeSister's **FT2
+  Exchange Path**. Tapehead checks it at startup, about once per second while
+  the UI is idle, and when **Check inbox** is requested manually.
+- `ExecutablePath` is the full path to the TapeSister executable. After
+  publishing, Tapehead reuses a live TapeSister detected through the exchange
+  folder; otherwise it starts this path directly without a command shell.
+  **Publish + New** forces another instance. This key may be blank—publication
+  still succeeds and TapeSister can be opened manually.
+
+Both values use 4096-byte configuration storage instead of the legacy
+80-character sample-directory fields. On Windows, absolute paths beyond the
+ordinary `MAX_PATH` boundary are passed to wide-character file APIs using an
+extended path prefix.
+
+Both values can be changed live in **Configuration → Layout**:
+
+- Click **Exchange** or **Program** to edit the scrolling path field directly.
+- Double-click **Exchange** to open Tapehead's browser and select the current
+  shared folder.
+- Double-click **Program** to open the browser, select the TapeSister
+  executable, then press **Select**.
+
+Leaving either text field or accepting a browser selection writes the values
+back to `tapehead.ini`; no restart is required. Manual edits to `tapehead.ini`
+made outside the application are still read on the next launch.
+
+See [`FT2_EXCHANGE.md`](FT2_EXCHANGE.md) for confirmation behavior, the exact
+version-1 manifest, and a round-trip test checklist.
+
 ## Video
 
 ```ini

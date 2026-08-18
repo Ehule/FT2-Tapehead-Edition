@@ -36,7 +36,7 @@ void silenceMixRoutine(voice_t *v, int32_t numSamples)
 		else
 			position = v->loopStart;
 	}
-	else // pingpong loop
+	else // pingpong or WAV reverse loop
 	{
 		if (v->loopLength >= 2)
 		{
@@ -47,7 +47,10 @@ void silenceMixRoutine(voice_t *v, int32_t numSamples)
 			const uint32_t phase = overflow % v->loopLength;
 
 			position = v->loopStart + phase;
-			v->samplingBackwards ^= !(cycles & 1);
+			if (v->reverseLoop)
+				v->samplingBackwards = true;
+			else
+				v->samplingBackwards ^= !(cycles & 1);
 		}
 		else
 		{

@@ -10,6 +10,10 @@
 #include <math.h>
 #include <stdlib.h>
 #include <ctype.h>
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
 #include "ft2_header.h"
 #include "ft2_gui.h"
 #include "ft2_unicode.h"
@@ -310,7 +314,7 @@ typedef struct sampleFolderFile_t
 {
 	UNICHAR *pathU;
 	char *sortName;
-	uint8_t destinationInstrument;
+	uint8_t destinationInstrument, destinationSample;
 } sampleFolderFile_t;
 
 typedef struct sampleFolderImportJob_t
@@ -321,6 +325,7 @@ typedef struct sampleFolderImportJob_t
 	uint32_t fileCount;
 	sampleFolderFile_t *files;
 	char launcherName[23];
+	UNICHAR *exchangeFolderU, *exchangeAcknowledgementU;
 	uint16_t matrixTiles[SAMPLE_LAUNCHER_MAX_TILES];
 	uint32_t matrixRequested, matrixOmitted;
 } sampleFolderImportJob_t;
@@ -343,6 +348,8 @@ static void freeSampleFolderJob(sampleFolderImportJob_t *job)
 		}
 		free(job->files);
 	}
+	free(job->exchangeFolderU);
+	free(job->exchangeAcknowledgementU);
 
 	free(job);
 }
@@ -614,6 +621,134 @@ static instr_t *makeSingleSampleInstrument(sample_t *sample)
 	return newInstrument;
 }
 
+static void freeFolderInstrument(instr_t *instrument);
+
+static bool writeExchangeAcknowledgement(const UNICHAR *pathU)
+{
+	if (pathU == NULL)
+		return false;
+	const size_t length = UNICHAR_STRLEN(pathU);
+	UNICHAR *temporaryU = malloc((length + 5) * sizeof (UNICHAR));
+	if (temporaryU == NULL)
+		return false;
+	UNICHAR_STRCPY(temporaryU, pathU);
+#ifdef _WIN32
+	UNICHAR_STRCAT(temporaryU, L".tmp");
+#else
+	UNICHAR_STRCAT(temporaryU, ".tmp");
+#endif
+	FILE *file = UNICHAR_FOPEN(temporaryU, "wb");
+	bool ok = false;
+	if (file != NULL)
+	{
+		const bool wrote = fputs("recipient=tapehead\nstatus=imported\n", file) >= 0;
+		const bool closed = fclose(file) == 0;
+		file = NULL;
+		ok = wrote && closed;
+		if (ok)
+			ok = UNICHAR_RENAME(temporaryU, pathU) == 0;
+	}
+	if (!ok)
+	{
+		if (file != NULL)
+			fclose(file);
+		UNICHAR_REMOVE(temporaryU);
+	}
+	free(temporaryU);
+	return ok;
+}
+
+static instr_t *findOrCreateExchangeInstrument(instr_t **newInstruments,
+	uint8_t *destinations, uint8_t *instrumentCount, uint8_t destination)
+{
+	for (uint8_t i = 0; i < *instrumentCount; i++)
+		if (destinations[i] == destination)
+			return newInstruments[i];
+
+	if (*instrumentCount >= TAPEHEAD_EXCHANGE_MAX_ITEMS)
+		return NULL;
+	instr_t *instrument = calloc(1, sizeof (*instrument));
+	if (instrument == NULL)
+		return NULL;
+	initFolderInstrument(instrument);
+	destinations[*instrumentCount] = destination;
+	newInstruments[*instrumentCount] = instrument;
+	(*instrumentCount)++;
+	return instrument;
+}
+
+static bool commitTapeSisterExchange(sampleFolderImportJob_t *job,
+	sample_t *decodedSamples, uint32_t decodedCount)
+{
+	instr_t *newInstruments[TAPEHEAD_EXCHANGE_MAX_ITEMS] = { NULL };
+	uint8_t destinations[TAPEHEAD_EXCHANGE_MAX_ITEMS] = { 0 };
+	uint8_t instrumentCount = 0;
+
+	for (uint32_t i = 0; i < decodedCount; i++)
+	{
+		const uint8_t destination = job->files[i].destinationInstrument;
+		const uint8_t sample = job->files[i].destinationSample;
+		if (destination == 0 || sample >= MAX_SMP_PER_INST)
+			goto allocationError;
+
+		instr_t *instrument = findOrCreateExchangeInstrument(newInstruments,
+			destinations, &instrumentCount, destination);
+		if (instrument == NULL)
+			goto allocationError;
+		memcpy(&instrument->smp[sample], &decodedSamples[i], sizeof (sample_t));
+		memset(&decodedSamples[i], 0, sizeof (sample_t));
+		sanitizeSample(&instrument->smp[sample]);
+		fixSample(&instrument->smp[sample]);
+	}
+
+	bool undoReady = undoTransactionBegin("Import TapeSister Transfer");
+	for (uint8_t i = 0; i < instrumentCount && undoReady; i++)
+		undoReady = undoTransactionAddInstrument(destinations[i]);
+	if (!undoReady)
+	{
+		undoCancelTransaction();
+		loaderMsgBox("Not enough memory to create exchange Undo data. Nothing was changed.");
+		goto allocationError;
+	}
+
+	lockMixerCallback();
+	for (uint8_t i = 0; i < instrumentCount; i++)
+	{
+		const uint8_t destination = destinations[i];
+		freeInstr(destination);
+		instr[destination] = newInstruments[i];
+		newInstruments[i] = NULL;
+		memset(song.instrName[destination], 0, sizeof (song.instrName[destination]));
+		for (uint8_t sample = 0; sample < MAX_SMP_PER_INST; sample++)
+		{
+			if (instr[destination]->smp[sample].dataPtr != NULL)
+			{
+				memcpy(song.instrName[destination],
+					instr[destination]->smp[sample].name, 22);
+				break;
+			}
+		}
+		fixInstrAndSampleNames(destination);
+	}
+	unlockMixerCallback();
+
+	setSongModifiedFlag();
+	undoTransactionCommit();
+	editor.curInstr = job->files[0].destinationInstrument;
+	editor.curSmp = job->files[0].destinationSample;
+	editor.updateCurSmp = true;
+	if (!writeExchangeAcknowledgement(job->exchangeAcknowledgementU))
+	{
+		loaderMsgBox("TapeSister samples were imported, but tapehead.received could not be written.");
+	}
+	return true;
+
+allocationError:
+	for (uint8_t i = 0; i < instrumentCount; i++)
+		freeFolderInstrument(newInstruments[i]);
+	return false;
+}
+
 static instr_t *makeLauncherBankInstrument(sample_t *samples,
 	uint32_t sampleCount, uint32_t first)
 {
@@ -665,6 +800,20 @@ static int32_t loadSampleFolderThread(void *ptr)
 			goto folderLoadError;
 		}
 		decodedCount++;
+	}
+
+	if (job->mode == SAMPLE_FOLDER_IMPORT_TAPESISTER)
+	{
+		const bool committed = commitTapeSisterExchange(job, decodedSamples,
+			decodedCount);
+		freeDecodedFolderSamples(decodedSamples, decodedCount);
+		freeSampleFolderJob(job);
+		if (!committed)
+		{
+			setMouseBusy(false);
+			sampleIsLoading = false;
+		}
+		return committed;
 	}
 
 	if (job->mode == SAMPLE_FOLDER_IMPORT_LAUNCHER)
@@ -1141,6 +1290,96 @@ bool loadSamplesToMatrix(const UNICHAR *folderPathU,
 	mouseAnimOn();
 	thread = SDL_CreateThread(loadSampleFolderThread,
 		"sample matrix import thread", job);
+	if (thread == NULL)
+	{
+		sampleIsLoading = false;
+		setMouseBusy(false);
+		freeSampleFolderJob(job);
+		return false;
+	}
+	SDL_DetachThread(thread);
+	return true;
+}
+
+bool sampleLoaderIsBusy(void)
+{
+	return sampleIsLoading;
+}
+
+bool loadTapeSisterExchange(const UNICHAR *folderPathU,
+	const tapeheadExchangeOffer_t *offer,
+	const tapeheadExchangeDestination_t *destinations)
+{
+	if (sampleIsLoading || folderPathU == NULL || offer == NULL ||
+		destinations == NULL || offer->count == 0 ||
+		offer->count > TAPEHEAD_EXCHANGE_MAX_ITEMS)
+	{
+		return false;
+	}
+
+	loaderMsgBox = myLoaderMsgBoxThreadSafe;
+	loaderSysReq = okBoxThreadSafe;
+	sampleFolderImportJob_t *job = calloc(1, sizeof (*job));
+	if (job == NULL)
+		return false;
+	job->mode = SAMPLE_FOLDER_IMPORT_TAPESISTER;
+	job->fileCount = offer->count;
+	job->exchangeFolderU = UNICHAR_STRDUP(folderPathU);
+	job->files = calloc(job->fileCount, sizeof (*job->files));
+	if (job->exchangeFolderU == NULL || job->files == NULL)
+	{
+		freeSampleFolderJob(job);
+		return false;
+	}
+
+#ifdef _WIN32
+	static const UNICHAR acknowledgementName[] = L"tapehead.received";
+#else
+	static const UNICHAR acknowledgementName[] = "tapehead.received";
+#endif
+	job->exchangeAcknowledgementU = joinFolderSamplePath(folderPathU,
+		acknowledgementName);
+	if (job->exchangeAcknowledgementU == NULL)
+	{
+		freeSampleFolderJob(job);
+		return false;
+	}
+
+	for (uint8_t i = 0; i < offer->count; i++)
+	{
+#ifdef _WIN32
+		const int needed = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+			offer->items[i].filename, -1, NULL, 0);
+		UNICHAR *filenameU = needed > 0 ? malloc((size_t)needed * sizeof (UNICHAR)) : NULL;
+		if (filenameU != NULL)
+			MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+				offer->items[i].filename, -1, filenameU, needed);
+#else
+		UNICHAR *filenameU = strdup(offer->items[i].filename);
+#endif
+		if (filenameU == NULL)
+		{
+			freeSampleFolderJob(job);
+			return false;
+		}
+		job->files[i].pathU = joinFolderSamplePath(folderPathU, filenameU);
+		free(filenameU);
+		job->files[i].sortName = strdup(offer->items[i].filename);
+		job->files[i].destinationInstrument = destinations[i].instrument;
+		job->files[i].destinationSample = destinations[i].sample - 1;
+		if (job->files[i].pathU == NULL || job->files[i].sortName == NULL)
+		{
+			freeSampleFolderJob(job);
+			return false;
+		}
+	}
+
+	UNICHAR_STRNCPY(editor.tmpFilenameU, job->files[0].pathU, PATH_MAX);
+	editor.tmpFilenameU[PATH_MAX] = 0;
+	sampleIsLoading = true;
+	mouseAnimOn();
+	thread = SDL_CreateThread(loadSampleFolderThread,
+		"TapeSister exchange import", job);
 	if (thread == NULL)
 	{
 		sampleIsLoading = false;

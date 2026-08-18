@@ -15,6 +15,7 @@
 #include "ft2_pattern_ed.h"
 #include "ft2_replayer.h"
 #include "ft2_structs.h"
+#include "ft2_textboxes.h"
 
 uint8_t cfg_ColorNum = 0; // globalized
 static uint8_t paletteListOffset;
@@ -651,8 +652,17 @@ void showPaletteEditor(void)
 	clearRect(398, 87, 232, 86);
 	static const char *presetNames[12] = { "Arctic", "LiTHe dark", "Aurora Borealis", "Rose", "Blues", "Dark mode", "Gold", "Violent", "Heavy Metal", "Why colors?", "Jungle", "User defined" };
 	static const char *modeNames[3] = { "Edit", "Always", "Mono" };
-	textOutShadow(414, 104, PAL_FORGRND, PAL_DSKTOP2, "Preset:");
-	textOutShadow(414, 146, PAL_FORGRND, PAL_DSKTOP2, "PAT Colors:");
+	textOutShadow(400,  92, PAL_FORGRND, PAL_DSKTOP2, "Preset:");
+	textOutShadow(400, 109, PAL_FORGRND, PAL_DSKTOP2, "PAT Colors:");
+	textOutShadow(400, 126, PAL_FORGRND, PAL_DSKTOP2, "Exchange:");
+	textOutShadow(400, 143, PAL_FORGRND, PAL_DSKTOP2, "Program:");
+	drawFramework(474, 122, 156, 14, FRAMEWORK_TYPE2);
+	drawFramework(474, 139, 156, 14, FRAMEWORK_TYPE2);
+	showTextBox(TB_CONF_TAPESISTER_EXCHANGE);
+	showTextBox(TB_CONF_TAPESISTER_EXECUTABLE);
+	drawTextBox(TB_CONF_TAPESISTER_EXCHANGE);
+	drawTextBox(TB_CONF_TAPESISTER_EXECUTABLE);
+	textOutShadow(400, 158, PAL_FORGRND, PAL_DSKTOP2, "Double-click a path to browse");
 	pushButtons[PB_CONFIG_PAL_PRESET].caption = (char *)presetNames[config.cfg_StdPalNum];
 	pushButtons[PB_CONFIG_PAL_COLOR_MODE].caption = (char *)modeNames[MIN(tapeheadConfig.patternColorMode, 2)];
 	charOutShadow(503, 17, PAL_FORGRND, PAL_DSKTOP2, 'R');

@@ -21,6 +21,7 @@
 #define SYSTEM_REQUEST_Y_EXT 91
 #define SYSTEM_REQUEST_MAX_TEXT_W 300
 #define SYSTEM_REQUEST_TEXT_LINE_H 12
+#define SYSTEM_REQUEST_TOP_SCREEN_H 173
 
 // globalized
 okBoxData_t okBoxData;
@@ -28,7 +29,7 @@ void (*loaderMsgBox)(const char *, ...);
 int16_t (*loaderSysReq)(int16_t, const char *, const char *, void (*)(void));
 // ----------------
 
-#define NUM_SYSREQ_TYPES 14
+#define NUM_SYSREQ_TYPES 18
 
 #define MAX_PUSHBUTTONS 5
 static char *buttonText[NUM_SYSREQ_TYPES][MAX_PUSHBUTTONS] =
@@ -49,7 +50,11 @@ static char *buttonText[NUM_SYSREQ_TYPES][MAX_PUSHBUTTONS] =
 	{ "Fast Bake", "Live", "Cancel", "", "" }, // Tapehead composition baker
 	{ "Used only", "All", "Cancel", "", "" }, // EXS sample exporter
 	{ "This folder", "Subfolders too", "Cancel", "", "" }, // Folder sample scope
-	{ "Standard XM", "Tapehead XM", "Adaptive XM", "Cancel", "" } // Baker output target
+	{ "Standard XM", "Tapehead XM", "Adaptive XM", "Cancel", "" }, // Baker output target
+	{ "Current instr.", "Instr. range", "Check inbox", "Open folder", "Cancel" },
+	{ "Publish", "Publish + New", "Cancel", "", "" },
+	{ "Import/Replace", "Later", "", "", "" },
+	{ "Import", "Later", "", "", "" }
 };
 
 static SDL_Keycode shortCut[NUM_SYSREQ_TYPES][5] =
@@ -70,7 +75,11 @@ static SDL_Keycode shortCut[NUM_SYSREQ_TYPES][5] =
 	{ SDLK_f, SDLK_l, SDLK_c, 0,      0 }, // Tapehead composition baker
 	{ SDLK_u, SDLK_a, SDLK_c, 0,      0 }, // EXS sample exporter
 	{ SDLK_t, SDLK_s, SDLK_c, 0,      0 }, // Folder sample scope
-	{ SDLK_s, SDLK_t, SDLK_a, SDLK_c, 0 } // Baker output target
+	{ SDLK_s, SDLK_t, SDLK_a, SDLK_c, 0 }, // Baker output target
+	{ SDLK_c, SDLK_r, SDLK_i, SDLK_o, SDLK_ESCAPE },
+	{ SDLK_p, SDLK_n, SDLK_c, 0, 0 },
+	{ SDLK_i, SDLK_l, 0, 0, 0 },
+	{ SDLK_i, SDLK_l, 0, 0, 0 }
 };
 
 typedef struct quitType_t
@@ -311,6 +320,11 @@ bool systemRequestCalculateLayout(const char *headline, const char *text,
 	for (uint16_t i = 0; i < layout->lineCount; i++)
 		layout->lineX[i] = (int16_t)((SCREEN_W - layout->lineWidths[i]) / 2);
 	return true;
+}
+
+bool systemRequestOverlapsTopScreen(uint16_t frameY)
+{
+	return frameY < SYSTEM_REQUEST_TOP_SCREEN_H;
 }
 
 // WARNING: This routine must ONLY be called from the main input/video thread!
@@ -600,6 +614,11 @@ static int16_t okBoxInternal(int16_t type, const char *headline, const char *tex
 	mouse.lastUsedObjectType = oldLastUsedObjectType;
 	unstuckLastUsedGUIElement();
 
+	/* Multiline dialogs can grow upward across the fixed 173-pixel split.
+	** Rebuild that covered top surface before the bottom editor so a following
+	** modal cannot expose stale dialog pixels. */
+	if (!ui.extendedPatternEditor && systemRequestOverlapsTopScreen(y))
+		showTopScreen(RESTORE_SCREENS);
 	showBottomScreen();
 
 	SDL_EventState(SDL_DROPFILE, SDL_ENABLE);

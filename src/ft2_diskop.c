@@ -89,7 +89,81 @@ static UNICHAR *FReq_CurPathU, *FReq_ModCurPathU, *FReq_InsCurPathU, *FReq_SmpCu
 static DirRec *FReq_Buffer;
 static SDL_Thread *thread;
 
+enum
+{
+	TAPESISTER_PATH_BROWSER_NONE = 0,
+	TAPESISTER_PATH_BROWSER_EXCHANGE,
+	TAPESISTER_PATH_BROWSER_EXECUTABLE
+};
+
+static uint8_t tapeSisterPathBrowser, pathBrowserPreviousItem;
+static bool pathBrowserPreviousShowAll;
+static UNICHAR *pathBrowserPreviousCurPathU;
+static char *pathBrowserPreviousFileName;
+static UNICHAR pathBrowserCurPathU[PATH_MAX + 1], pathBrowserFileU[PATH_MAX + 1];
+static char pathBrowserFileName[PATH_MAX + 1];
+
 static void setDiskOpItem(uint8_t item);
+static void acceptTapeSisterPathBrowser(void);
+static void drawTapeSisterPathBrowserChoice(void);
+
+static UNICHAR *tapeSisterUtf8ToPath(const char *src)
+{
+	if (src == NULL || src[0] == '\0')
+		return NULL;
+
+#ifdef _WIN32
+	const int32_t length = MultiByteToWideChar(CP_UTF8, 0, src, -1, NULL, 0);
+	if (length <= 0)
+		return NULL;
+	UNICHAR *path = (UNICHAR *)malloc((size_t)length * sizeof (UNICHAR));
+	if (path == NULL || MultiByteToWideChar(CP_UTF8, 0, src, -1, path, length) <= 0)
+	{
+		free(path);
+		return NULL;
+	}
+	return path;
+#else
+	return UNICHAR_STRDUP(src);
+#endif
+}
+
+static bool tapeSisterPathToUtf8(const UNICHAR *src, char *dst, size_t capacity)
+{
+	if (src == NULL || dst == NULL || capacity == 0)
+		return false;
+
+#ifdef _WIN32
+	const int32_t length = WideCharToMultiByte(CP_UTF8, 0, src, -1, NULL, 0, NULL, NULL);
+	if (length <= 0 || (size_t)length > capacity)
+		return false;
+	return WideCharToMultiByte(CP_UTF8, 0, src, -1, dst, length, NULL, NULL) > 0;
+#else
+	const size_t length = strlen(src);
+	if (length >= capacity)
+		return false;
+	memcpy(dst, src, length + 1);
+	return true;
+#endif
+}
+
+static bool tapeSisterPathIsFile(const UNICHAR *path)
+{
+#ifdef _WIN32
+	const DWORD attributes = GetFileAttributesW(path);
+	return attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY);
+#else
+	struct stat info;
+	return stat(path, &info) == 0 && S_ISREG(info.st_mode);
+#endif
+}
+
+static void clearTapeSisterPathBrowserFile(void)
+{
+	pathBrowserFileU[0] = 0;
+	pathBrowserFileName[0] = '\0';
+	FReq_EntrySelected = -1;
+}
 
 bool setupExecutablePath(void)
 {
@@ -589,13 +663,25 @@ static void openDirectory(UNICHAR *strU)
 	if (UNICHAR_CHDIR(strU) != 0)
 		okBox(0, "System message", "Couldn't open directory! No permission or in use?", NULL);
 	else
+	{
+		if (tapeSisterPathBrowser != TAPESISTER_PATH_BROWSER_NONE)
+		{
+			clearTapeSisterPathBrowserFile();
+			UNICHAR_GETCWD(FReq_CurPathU, PATH_MAX);
+		}
 		editor.diskOpReadDir = true;
+	}
 }
 
 bool diskOpGoParent(void)
 {
 	if (chdir("..") == 0)
 	{
+		if (tapeSisterPathBrowser != TAPESISTER_PATH_BROWSER_NONE)
+		{
+			clearTapeSisterPathBrowserFile();
+			UNICHAR_GETCWD(FReq_CurPathU, PATH_MAX);
+		}
 		editor.diskOpReadDir = true;
 		FReq_EntrySelected = -1;
 
@@ -1140,6 +1226,12 @@ static void diskOpSave(bool checkOverwrite, bool bakeCompositionRequested)
 
 void pbDiskOpSave(void)
 {
+	if (tapeSisterPathBrowser != TAPESISTER_PATH_BROWSER_NONE)
+	{
+		acceptTapeSisterPathBrowser();
+		return;
+	}
+
 	const bool bakeCompositionRequested = FReq_Item == DISKOP_ITEM_MODULE && keyb.leftShiftPressed;
 	diskOpSave(config.cfg_OverwriteWarning ? true : false, bakeCompositionRequested);
 }
@@ -1545,11 +1637,34 @@ static void fileListPressed(int32_t index)
 	if (mouse.mode != MOUSE_MODE_NORMAL)
 		setMouseMode(MOUSE_MODE_NORMAL);
 
+	DirRec *dirEntry = &FReq_Buffer[entryIndex];
+	if (mode == MOUSE_MODE_NORMAL && tapeSisterPathBrowser != TAPESISTER_PATH_BROWSER_NONE)
+	{
+		if (dirEntry->isDir)
+		{
+			openDirectory(dirEntry->nameU);
+		}
+		else if (tapeSisterPathBrowser == TAPESISTER_PATH_BROWSER_EXECUTABLE)
+		{
+			UNICHAR_STRNCPY(pathBrowserFileU, dirEntry->nameU, PATH_MAX);
+			pathBrowserFileU[PATH_MAX] = 0;
+			char *name = unicharToCp850(dirEntry->nameU, true);
+			if (name != NULL)
+			{
+				snprintf(pathBrowserFileName, sizeof pathBrowserFileName, "%s", name);
+				free(name);
+			}
+			FReq_EntrySelected = index;
+			diskOp_DrawFilelist();
+			drawTapeSisterPathBrowserChoice();
+		}
+		return;
+	}
+
 	// remove file selection
 	FReq_EntrySelected = -1;
 	diskOp_DrawFilelist();
 
-	DirRec *dirEntry = &FReq_Buffer[entryIndex];
 	switch (mode)
 	{
 		// open file/folder
@@ -1719,8 +1834,12 @@ void testDiskOpMouseRelease(void)
 		if (mouse.x >= 169 && mouse.x <= 329 && mouse.y >= 4 && mouse.y <= 168)
 			fileListPressed((mouse.y - 4) / (FONT1_CHAR_H + 1));
 
-		FReq_EntrySelected = -1;
-		diskOp_DrawFilelist();
+		if (tapeSisterPathBrowser != TAPESISTER_PATH_BROWSER_EXECUTABLE ||
+			pathBrowserFileU[0] == 0)
+		{
+			FReq_EntrySelected = -1;
+			diskOp_DrawFilelist();
+		}
 	}
 }
 
@@ -2303,6 +2422,20 @@ static void displayCurrPath(void)
 	free(asciiPath);
 }
 
+static void drawTapeSisterPathBrowserChoice(void)
+{
+	if (tapeSisterPathBrowser == TAPESISTER_PATH_BROWSER_NONE)
+		return;
+
+	fillRect(31, 158, 134, 12, PAL_DESKTOP);
+	if (tapeSisterPathBrowser == TAPESISTER_PATH_BROWSER_EXCHANGE)
+		textOutClipX(33, 159, PAL_FORGRND, "Current folder", 164);
+	else if (pathBrowserFileName[0] != '\0')
+		textOutClipX(33, 159, PAL_FORGRND, pathBrowserFileName, 164);
+	else
+		textOutClipX(33, 159, PAL_FORGRND, "Choose a file", 164);
+}
+
 void diskOp_DrawFilelist(void)
 {
 	clearRect(FILENAME_TEXT_X-1, 4, 162, 164);
@@ -2360,6 +2493,7 @@ void diskOp_DrawDirectory(void)
 	drawTextBox(TB_DISKOP_FILENAME);
 
 	displayCurrPath();
+	drawTapeSisterPathBrowserChoice();
 #ifdef _WIN32
 	setupDiskOpDrives();
 #endif
@@ -2701,6 +2835,35 @@ static void drawDiskOpScreen(void)
 
 	clearRect(168, 2, 164, 168);
 
+	if (tapeSisterPathBrowser != TAPESISTER_PATH_BROWSER_NONE)
+	{
+		pushButtons[PB_DISKOP_SAVE].caption = "Select";
+		showPushButton(PB_DISKOP_SAVE);
+		showPushButton(PB_DISKOP_MAKEDIR);
+		showPushButton(PB_DISKOP_REFRESH);
+		showPushButton(PB_DISKOP_EXIT);
+		showPushButton(PB_DISKOP_PARENT);
+		showPushButton(PB_DISKOP_ROOT);
+		showPushButton(PB_DISKOP_SET_PATH);
+		showPushButton(PB_DISKOP_LIST_UP);
+		showPushButton(PB_DISKOP_LIST_DOWN);
+		showScrollBar(SB_DISKOP_LIST);
+
+		textOutShadow(5, 3, PAL_FORGRND, PAL_DSKTOP2, "Select:");
+		textOutShadow(5, 17, PAL_FORGRND, PAL_DSKTOP2,
+			tapeSisterPathBrowser == TAPESISTER_PATH_BROWSER_EXCHANGE ? "Exchange" : "Program");
+		textOutShadow(5, 89, PAL_FORGRND, PAL_DSKTOP2, "Choose:");
+		textOutShadow(5, 102, PAL_FORGRND, PAL_DSKTOP2,
+			tapeSisterPathBrowser == TAPESISTER_PATH_BROWSER_EXCHANGE ? "Folder" : "File");
+		textOutShadow(4, 159, PAL_FORGRND, PAL_DSKTOP2,
+			tapeSisterPathBrowser == TAPESISTER_PATH_BROWSER_EXCHANGE ? "Use:" : "File:");
+
+		diskOp_DrawDirectory();
+		return;
+	}
+
+	pushButtons[PB_DISKOP_SAVE].caption = "Save";
+
 	showPushButton(PB_DISKOP_SAVE);
 	showPushButton(PB_DISKOP_DELETE);
 	showPushButton(PB_DISKOP_RENAME);
@@ -2777,6 +2940,12 @@ void showDiskOpScreen(void)
 		firstTimeOpeningDiskOp = false;
 	}
 
+	if (tapeSisterPathBrowser != TAPESISTER_PATH_BROWSER_NONE)
+	{
+		FReq_CurPathU = pathBrowserCurPathU;
+		UNICHAR_CHDIR(pathBrowserCurPathU);
+	}
+
 	if (ui.extendedPatternEditor)
 		exitPatternEditorExtended();
 
@@ -2828,8 +2997,190 @@ void hideDiskOpScreen(void)
 	ui.diskOpShown = false;
 }
 
+static void closeTapeSisterPathBrowser(void)
+{
+	hideDiskOpScreen();
+	pushButtons[PB_DISKOP_SAVE].caption = "Save";
+	tapeSisterPathBrowser = TAPESISTER_PATH_BROWSER_NONE;
+	FReq_ShowAllFiles = pathBrowserPreviousShowAll;
+	FReq_Item = pathBrowserPreviousItem;
+	FReq_CurPathU = pathBrowserPreviousCurPathU;
+	FReq_FileName = pathBrowserPreviousFileName;
+	textBoxes[TB_DISKOP_FILENAME].textPtr = FReq_FileName;
+	if (FReq_CurPathU != NULL && FReq_CurPathU[0] != 0)
+		UNICHAR_CHDIR(FReq_CurPathU);
+	editor.diskOpReadOnOpen = true;
+	editor.currConfigScreen = CONFIG_SCREEN_LAYOUT;
+	showConfigScreen();
+}
+
+static UNICHAR *findLastPathDelimiter(UNICHAR *path)
+{
+	UNICHAR *result = NULL;
+	for (UNICHAR *p = path; *p != 0; p++)
+	{
+		if (*p == (UNICHAR)'/' || *p == (UNICHAR)'\\')
+			result = p;
+	}
+	return result;
+}
+
+void openTapeSisterPathBrowser(bool executablePath)
+{
+	pathBrowserPreviousItem = FReq_Item;
+	pathBrowserPreviousShowAll = FReq_ShowAllFiles;
+	pathBrowserPreviousCurPathU = FReq_CurPathU;
+	pathBrowserPreviousFileName = FReq_FileName;
+	tapeSisterPathBrowser = executablePath ? TAPESISTER_PATH_BROWSER_EXECUTABLE :
+		TAPESISTER_PATH_BROWSER_EXCHANGE;
+	clearTapeSisterPathBrowserFile();
+
+	if (UNICHAR_GETCWD(pathBrowserCurPathU, PATH_MAX) == NULL)
+		pathBrowserCurPathU[0] = 0;
+
+	const char *configured = executablePath ? tapeheadConfig.tapeSisterExecutablePath :
+		tapeheadConfig.tapeSisterExchangePath;
+	UNICHAR *configuredPathU = tapeSisterUtf8ToPath(configured);
+	if (configuredPathU != NULL)
+	{
+		if (!executablePath)
+		{
+			if (UNICHAR_CHDIR(configuredPathU) == 0)
+				UNICHAR_GETCWD(pathBrowserCurPathU, PATH_MAX);
+		}
+		else if (tapeSisterPathIsFile(configuredPathU))
+		{
+			UNICHAR *delimiter = findLastPathDelimiter(configuredPathU);
+			const UNICHAR *filename = delimiter == NULL ? configuredPathU : delimiter + 1;
+			UNICHAR_STRNCPY(pathBrowserFileU, filename, PATH_MAX);
+			pathBrowserFileU[PATH_MAX] = 0;
+			char *displayName = unicharToCp850(pathBrowserFileU, true);
+			if (displayName != NULL)
+			{
+				snprintf(pathBrowserFileName, sizeof pathBrowserFileName, "%s", displayName);
+				free(displayName);
+			}
+
+			if (delimiter != NULL)
+			{
+				const bool rootDelimiter = delimiter == configuredPathU ||
+					(delimiter == configuredPathU + 2 && configuredPathU[1] == (UNICHAR)':');
+				if (rootDelimiter)
+					delimiter[1] = 0;
+				else
+					*delimiter = 0;
+				if (UNICHAR_CHDIR(configuredPathU) == 0)
+					UNICHAR_GETCWD(pathBrowserCurPathU, PATH_MAX);
+			}
+		}
+		else if (UNICHAR_CHDIR(configuredPathU) == 0)
+		{
+			UNICHAR_GETCWD(pathBrowserCurPathU, PATH_MAX);
+		}
+		free(configuredPathU);
+	}
+
+	if (pathBrowserCurPathU[0] != 0)
+		UNICHAR_CHDIR(pathBrowserCurPathU);
+	FReq_CurPathU = pathBrowserCurPathU;
+	FReq_FileName = pathBrowserFileName;
+	FReq_ShowAllFiles = true;
+	editor.diskOpReadOnOpen = true;
+	showDiskOpScreen();
+}
+
+bool openTapeSisterExchangeFolder(void)
+{
+	UNICHAR *configuredPathU = tapeSisterUtf8ToPath(
+		tapeheadConfig.tapeSisterExchangePath);
+	if (configuredPathU == NULL || UNICHAR_CHDIR(configuredPathU) != 0)
+	{
+		free(configuredPathU);
+		return false;
+	}
+
+	/* Let the ordinary Disk Op initialization run first, then make the shared
+	** exchange directory the live Sample path. This keeps the configured sample
+	** directory intact while still making exchange WAVs immediately accessible. */
+	showDiskOpScreen();
+	setDiskOpItem(DISKOP_ITEM_SAMPLE);
+	if (UNICHAR_CHDIR(configuredPathU) != 0 ||
+		UNICHAR_GETCWD(FReq_SmpCurPathU, PATH_MAX) == NULL)
+	{
+		free(configuredPathU);
+		return false;
+	}
+	free(configuredPathU);
+
+	FReq_CurPathU = FReq_SmpCurPathU;
+	FReq_EntrySelected = -1;
+	editor.diskOpReadDir = true;
+	diskOp_DrawDirectory();
+	return true;
+}
+
+static void acceptTapeSisterPathBrowser(void)
+{
+	UNICHAR selectedPathU[PATH_MAX + 1];
+	if (tapeSisterPathBrowser == TAPESISTER_PATH_BROWSER_EXCHANGE)
+	{
+		UNICHAR_STRNCPY(selectedPathU, FReq_CurPathU, PATH_MAX);
+		selectedPathU[PATH_MAX] = 0;
+	}
+	else
+	{
+		if (pathBrowserFileU[0] == 0)
+		{
+			okBox(0, "System message", "Choose the TapeSister executable first.", NULL);
+			return;
+		}
+
+		const size_t directoryLength = UNICHAR_STRLEN(FReq_CurPathU);
+		const size_t filenameLength = UNICHAR_STRLEN(pathBrowserFileU);
+		const bool needsDelimiter = directoryLength > 0 &&
+			FReq_CurPathU[directoryLength - 1] != (UNICHAR)'/' &&
+			FReq_CurPathU[directoryLength - 1] != (UNICHAR)'\\';
+		if (directoryLength + (needsDelimiter ? 1 : 0) + filenameLength > PATH_MAX)
+		{
+			okBox(0, "System message", "The selected path is too long.", NULL);
+			return;
+		}
+
+		UNICHAR_STRCPY(selectedPathU, FReq_CurPathU);
+		if (needsDelimiter)
+		{
+			const size_t end = UNICHAR_STRLEN(selectedPathU);
+			selectedPathU[end] = (UNICHAR)DIR_DELIMITER;
+			selectedPathU[end + 1] = 0;
+		}
+		UNICHAR_STRCAT(selectedPathU, pathBrowserFileU);
+		if (!tapeSisterPathIsFile(selectedPathU))
+		{
+			okBox(0, "System message", "The selected program is no longer available.", NULL);
+			return;
+		}
+	}
+
+	char *destination = tapeSisterPathBrowser == TAPESISTER_PATH_BROWSER_EXCHANGE ?
+		tapeheadConfig.tapeSisterExchangePath : tapeheadConfig.tapeSisterExecutablePath;
+	if (!tapeSisterPathToUtf8(selectedPathU, destination, TAPEHEAD_CONFIG_PATH_CAPACITY))
+	{
+		okBox(0, "System message", "The selected path could not be stored.", NULL);
+		return;
+	}
+
+	saveTapeSisterConfigPaths();
+	closeTapeSisterPathBrowser();
+}
+
 void exitDiskOpScreen(void)
 {
+	if (tapeSisterPathBrowser != TAPESISTER_PATH_BROWSER_NONE)
+	{
+		closeTapeSisterPathBrowser();
+		return;
+	}
+
 	hideDiskOpScreen();
 	ui.oldTopLeftScreen = 0; // disk op. ignores previously opened top screens
 	showTopScreen(RESTORE_SCREENS);
@@ -2943,7 +3294,14 @@ void pbDiskOpSetPath(void)
 		}
 
 		if (chdir(FReq_NameTemp) == 0)
+		{
+			if (tapeSisterPathBrowser != TAPESISTER_PATH_BROWSER_NONE)
+			{
+				clearTapeSisterPathBrowserFile();
+				UNICHAR_GETCWD(FReq_CurPathU, PATH_MAX);
+			}
 			editor.diskOpReadDir = true;
+		}
 		else
 			okBox(0, "System message", "Couldn't set directory path!", NULL);
 	}
