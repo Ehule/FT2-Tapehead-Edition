@@ -39,8 +39,6 @@ static int32_t markXSize, markYSize;
 static note_t blkCopyBuff[MAX_PATT_LEN * MAX_CHANNELS];
 static note_t ptnCopyBuff[MAX_PATT_LEN * MAX_CHANNELS];
 static note_t trackCopyBuff[MAX_PATT_LEN];
-static fastTracksPatternMetadata_t ptnCopyMetadata;
-static bool ptnCopyMetadataValid;
 
 // for recordNote()
 static const int8_t tickArr[16] = { 16, 8, 0, 4, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 1 };
@@ -1772,8 +1770,6 @@ void cutPattern(void)
 		}
 
 		ptnBufLen = numRows;
-		fastTracksPOCGetPatternMetadata(curPattern, &ptnCopyMetadata);
-		ptnCopyMetadataValid = true;
 	}
 
 	pauseMusic();
@@ -1816,8 +1812,6 @@ void copyPattern(void)
 		}
 
 		ptnBufLen = numRows;
-		fastTracksPOCGetPatternMetadata(curPattern, &ptnCopyMetadata);
-		ptnCopyMetadataValid = true;
 	}
 }
 
@@ -1850,8 +1844,6 @@ void pastePattern(void)
 		for (int16_t i = 0; i < numRows; i++)
 			pasteNote(&ptnCopyBuff[(i * MAX_CHANNELS) + x], &p[(i * MAX_CHANNELS) + x]);
 	}
-	if (ptnCopyMetadataValid)
-		fastTracksPOCSetControlTrack(curPattern, ptnCopyMetadata.controlTrack);
 	resumeMusic();
 
 	killPatternIfUnused(curPattern);

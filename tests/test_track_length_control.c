@@ -38,20 +38,22 @@ static void testDefaultsBoundsAndCopy(void)
 	assert(fastTracksPOCGetEffectiveTrackLength(3, 0) == MAX_PATT_LEN);
 	assert(fastTracksPOCGetTrackLength(4, 2) == 13); /* song-wide lane */
 	assert(fastTracksPOCGetControlTrack(3) == 2);
-	assert(!fastTracksPOCPatternMetadataIsDefault(3));
+	assert(fastTracksPOCGetControlTrack(4) == 2); /* song-wide CONTROL */
+	assert(fastTracksPOCPatternMetadataIsDefault(3));
 
 	fastTracksPOCCopyPatternMetadata(3, 4);
 	assert(fastTracksPOCGetTrackLength(4, 2) == 13);
 	assert(fastTracksPOCGetControlTrack(4) == 2);
 	fastTracksPOCResetPatternMetadata(3);
-	assert(fastTracksPOCPatternMetadataIsDefault(3)); /* LEN owns no pattern slot */
-	assert(fastTracksPOCGetControlTrack(3) == -1);
+	assert(fastTracksPOCPatternMetadataIsDefault(3));
+	assert(fastTracksPOCGetControlTrack(3) == 2);
+	assert(fastTracksPOCGetControlTrack(4) == 2);
 	assert(fastTracksPOCGetTrackLength(4, 2) == 13);
 }
 
 static void testMasterPhaseAndResizeSafety(void)
 {
-	fastTracksPOCResetPatternMetadata(8);
+	fastTracksPOCResetAllPatternMetadata();
 	fastTracksPOCSetTrackLength(8, 1, 13);
 	fastTracksPOCSetMasterCycleRow(27);
 	assert(fastTracksPOCResolveMasterSourceRow(8, 1, 27) == 1);
@@ -87,6 +89,58 @@ static void testXMRoundTrip(void)
 	assert(fastTracksPOCGetTrackLength(12, 0) == 31);
 	assert(fastTracksPOCGetTrackLength(12, 7) == 17);
 	assert(fastTracksPOCGetControlTrack(12) == 7);
+	assert(fastTracksPOCGetControlTrack(13) == 7);
+	fclose(file);
+}
+
+static void testPatternLocalExtensionMigratesInSongOrder(void)
+{
+	FILE *file = tmpfile();
+	assert(file != NULL);
+
+	const uint32_t payloadSize =
+		MAX_PATTERNS * (1 + (MAX_CHANNELS * sizeof (uint16_t)));
+	assert(fwrite("THPLEN01", 1, 8, file) == 8);
+	assert(fwrite(&payloadSize, sizeof (payloadSize), 1, file) == 1);
+	for (uint16_t patternNumber = 0; patternNumber < MAX_PATTERNS;
+		patternNumber++)
+	{
+		uint8_t controlPlusOne = 0;
+		uint16_t lengths[MAX_CHANNELS] = { 0 };
+		if (patternNumber == 5)
+		{
+			controlPlusOne = 4;
+			lengths[0] = 25;
+		}
+		else if (patternNumber == 2)
+		{
+			controlPlusOne = 7;
+			lengths[0] = 17;
+		}
+
+		assert(fwrite(&controlPlusOne, 1, 1, file) == 1);
+		assert(fwrite(lengths, sizeof (uint16_t), MAX_CHANNELS, file) ==
+			MAX_CHANNELS);
+	}
+
+	const long fileSize = ftell(file);
+	assert(fileSize > 12);
+	song.songLength = 3;
+	song.orders[0] = 0;
+	song.orders[1] = 5;
+	song.orders[2] = 2;
+	fastTracksPOCBeginModuleLoad();
+	rewind(file);
+	assert(fastTracksPOCReadXMExtension(file, (uint32_t)fileSize));
+	fastTracksPOCCommitXMExtension();
+
+	/* The first explicit values encountered in the order list become the
+	** persistent song-wide setup when reading older pattern-local metadata. */
+	assert(fastTracksPOCGetControlTrack(0) == 3);
+	assert(fastTracksPOCGetControlTrack(2) == 3);
+	assert(fastTracksPOCGetControlTrack(5) == 3);
+	assert(fastTracksPOCGetTrackLength(0, 0) == 25);
+	assert(fastTracksPOCGetTrackLength(2, 0) == 25);
 	fclose(file);
 }
 
@@ -297,6 +351,7 @@ int main(void)
 	testDefaultsBoundsAndCopy();
 	testMasterPhaseAndResizeSafety();
 	testXMRoundTrip();
+	testPatternLocalExtensionMigratesInSongOrder();
 	testLogicalCycleCompletionForwardAndReverse();
 	testPrimeLengthsAndRatioDurations();
 	testFastTracksLengthDomainToggle();

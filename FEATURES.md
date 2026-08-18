@@ -70,7 +70,7 @@ Fast Tracks gives each tracker channel its own pattern-row transport while retai
 - Per-track ratio, row, and phase indicators
 - Song-wide per-track playback lengths (`LEN`) through all private song orders
 - LEN can extend a shorter source pattern with blank rows through row 256
-- One optional per-pattern `CONTROL` track for the Pattern/Song cycle boundary
+- One optional song-wide `CONTROL` track for the Pattern/Song cycle boundary
 - Theme-aware event and clutch highlighting
 - Fast Tracks timing integrated with playback and offline rendering
 
@@ -111,8 +111,8 @@ Channels 30–32: Z X C
 track's resolved source row, including Fast Tracks ratio, reverse, clutch, Q
 routing, and Poly playback. The longest LEN can extend a shorter source with
 safe blank rows; an explicit shorter LEN still loops inside a longer pattern.
-A `CONTROL` track changes when the overall pattern/order boundary occurs; it
-does not force other tracks onto its row.
+A `CONTROL` track persists through the order list and changes when the overall
+pattern/order boundary occurs; it does not force other tracks onto its row.
 Tapehead XM saves retain this metadata, while standard XM export omits it and
 ordinary XMs load with every `LEN` off and no `CONTROL` track.
 

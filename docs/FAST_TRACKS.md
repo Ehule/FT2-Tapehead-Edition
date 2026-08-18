@@ -34,7 +34,7 @@ An explicit LEN takes precedence over a shorter pattern. If LEN is 25 and the
 current source pattern has 20 rows, the private head still completes a 25-row
 cycle; rows 20–24 are safe blank extension space. A 40-row source still wraps
 that lane at row 24. Values through 256 are supported and stored in Tapehead's
-backward-compatible XM extension together with pattern-local CONTROL choices.
+backward-compatible XM extension together with the song-wide CONTROL choice.
 
 The persistent header accepts the mouse wheel (`Shift` = eight-row steps,
 `Ctrl` = OFF). On an APC40 mkII, hold Shift and turn Track Control encoders

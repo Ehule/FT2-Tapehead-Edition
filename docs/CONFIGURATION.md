@@ -73,7 +73,8 @@ track 1 to 25 makes that lane 25 rows in every Pattern- and Song-mode source.
 LEN takes precedence over a shorter source pattern: a 20-row pattern supplies
 five safe blank extension rows. A longer 40-row pattern still lets that track
 wrap at 25. The longest explicit LEN establishes the extended pattern domain;
-`LEN OFF` follows that domain. CONTROL selection remains pattern-local.
+`LEN OFF` follows that domain. CONTROL selection is also song-wide and remains
+active as playback moves through the order list.
 
 `FastTracksUseTrackLengths=true` makes private FastTracks heads use those LEN
 domains. Set it to `false` to make FastTracks ignore LEN while ordinary LEN and
