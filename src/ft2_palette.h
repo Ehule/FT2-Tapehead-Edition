@@ -16,6 +16,12 @@ enum
 #define RGB32(r, g, b) (((r) << 16) | ((g) << 8) | (b))
 #define COLOR_6BIT_TO_8BIT(x) ((((x) * 255) + (63/2)) / 63)
 
+#define TAPEHEAD_PATTERN_FIELD_COLOR_COUNT 6
+#define TAPEHEAD_TRANSPORT_COLOR_COUNT 6
+#define TAPEHEAD_CUSTOM_COLOR_COUNT \
+	(TAPEHEAD_PATTERN_FIELD_COLOR_COUNT + TAPEHEAD_TRANSPORT_COLOR_COUNT)
+#define TAPEHEAD_PALETTE_EDIT_COUNT (6 + TAPEHEAD_CUSTOM_COLOR_COUNT)
+
 // palette entry for transparency
 #define PAL_TRANSPR 127
 
@@ -52,6 +58,12 @@ enum
 	PAL_PATTERN_TUNING = 25,
 	PAL_PATTERN_EFFECT = 26,
 	PAL_PATTERN_EMPTY = 27,
+	PAL_TRACK_LENGTH_PLAYHEAD = 28,
+	PAL_FASTTRACKS_PLAYHEAD = 29,
+	PAL_CONTROL_PLAYHEAD = 30,
+	PAL_FASTTRACKS_SYNC = 31,
+	PAL_FASTTRACKS_PHASE = 32,
+	PAL_FASTTRACKS_SONG = 33,
 
 	PAL_NUM
 };
@@ -117,5 +129,5 @@ bool paletteListMouseWheel(bool directionUp, int32_t x, int32_t y);
 void cyclePatternColorMode(void);
 void cyclePalettePreset(void);
 void sbPalListPos(uint32_t pos);
-void getUserPatternColors(uint32_t colors[6]);
+void getUserPatternColors(uint32_t colors[TAPEHEAD_CUSTOM_COLOR_COUNT]);
 void setUserPatternColor(uint8_t field, uint32_t rgb);

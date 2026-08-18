@@ -303,6 +303,17 @@ uint8_t tapeheadAPC40Mk2RatioRingValue(uint8_t ratioIndex,
 		((ratioCount - 1) / 2)) / (ratioCount - 1));
 }
 
+uint8_t tapeheadAPC40Mk2TrackLengthRingValue(uint16_t length,
+	uint16_t maximum)
+{
+	if (length == 0 || maximum == 0)
+		return 0;
+	if (length > maximum)
+		length = maximum;
+	return (uint8_t)MAX(1, (((uint32_t)length * 127) + (maximum / 2)) /
+		maximum);
+}
+
 size_t tapeheadAPC40Mk2BuildRGBTransition(uint8_t note, uint8_t primary,
 	uint8_t secondary, uint8_t animation, uint8_t *messages, size_t capacity)
 {
@@ -592,6 +603,9 @@ static void refreshTracks(void)
 {
 	const uint8_t ratioCount = fastTracksPOCGetRatioCount();
 	const bool shiftHeld = tapeheadActionShiftModifierIsHeld();
+	/* Flash the ring display mode while Shift owns the encoders. The APC does
+	** the actual LED drawing; cache changes occur only at the 4 Hz boundary. */
+	const bool lengthRingLit = ((SDL_GetTicks() / 250) & 1) == 0;
 	const uint8_t visibleBank = tapeheadActionMatrixGetBank(shiftHeld
 		? TAPEHEAD_MATRIX_SAMPLE : TAPEHEAD_MATRIX_PATTERN);
 	for (int32_t i = 0; i < 8; i++)
@@ -613,10 +627,19 @@ static void refreshTracks(void)
 			fastTrackState = fastTracksPOCMasterIsEnabled() ? 2 : 1;
 		sendNote((uint8_t)i, 0x42, fastTrackState);
 
-		sendCC(0, (uint8_t)(0x38 + i), active ? 1 : 0);
+		const uint8_t ringMode = !active ? 0 :
+			(shiftHeld ? (lengthRingLit ? 2 : 0) : 1);
+		sendCC(0, (uint8_t)(0x38 + i), ringMode);
 		if (active)
-			sendCC(0, (uint8_t)(0x30 + i), tapeheadAPC40Mk2RatioRingValue(
-				fastTracksPOCGetRatioIndex(i), ratioCount));
+		{
+			const uint8_t ringValue = shiftHeld
+				? tapeheadAPC40Mk2TrackLengthRingValue(
+					fastTracksPOCGetTrackLength(editor.editPattern, i),
+					tapeheadConfig.trackLengthControlMax)
+				: tapeheadAPC40Mk2RatioRingValue(
+					fastTracksPOCGetRatioIndex(i), ratioCount);
+			sendCC(0, (uint8_t)(0x30 + i), ringValue);
+		}
 
 		const bool morphVisible = active && sampleMorphIsArmed() &&
 			sampleMorphGetPopulatedCount(i) > 0;

@@ -31,6 +31,7 @@ static bool fastSelected[MAX_CHANNELS], fastReversed[MAX_CHANNELS];
 static bool fastClutched[MAX_CHANNELS], fastMaster, transmissionClutch;
 static fastTracksMode_t fastMode[MAX_CHANNELS];
 static uint8_t fastRatio[MAX_CHANNELS];
+static uint16_t fastTrackLength[MAX_CHANNELS];
 static bool sampleDeck, patternExposed[MAX_PATTERNS];
 static uint8_t patternPage, sampleBank;
 static int32_t lastPatternRequest, lastSampleRequest;
@@ -74,6 +75,10 @@ void audioSetMatrixMixerGains(uint16_t qGain, uint16_t polyGain)
 { (void)qGain; (void)polyGain; }
 void lockAudio(void) { audio.locked = true; }
 void unlockAudio(void) { audio.locked = false; }
+bool undoPatternBegin(uint16_t patternNum, const char *description)
+{ (void)patternNum; (void)description; return true; }
+void undoPatternCommit(void) { }
+void setSongModifiedFlag(void) { song.isModified = true; }
 void resetSyncQueues(void) { }
 void stopVoice(int32_t voiceIndex) { (void)voiceIndex; }
 void stopVoices(void) { }
@@ -126,6 +131,11 @@ void fastTracksPOCResetAllRatios(void)
 	for (int32_t i = 0; i < MAX_CHANNELS; i++)
 		if (fastSelected[i]) fastRatio[i] = FAST_TRACKS_ONE_TO_ONE_RATIO_INDEX;
 }
+uint16_t fastTracksPOCGetTrackLength(uint16_t patternNumber, int32_t i)
+{ (void)patternNumber; return fastTrackLength[i]; }
+void fastTracksPOCSetTrackLength(uint16_t patternNumber, int32_t i,
+	uint16_t length)
+{ (void)patternNumber; fastTrackLength[i] = length; }
 bool fastTracksPOCIsReversed(int32_t i) { return fastReversed[i]; }
 void fastTracksPOCToggleDirection(int32_t i) { fastReversed[i] ^= 1; }
 bool fastTracksPOCIsClutched(int32_t i) { return fastClutched[i]; }
@@ -233,6 +243,7 @@ static void resetFixture(void)
 	memset(fastClutched, 0, sizeof (fastClutched));
 	memset(fastMode, 0, sizeof (fastMode));
 	memset(fastRatio, FAST_TRACKS_ONE_TO_ONE_RATIO_INDEX, sizeof (fastRatio));
+	memset(fastTrackLength, 0, sizeof (fastTrackLength));
 	memset(patternExposed, 1, sizeof (patternExposed));
 	memset(pattern, 0, sizeof (pattern));
 	memset(patternNumRows, 0, sizeof (patternNumRows));
@@ -252,6 +263,7 @@ static void resetFixture(void)
 	memset(&tapeheadConfig, 0, sizeof (tapeheadConfig));
 	tapeheadConfig.trackTrimMaxPercent = 200;
 	tapeheadConfig.trackTrimDisplayWidth = 2;
+	tapeheadConfig.trackLengthControlMax = MAX_PATT_LEN;
 	tapeheadConfig.patternJogAudition = TAPEHEAD_PATTERN_JOG_AUDITION_LATCHED;
 	memset(&audio, 0, sizeof (audio));
 	song.BPM = 125;
@@ -394,6 +406,7 @@ static void testAbsoluteEncoderMovement(void)
 	resetFixture();
 	assert(tapeheadMidiMapAddBinding("CC.1.48", "FastTrackRatio:1"));
 	assert(tapeheadMidiMapAddBinding("CC.1.16", "SampleMorphSelect:1"));
+	assert(tapeheadMidiMapAddBinding("NoteOn.1.41", "ShiftModifier"));
 	tapeheadMidiMapSetEnabled(true);
 	song.numChannels = 1;
 	fastSelected[0] = true;
@@ -449,6 +462,29 @@ static void testAbsoluteEncoderMovement(void)
 	assert(tapeheadMidiMapHandleMessage(0xB0, 48, 56));
 	tapeheadMidiMapProcessPending();
 	assert(fastRatio[0] == FAST_TRACKS_ONE_TO_ONE_RATIO_INDEX);
+
+	/* Shift temporarily gives this same absolute track control to song-wide
+	** LEN. Zero is OFF; the top stop follows the configured ceiling. */
+	tapeheadConfig.trackLengthControlMax = 64;
+	assert(tapeheadMidiMapHandleMessage(0x90, 41, 127));
+	tapeheadMidiMapProcessPending();
+	assert(tapeheadActionShiftModifierIsHeld());
+	const uint8_t heldRatio = fastRatio[0];
+	assert(tapeheadMidiMapHandleMessage(0xB0, 48, 1));
+	tapeheadMidiMapProcessPending();
+	assert(fastTrackLength[0] == 1 && fastRatio[0] == heldRatio);
+	assert(tapeheadMidiMapHandleMessage(0xB0, 48, 127));
+	tapeheadMidiMapProcessPending();
+	assert(fastTrackLength[0] == 64 && fastRatio[0] == heldRatio);
+	assert(tapeheadMidiMapHandleMessage(0xB0, 48, 0));
+	tapeheadMidiMapProcessPending();
+	assert(fastTrackLength[0] == 0 && fastRatio[0] == heldRatio);
+	assert(tapeheadMidiMapHandleMessage(0x80, 41, 0));
+	tapeheadMidiMapProcessPending();
+	assert(!tapeheadActionShiftModifierIsHeld());
+	assert(tapeheadMidiMapHandleMessage(0xB0, 48, 127));
+	tapeheadMidiMapProcessPending();
+	assert(fastRatio[0] == 16);
 
 	/* APC encoder touch is a Note message, not a CC value. With only the CC
 	** movement bound, touch-on/off cannot cycle either selector. */

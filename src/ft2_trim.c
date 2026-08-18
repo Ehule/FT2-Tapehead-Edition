@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <string.h>
 #include <math.h>
 #include "ft2_header.h"
 #include "ft2_sample_ed.h"
@@ -14,6 +15,7 @@
 #include "ft2_pattern_ed.h"
 #include "ft2_replayer.h"
 #include "ft2_audio.h"
+#include "ft2_fasttracks.h"
 #include "ft2_mouse.h"
 #include "ft2_structs.h"
 
@@ -29,6 +31,18 @@ static instr_t *tmpInstr[1 + MAX_INST], *tmpInst[MAX_INST]; // tmpInstr[x] = cop
 static SDL_Thread *trimThread;
 
 void pbTrimCalc(void);
+
+static int16_t includeMetadataAndOrderPatterns(int16_t patternCount)
+{
+	for (uint16_t i = 0; i < song.songLength; i++)
+		patternCount = MAX(patternCount, (int16_t)(song.orders[i] + 1));
+	for (uint16_t i = 0; i < MAX_PATTERNS; i++)
+	{
+		if (!fastTracksPOCPatternMetadataIsDefault(i))
+			patternCount = MAX(patternCount, (int16_t)(i + 1));
+	}
+	return patternCount;
+}
 
 static void freeTmpInstruments(void)
 {
@@ -314,6 +328,16 @@ static void wipePattsUnused(bool testWipeSize, int16_t *ap)
 		p = pattern;
 		pLens = patternNumRows;
 	}
+	fastTracksPatternMetadata_t oldPatternMetadata[MAX_PATTERNS];
+	if (!testWipeSize)
+	{
+		for (uint16_t patternNumber = 0; patternNumber < MAX_PATTERNS;
+			patternNumber++)
+		{
+			fastTracksPOCGetPatternMetadata(patternNumber,
+				&oldPatternMetadata[patternNumber]);
+		}
+	}
 
 	memcpy(oldPatts, p, usedPatts * sizeof (note_t *));
 	memcpy(oldPattLens, pLens, usedPatts * sizeof (int16_t));
@@ -343,6 +367,14 @@ static void wipePattsUnused(bool testWipeSize, int16_t *ap)
 
 	if (!testWipeSize)
 	{
+		fastTracksPOCResetAllPatternMetadata();
+		for (i = 0; i < usedPatts; i++)
+		{
+			if (pattUsed[i])
+				fastTracksPOCSetPatternMetadata(pattOrder[i],
+					&oldPatternMetadata[i]);
+		}
+
 		for (i = 0; i < MAX_PATTERNS; i++)
 		{
 			if (pattern[i] == NULL)
@@ -648,6 +680,7 @@ static int64_t calculateXMSize(void)
 			break;
 	}
 	while (ap > 0);
+	ap = includeMetadataAndOrderPatterns(ap);
 
 	// count number of instruments
 	int16_t ai = 128;
@@ -729,6 +762,7 @@ static int64_t calculateTrimSize(void)
 			break;
 	}
 	while (ap > 0);
+	ap = includeMetadataAndOrderPatterns(ap);
 
 	// count number of instruments that would be saved
 	int16_t ai = MAX_INST;
@@ -850,6 +884,7 @@ static int32_t trimThreadFunc(void *ptr)
 			break;
 	}
 	while (ap > 0);
+	ap = includeMetadataAndOrderPatterns(ap);
 
 	// count number of instruments
 	int16_t ai = MAX_INST;

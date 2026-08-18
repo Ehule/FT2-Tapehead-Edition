@@ -31,6 +31,14 @@ def main() -> None:
     assert "song = savedSong" in baker
     assert "bakerAssetsUninstall()" in baker
 
+    # LEN/CONTROL is already rendered into the flattened tick stream. Baked
+    # modules must not inherit the source pattern map, and the live module's
+    # metadata plus exact FastTracks phase must be restored after saving.
+    assert "savedPatternMetadata[MAX_PATTERNS]" in baker
+    assert "fastTracksPOCResetAllPatternMetadata();" in baker
+    assert "fastTracksPOCSetPatternMetadata(i, &savedPatternMetadata[i]);" in baker
+    assert "fastTracksPOCSetRuntimeState(&savedFastTracksRuntime);" in baker
+
     # The two established output paths remain selected by the old ternary and
     # only the explicit Adaptive target enters the new helper.
     assert "if (bakeOutputTarget == BAKER_OUTPUT_ADAPTIVE_XM)" in baker

@@ -762,9 +762,18 @@ static bool saveBakeResult(int32_t bakedRows)
 	note_t *savedPatterns[MAX_PATTERNS];
 	note_t *ownedBakePatterns[MAX_PATTERNS];
 	int16_t savedPatternRows[MAX_PATTERNS];
+	fastTracksPatternMetadata_t savedPatternMetadata[MAX_PATTERNS];
+	fastTracksRuntimeState_t savedFastTracksRuntime;
 	memcpy(savedPatterns, pattern, sizeof (savedPatterns));
 	memcpy(ownedBakePatterns, bakePatterns, sizeof (ownedBakePatterns));
 	memcpy(savedPatternRows, patternNumRows, sizeof (savedPatternRows));
+	for (uint16_t i = 0; i < MAX_PATTERNS; i++)
+		fastTracksPOCGetPatternMetadata(i, &savedPatternMetadata[i]);
+	fastTracksPOCGetRuntimeState(&savedFastTracksRuntime);
+
+	/* The capture has already realized LEN/CONTROL into conventional rows.
+	** Never attach the source polymeter map to those temporary baked patterns. */
+	fastTracksPOCResetAllPatternMetadata();
 
 	const int32_t outputChannels = compactBakeChannels(bakedRows);
 	if (bakeOutputTarget == BAKER_OUTPUT_ADAPTIVE_XM)
@@ -773,6 +782,9 @@ static bool saveBakeResult(int32_t bakedRows)
 		memcpy(pattern, savedPatterns, sizeof (savedPatterns));
 		memcpy(patternNumRows, savedPatternRows, sizeof (savedPatternRows));
 		song = savedSong;
+		for (uint16_t i = 0; i < MAX_PATTERNS; i++)
+			fastTracksPOCSetPatternMetadata(i, &savedPatternMetadata[i]);
+		fastTracksPOCSetRuntimeState(&savedFastTracksRuntime);
 		bakerAssetsUninstall();
 		return saved;
 	}
@@ -801,6 +813,9 @@ static bool saveBakeResult(int32_t bakedRows)
 	memcpy(pattern, savedPatterns, sizeof (savedPatterns));
 	memcpy(patternNumRows, savedPatternRows, sizeof (savedPatternRows));
 	song = savedSong;
+	for (uint16_t i = 0; i < MAX_PATTERNS; i++)
+		fastTracksPOCSetPatternMetadata(i, &savedPatternMetadata[i]);
+	fastTracksPOCSetRuntimeState(&savedFastTracksRuntime);
 	bakerAssetsUninstall();
 	return saved;
 }

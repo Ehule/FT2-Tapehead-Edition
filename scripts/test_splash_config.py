@@ -39,19 +39,40 @@ def main() -> None:
         )
 
         cases = (
-            ("[Video]\nshowSplashScreen=true\n", "true"),
-            ("[Video]\nshowSplashScreen=false\n", "false"),
-            ("[Video]\nshowSplashScreen=off\n", "false"),
-            ("[Video]\nshowSplashScreen=yes\n", "true"),
-            ("[Video]\nHDMode=false\n", "true"),
+            ("[Video]\nshowSplashScreen=true\n", "true", "true", "256"),
+            ("[Video]\nshowSplashScreen=false\n", "false", "true", "256"),
+            ("[Video]\nshowSplashScreen=off\n", "false", "true", "256"),
+            ("[Video]\nshowSplashScreen=yes\n", "true", "true", "256"),
+            ("[Video]\nHDMode=false\n", "true", "true", "256"),
+            (
+                "[Video]\nshowSplashScreen=true\n"
+                "[Pattern]\nFastTracksUseTrackLengths=false\n"
+                "TrackLengthControlMax=64\n",
+                "true",
+                "false",
+                "64",
+            ),
+            ("[Pattern]\nTrackLengthControlMax=999\n", "true", "true", "256"),
+            ("[Pattern]\nTrackLengthControlMax=0\n", "true", "true", "256"),
         )
-        for contents, expected in cases:
+        for contents, expected, expected_fasttracks_len, expected_max in cases:
             tapehead_ini.write_text(contents, encoding="utf-8")
             subprocess.run(
-                [str(executable), str(tmp_path / "FT2.CFG"), expected],
+                [
+                    str(executable),
+                    str(tmp_path / "FT2.CFG"),
+                    expected,
+                    expected_fasttracks_len,
+                    expected_max,
+                ],
                 check=True,
                 cwd=ROOT,
             )
+            written = tapehead_ini.read_text(encoding="utf-8")
+            assert (
+                f"FastTracksUseTrackLengths={expected_fasttracks_len}" in written
+            )
+            assert f"TrackLengthControlMax={expected_max}" in written
 
     print("Splash configuration tests passed.")
 

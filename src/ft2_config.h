@@ -262,6 +262,7 @@ void rbWinSize2x(void);
 void rbWinSize3x(void);
 void rbWinSize4x(void);
 void cbToggleAutoSaveConfig(void);
+void cbFastTracksUseLEN(void);
 void cbPreciseBPM(void);
 void cbConfigVolRamp(void);
 void cbMonoOutputs(void);
@@ -340,6 +341,7 @@ typedef struct tapeheadConfig_t
 	bool monoOutputs;
 	bool midiPerformanceControl;
 	bool showSplashScreen;
+	bool fastTracksUseTrackLengths;
 	bool hdMode;
 	bool launcherMode;
 	bool launcherStandalone;
@@ -355,6 +357,7 @@ typedef struct tapeheadConfig_t
 	uint8_t patternJogAudition;
 	uint8_t patternColorMode;
 	uint16_t bakerPatternRows;
+	uint16_t trackLengthControlMax;
 	bool patternJogIncludeFastTracks;
 	bool transportFreezeAudioCut;
 	bool transportFreezePedalHold;

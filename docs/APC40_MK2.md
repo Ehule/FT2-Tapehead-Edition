@@ -59,7 +59,7 @@ anything already playing:
 
 | APC control | Plain press/move | Shift layer | Feedback |
 | --- | --- | --- | --- |
-| Track Control encoder | Set FastTracks ratio | — | 17 distinct ring positions |
+| Track Control encoder | Set FastTracks ratio | Set that track's song-wide LEN (`0` = OFF) | Ratio uses 17 positions; LEN uses a bar and the ring flashes while Shift is held |
 | Track fader | Track trim, 0–configured ceiling | — | Hardware position |
 | Record Arm ○ | Toggle that track's FastTracks clutch | Unassigned | On = track clutch engaged |
 | Solo | Non-destructive Performance Solo; second press restores the previous Performance Mute arrangement | — | Audible solo track |
@@ -87,6 +87,13 @@ moves left as needed, and normal and HD displays retain equivalent scaling.
 
 The master fader remains independent: its complete range is always 0–256
 (silence through unity), and it can never boost above unity.
+
+The eight Track Control encoders are absolute. Hold Shift to replace their
+ratio layer with the eight song-wide LEN controls. The bottom stop selects
+`LEN OFF`; the top stop selects `[Pattern] TrackLengthControlMax`. The default
+ceiling is 256. Lowering it gives the 127-step hardware finer resolution
+without invalidating a larger LEN already stored in the module. While Shift is
+held, the rings use bar mode and flash so the performance layer is visible.
 
 ## Sample Morph and FastTracks block
 

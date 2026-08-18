@@ -17,6 +17,7 @@
 #include "ft2_structs.h"
 #include "ft2_replayer.h"
 #include "ft2_interpolation.h"
+#include "ft2_fasttracks.h"
 
 #define CURSOR_BREATHE_FRAMES 120
 
@@ -560,15 +561,10 @@ static void drawChannelNumbering(uint16_t yPos)
 
 	for (uint8_t i = 0; i < ui.numChannelsShown; i++)
 	{
-		if (ch < 10)
-		{
-			charOutOutlined(xPos, yPos, PAL_MOUSEPT, '0' + (char)ch);
-		}
-		else
-		{
-			charOutOutlined(xPos, yPos, PAL_MOUSEPT, '0' + (ch / 10));
-			charOutOutlined(xPos + (FONT1_CHAR_W + 1), yPos, PAL_MOUSEPT, '0' + (ch % 10));
-		}
+		char channelText[4];
+		snprintf(channelText, sizeof (channelText), "%u", ch);
+		textOutTiny(xPos + 1, yPos + 1, channelText,
+			video.palette[PAL_MOUSEPT]);
 
 		ch++;
 		xPos += ui.patternChannelWidth;
@@ -1017,6 +1013,31 @@ static void drawFastTracksPOCLed(uint16_t x, uint16_t y, uint32_t color)
 
 static void drawFastTracksPOCStatus(uint16_t yPos, const fastTracksSnapshot_t *snapshot)
 {
+	if (!snapshot->masterEnabled)
+		return;
+
+	/* A distinct second strip is reserved across the complete tracker width
+	** while FastTracks is live. This keeps its diagnostics stable and prevents
+	** LEN/CONTROL from painting over ratios or Song Mode state. */
+	for (int32_t visibleChannel = 0; visibleChannel < ui.numChannelsShown;
+		visibleChannel++)
+	{
+		const int32_t channelIndex = ui.channelOffset + visibleChannel;
+		if (channelIndex < 0 || channelIndex >= song.numChannels)
+			continue;
+
+		const uint16_t xPos = (uint16_t)(30 +
+			(visibleChannel * ui.patternChannelWidth));
+		const uint16_t panelWidth = (uint16_t)(ui.patternChannelWidth - 2);
+		fillRect(xPos, yPos, panelWidth, 8, PAL_DESKTOP);
+		if (!snapshot->tracks[channelIndex].enabled)
+		{
+			textOutTiny(xPos + 2, yPos + 1, "FT",
+				breatheColorToward(video.palette[PAL_BLCKTXT],
+					video.palette[PAL_DESKTOP]));
+		}
+	}
+
 	for (int32_t fastTrackChannel = 0; fastTrackChannel < MAX_CHANNELS; fastTrackChannel++)
 	{
 		const fastTracksTrackSnapshot_t *track = &snapshot->tracks[fastTrackChannel];
@@ -1027,106 +1048,91 @@ static void drawFastTracksPOCStatus(uint16_t yPos, const fastTracksSnapshot_t *s
 			continue;
 
 		const int32_t visibleChannel = fastTrackChannel - ui.channelOffset;
-		const uint32_t xPos = 30 + (visibleChannel * ui.patternChannelWidth);
+		const int32_t xPos = 30 + (visibleChannel * ui.patternChannelWidth);
 		const uint8_t numerator = track->ratioNumerator;
 		const uint8_t denominator = track->ratioDenominator;
 		const int32_t sourceRow = track->sourceRow;
 		const fastTracksMode_t transportMode = track->mode;
 		const bool songMode = transportMode == FAST_TRACKS_MODE_SONG;
 		const int32_t sourceOrder = track->sourceOrder;
+		const int32_t sourcePattern = track->sourcePattern;
 		const bool clutchHeld = track->clutched;
 		const bool reversed = track->reversed;
-
-		/*
-		** Fixed header zones keep one- and two-digit channel numbers from
-		** colliding with Fast Tracks status information:
-		**
-		**   [channel number]   [right-aligned ratio]   [lag sync lead]
-		**
-		** Channel numbering is redrawn after this panel, so its left-hand zone
-		** remains authoritative at every horizontal scroll position.
-		*/
 		const uint16_t panelWidth = (uint16_t)(ui.patternChannelWidth - 2);
 		const uint8_t panelColor = clutchHeld ? PAL_BLCKMRK : PAL_DESKTOP;
 		fillRect((uint16_t)xPos, yPos, panelWidth, 8, panelColor);
 
-		char numeratorText[4], denominatorText[4];
-		snprintf(numeratorText, sizeof (numeratorText), "%u", numerator);
-		snprintf(denominatorText, sizeof (denominatorText), "%u", denominator);
-
-		const int32_t numeratorDigits = numerator >= 10 ? 2 : 1;
-		const int32_t denominatorDigits = denominator >= 10 ? 2 : 1;
-		const int32_t ratioWidth = (numeratorDigits + 1 + denominatorDigits) * FONT3_CHAR_W;
-
-		/* Anchor the diagnostic cluster to the channel's right edge. This keeps
-		** reverse, phase LEDs and the Song order badge clear of both one- and
-		** two-digit channel numbers. The ratio sits immediately to their left. */
-		const int32_t directionMarkerWidth = reversed ? 8 : 0;
-		const int32_t ledBankWidth = 11; /* three 3px LEDs with 1px gaps */
-		const int32_t ratioStatusGap = 2;
-		const int32_t directionLedGap = reversed ? 1 : 0;
-		const int32_t songBadgeGap = songMode ? 2 : 0;
-		const int32_t songBadgeWidth = songMode ? 10 : 0; /* highlighted two-digit order number */
-		const int32_t statusWidth = directionMarkerWidth + directionLedGap + ledBankWidth + songBadgeGap + songBadgeWidth;
-		const int32_t groupWidth = ratioWidth + ratioStatusGap + statusWidth;
-		const int32_t panelLeft = (int32_t)xPos;
-		const int32_t panelRight = panelLeft + panelWidth - 1;
-		const int32_t minimumGroupX = panelLeft + 12; /* protect channel number */
-
-		int32_t groupX = panelRight - groupWidth - 2; /* extra inset keeps lit LEDs inside the track */
-		if (groupX < minimumGroupX)
-			groupX = minimumGroupX;
-
-		const int32_t ratioX = groupX;
-		const int32_t directionX = ratioX + ratioWidth + ratioStatusGap;
-		const uint16_t lagLedX = (uint16_t)(directionX + directionMarkerWidth + directionLedGap);
-		const uint16_t syncLedX = (uint16_t)(lagLedX + 4);
-		const uint16_t leadLedX = (uint16_t)(syncLedX + 4);
-		const uint16_t songBadgeX = (uint16_t)(leadLedX + 3 + songBadgeGap);
-
-		const int32_t colonX = ratioX + (numeratorDigits * FONT3_CHAR_W);
+		char ratioText[8];
+		snprintf(ratioText, sizeof (ratioText), "%u:%u", numerator, denominator);
+		const int32_t ratioWidth = (int32_t)strlen(ratioText) * FONT3_CHAR_W;
+		const int32_t ratioX = xPos + 2;
 		const uint32_t ratioColor = video.palette[PAL_BLCKTXT];
+		textOutTiny(ratioX, yPos + 1, ratioText, ratioColor);
+
+		int32_t statusX = ratioX + ratioWidth + 2;
 		if (reversed)
 		{
-			/* A solid reverse badge must be unmistakable during performance. */
-			fillRect((uint16_t)directionX, yPos, 7, 8, PAL_BLCKMRK);
-			textOutTiny(directionX + 1, yPos + 1, "R", video.palette[PAL_BLCKTXT]);
+			fillRect((uint16_t)statusX, yPos, 5, 8, PAL_BLCKMRK);
+			textOutTiny(statusX + 1, yPos + 1, "R",
+				video.palette[PAL_FASTTRACKS_PHASE]);
+			statusX += 6;
 		}
 
-		textOutTiny(ratioX, yPos + 1, numeratorText, ratioColor);
-		video.frameBuffer[((yPos + 3) * SCREEN_W) + colonX + 1] = ratioColor;
-		video.frameBuffer[((yPos + 5) * SCREEN_W) + colonX + 1] = ratioColor;
-		textOutTiny(colonX + FONT3_CHAR_W, yPos + 1, denominatorText, ratioColor);
-
-		if (songMode)
-		{
-			/* The solid badge identifies Song transport and reports the private
-			** order-list position. This remains diagnostic when several order
-			** entries point to the same pattern. */
-			char orderText[3];
-			snprintf(orderText, sizeof (orderText), "%02X", sourceOrder & 0xFF);
-			fillRect(songBadgeX, yPos, (uint16_t)songBadgeWidth, 8, PAL_BLCKMRK);
-			textOutTiny(songBadgeX + 1, yPos + 1, orderText, video.palette[PAL_BLCKTXT]);
-		}
-
-		/* Draw all three housings so the indicator reads as a tiny LED bank even
-		** when only one lamp is active. */
+		/* Keep a small right margin so the LED bank cannot be clipped by the
+		** next channel separator. The three-pixel shift also leaves the Song
+		** badge its own centered visual zone. */
+		const int32_t ledBankX = xPos + panelWidth - 15;
+		const uint16_t lagLedX = (uint16_t)ledBankX;
+		const uint16_t syncLedX = (uint16_t)(ledBankX + 4);
+		const uint16_t leadLedX = (uint16_t)(ledBankX + 8);
 		const uint32_t ledOffColor = breatheColorToward(video.palette[PAL_BLCKTXT], video.palette[panelColor]);
 		drawFastTracksPOCLed(lagLedX,  (uint16_t)(yPos + 2), ledOffColor);
 		drawFastTracksPOCLed(syncLedX, (uint16_t)(yPos + 2), ledOffColor);
 		drawFastTracksPOCLed(leadLedX, (uint16_t)(yPos + 2), ledOffColor);
 
+		if (songMode)
+		{
+			/* Wide lanes report order>pattern. Ten/twelve-channel views retain the
+			** more important pattern number in a compact centered badge so the
+			** phase LEDs remain unobstructed. */
+			char songText[8];
+			if (panelWidth >= 64)
+			{
+				snprintf(songText, sizeof (songText), "%02X>%02X",
+					sourceOrder & 0xFF, sourcePattern & 0xFF);
+			}
+			else
+			{
+				snprintf(songText, sizeof (songText), "%02X",
+					sourcePattern & 0xFF);
+			}
+
+			const int32_t badgeWidth =
+				((int32_t)strlen(songText) * FONT3_CHAR_W) + 2;
+			const int32_t centeredBadgeX = xPos +
+				(((int32_t)panelWidth - badgeWidth) / 2);
+			const int32_t maxBadgeX = ledBankX - badgeWidth - 1;
+			int32_t badgeX = MIN(centeredBadgeX, maxBadgeX);
+			if (statusX <= maxBadgeX)
+				badgeX = MAX(badgeX, statusX);
+			fillRect((uint16_t)badgeX, yPos, (uint16_t)badgeWidth, 8,
+				PAL_BLCKMRK);
+			textOutTiny(badgeX + 1, yPos + 1, songText,
+				video.palette[PAL_FASTTRACKS_SONG]);
+		}
+
 		const bool masterAligned = track->masterAligned;
 		if (masterAligned)
 		{
-			/* Deliberately literal green: exact master synchronization should be
-			** recognizable independently of the current FT2 palette. */
-			const uint32_t syncColor = breatheColorToward(0xFF00D040, video.palette[panelColor]);
+			/* Exact synchronization keeps its own configurable status color. */
+			const uint32_t syncColor = breatheColorToward(
+				video.palette[PAL_FASTTRACKS_SYNC], video.palette[panelColor]);
 			drawFastTracksPOCLed(syncLedX, (uint16_t)(yPos + 2), syncColor);
 		}
 		else if (!songMode)
 		{
-			const int32_t numRows = song.currNumRows > 0 ? song.currNumRows : 1;
+			const int32_t numRows = fastTracksPOCGetFastTrackLength(
+				song.pattNum, fastTrackChannel);
 			int32_t phaseOffset = sourceRow - song.row;
 			phaseOffset %= numRows;
 			if (phaseOffset < 0)
@@ -1134,9 +1140,10 @@ static void drawFastTracksPOCStatus(uint16_t yPos, const fastTracksSnapshot_t *s
 			if (phaseOffset > numRows / 2)
 				phaseOffset -= numRows;
 
-			/* Red retains the established Fast Tracks phase meaning. During clutch,
-			** the configurable block-mark color remains the temporary emphasis. */
-			const uint32_t phaseBaseColor = clutchHeld ? video.palette[PAL_BLCKMRK] : 0xFFFF3030;
+			/* FastTracks phase has its own palette entry. During clutch, the
+			** block-mark color remains the temporary emphasis. */
+			const uint32_t phaseBaseColor = clutchHeld ? video.palette[PAL_BLCKMRK] :
+				video.palette[PAL_FASTTRACKS_PHASE];
 			const uint32_t phaseColor = breatheColorToward(phaseBaseColor, video.palette[panelColor]);
 			if (phaseOffset < 0)
 			{
@@ -1157,15 +1164,94 @@ static void drawFastTracksPOCStatus(uint16_t yPos, const fastTracksSnapshot_t *s
 	}
 }
 
-static void drawFastTracksPOCArrow(uint32_t xPos, uint32_t yPos)
+static void drawDirectHLine(uint16_t x, uint16_t y, uint16_t width,
+	uint32_t color)
 {
-	// Tiny right-pointing clock-hand marker in the channel separator.
-	// The pattern data remains fixed; this marker shows the private row Track 8 is reading.
-	hLine((uint16_t)(xPos + 2), (uint16_t)(yPos + 1), 1, PAL_FORGRND);
-	hLine((uint16_t)(xPos + 1), (uint16_t)(yPos + 2), 2, PAL_FORGRND);
-	hLine((uint16_t)(xPos + 0), (uint16_t)(yPos + 3), 3, PAL_FORGRND);
-	hLine((uint16_t)(xPos + 1), (uint16_t)(yPos + 4), 2, PAL_FORGRND);
-	hLine((uint16_t)(xPos + 2), (uint16_t)(yPos + 5), 1, PAL_FORGRND);
+	ASSERT(x < SCREEN_W && y < SCREEN_H && (x + width) <= SCREEN_W);
+
+	uint32_t *dstPtr = &video.frameBuffer[(y * SCREEN_W) + x];
+	for (uint16_t i = 0; i < width; i++)
+		dstPtr[i] = color;
+}
+
+static void drawDirectVLine(uint16_t x, uint16_t y, uint16_t height,
+	uint32_t color)
+{
+	ASSERT(x < SCREEN_W && y < SCREEN_H && (y + height) <= SCREEN_H);
+
+	uint32_t *dstPtr = &video.frameBuffer[(y * SCREEN_W) + x];
+	for (uint16_t i = 0; i < height; i++)
+	{
+		*dstPtr = color;
+		dstPtr += SCREEN_W;
+	}
+}
+
+static void drawControlEjectSymbol(uint16_t x, uint16_t y, uint32_t color)
+{
+	drawDirectHLine((uint16_t)(x + 3), y, 1, color);
+	drawDirectHLine((uint16_t)(x + 2), (uint16_t)(y + 1), 3, color);
+	drawDirectHLine((uint16_t)(x + 1), (uint16_t)(y + 2), 5, color);
+	drawDirectHLine(x, (uint16_t)(y + 4), 7, color);
+	drawDirectHLine(x, (uint16_t)(y + 5), 7, color);
+}
+
+static void drawTrackLengthStatus(uint16_t yPos, uint16_t patternNumber)
+{
+	const int32_t controlTrack = fastTracksPOCGetControlTrack(patternNumber);
+	for (int32_t visibleChannel = 0; visibleChannel < ui.numChannelsShown;
+		visibleChannel++)
+	{
+		const int32_t channelIndex = ui.channelOffset + visibleChannel;
+		if (channelIndex < 0 || channelIndex >= song.numChannels)
+			continue;
+
+		const int32_t xPos = 30 + (visibleChannel * ui.patternChannelWidth);
+		const uint16_t panelWidth = (uint16_t)(ui.patternChannelWidth - 2);
+		const uint16_t storedLength =
+			fastTracksPOCGetTrackLength(patternNumber, channelIndex);
+		fillRect((uint16_t)xPos, yPos, panelWidth, 8, PAL_DESKTOP);
+
+		char lengthText[16];
+		if (storedLength != 0)
+			snprintf(lengthText, sizeof (lengthText), "LEN%u", storedLength);
+		else
+			strcpy(lengthText, "LEN OFF");
+		textOutTiny(xPos + 10, yPos + 1, lengthText,
+			storedLength != 0 ? video.palette[PAL_BLCKTXT] :
+			breatheColorToward(video.palette[PAL_BLCKTXT],
+				video.palette[PAL_DESKTOP]));
+
+		const bool isControl = controlTrack == channelIndex;
+		const uint32_t controlColor = isControl ?
+			video.palette[PAL_CONTROL_PLAYHEAD] :
+			breatheColorToward(video.palette[PAL_BLCKTXT],
+				video.palette[PAL_DESKTOP]);
+		drawControlEjectSymbol((uint16_t)(xPos + panelWidth - 11),
+			(uint16_t)(yPos + 1),
+			controlColor);
+	}
+}
+
+static uint32_t dimPatternColor(uint32_t color)
+{
+	const uint32_t background = video.palette[PAL_DESKTOP];
+	return RGB32(
+		(uint8_t)((RGB32_R(color) + (RGB32_R(background) * 2)) / 3),
+		(uint8_t)((RGB32_G(color) + (RGB32_G(background) * 2)) / 3),
+		(uint8_t)((RGB32_B(color) + (RGB32_B(background) * 2)) / 3));
+}
+
+static void drawTrackPlayheadOutline(uint16_t x, uint16_t y, uint16_t width,
+	uint16_t height, uint32_t color)
+{
+	if (width < 2 || height < 2)
+		return;
+
+	drawDirectHLine(x, y, width, color);
+	drawDirectHLine(x, (uint16_t)(y + height - 1), width, color);
+	drawDirectVLine(x, y, height, color);
+	drawDirectVLine((uint16_t)(x + width - 1), y, height, color);
 }
 
 void writePattern(int32_t currRow, int32_t currPattern)
@@ -1204,7 +1290,9 @@ void writePattern(int32_t currRow, int32_t currPattern)
 	const int32_t afterCurrRow = currRow + 1;
 	const int32_t numChannels = ui.numChannelsShown;
 	note_t *pattPtr = pattern[currPattern];
-	const int32_t numRows = patternNumRows[currPattern];
+	const int32_t physicalRows = patternNumRows[currPattern];
+	const int32_t numRows = fastTracksPOCGetExtendedPatternLength(
+		(uint16_t)currPattern);
 	fastTracksSnapshot_t fastTracksSnapshot;
 	fastTracksPOCGetSnapshot(&fastTracksSnapshot);
 
@@ -1224,12 +1312,14 @@ void writePattern(int32_t currRow, int32_t currPattern)
 
 			drawRowNums(textY, (uint8_t)row, selectedRowFlag);
 
-			const note_t *p = (pattPtr == NULL) ? emptyPattern : &pattPtr[(uint32_t)row * MAX_CHANNELS];
+			const note_t *p = pattPtr == NULL || row >= physicalRows
+				? emptyPattern : &pattPtr[(uint32_t)row * MAX_CHANNELS];
 			const int32_t xWidth = ui.patternChannelWidth;
 			const uint32_t color = noteTextColors[selectedRowFlag];
 
-			// Every enabled Fast Track is rendered as its own private scrolling tape
-			// window, centered on that channel's current ratio-driven source row.
+			// FastTracks can resolve a different source pattern per channel, but row
+			// coordinates stay fixed on screen. The private playhead moves through
+			// this stationary lane instead of pinning itself to the center row.
 			int32_t xPos = 29;
 			for (int32_t j = 0; j < numChannels; j++, p++, xPos += xWidth)
 			{
@@ -1237,29 +1327,29 @@ void writePattern(int32_t currRow, int32_t currPattern)
 				const fastTracksTrackSnapshot_t *fastTrack = &fastTracksSnapshot.tracks[absoluteChannel];
 				const bool fastTrackVisible = fastTrack->enabled;
 				const note_t *drawPtr = p;
+				int32_t displayedPattern = currPattern;
+				int32_t displayedRow = row;
 
 				if (fastTrackVisible)
 				{
-					if (selectedRowFlag)
-					{
-						const uint32_t arrowX = 29 + (j * ui.patternChannelWidth) - 3;
-						drawFastTracksPOCArrow(arrowX, (uint32_t)textY);
-					}
+					displayedPattern = fastTrack->sourcePattern;
+					if (displayedPattern < 0 || displayedPattern >= MAX_PATTERNS)
+						displayedPattern = currPattern;
 
-					const int32_t sourcePattern = fastTrack->sourcePattern;
+					/* Playback can wrap at LEN, but the display deliberately keeps the
+					** complete source pattern stationary so the unused tail can be dimmed
+					** and the independent playhead has a visible path to follow. */
 					const int32_t sourceNumRows =
-						patternNumRows[sourcePattern] > 0 ?
-						patternNumRows[sourcePattern] : 1;
-					int32_t privateRow =
-						fastTrack->sourceRow + (i - pattCoord->numUpperRows);
-					while (privateRow < 0)
-						privateRow += sourceNumRows;
-					while (privateRow >= sourceNumRows)
-						privateRow -= sourceNumRows;
+						fastTracksPOCGetExtendedPatternLength(
+							(uint16_t)displayedPattern);
+					displayedRow = row;
 
-					drawPtr = (pattern[sourcePattern] == NULL)
+					drawPtr = pattern[displayedPattern] == NULL ||
+						displayedRow >= patternNumRows[displayedPattern] ||
+						displayedRow >= sourceNumRows
 						? emptyPattern
-						: &pattern[sourcePattern][(privateRow * MAX_CHANNELS) + absoluteChannel];
+						: &pattern[displayedPattern]
+							[(displayedRow * MAX_CHANNELS) + absoluteChannel];
 				}
 
 				// Theme-safe Fast Tracks coloring: only populated event fields receive
@@ -1294,8 +1384,53 @@ void writePattern(int32_t currRow, int32_t currPattern)
 						tuneColor = fastTrackColor;
 				}
 
+				const uint16_t storedLength = fastTracksPOCGetTrackLength(
+					displayedPattern, absoluteChannel);
+				const bool lenOwnsFastTrack = fastTrackVisible &&
+					(fastTracksPOCUsesTrackLengths() || fastTrack->clutched);
+				const bool inactiveLengthRow = storedLength != 0 &&
+					(!fastTrackVisible || lenOwnsFastTrack) &&
+					displayedRow >= fastTracksPOCGetEffectiveTrackLength(
+						displayedPattern, absoluteChannel);
+				if (inactiveLengthRow)
+				{
+					noteColor = dimPatternColor(noteColor);
+					instColor = dimPatternColor(instColor);
+					volColor = dimPatternColor(volColor);
+					tuneColor = dimPatternColor(tuneColor);
+					efxColor = dimPatternColor(efxColor);
+				}
+
 				drawAdaptiveCell(xPos, textY, drawPtr, noteColor, instColor,
 					volColor, tuneColor, efxColor);
+
+				bool drawPlayhead = false;
+				if (songPlaying && fastTrackVisible)
+					drawPlayhead = displayedRow == fastTrack->sourceRow;
+				else if (songPlaying && storedLength != 0 &&
+					currPattern == song.pattNum)
+				{
+					const int32_t localRow = fastTracksPOCResolveMasterSourceRow(
+						(uint16_t)currPattern, absoluteChannel, song.row);
+					drawPlayhead = row == localRow;
+				}
+
+				if (drawPlayhead)
+				{
+					uint32_t playheadColor = fastTrackVisible && !lenOwnsFastTrack
+						? video.palette[PAL_FASTTRACKS_PLAYHEAD]
+						: video.palette[PAL_TRACK_LENGTH_PLAYHEAD];
+					if (fastTracksPOCGetControlTrack((uint16_t)displayedPattern) ==
+						absoluteChannel)
+					{
+						playheadColor = video.palette[PAL_CONTROL_PLAYHEAD];
+					}
+
+					drawTrackPlayheadOutline((uint16_t)(xPos + 1),
+						(uint16_t)(textY - 1),
+						(uint16_t)(ui.patternChannelWidth - 2),
+						(uint16_t)rowHeight, playheadColor);
+				}
 			}
 		}
 
@@ -1318,12 +1453,14 @@ void writePattern(int32_t currRow, int32_t currPattern)
 	if (pattMark.markY1 != pattMark.markY2)
 		writePatternBlockMark(currRow, rowHeight, pattCoord);
 
-	// Draw the Fast Tracks panel first, then restore channel numbers over it.
-	drawFastTracksPOCStatus(pattCoord2->upperRowsY+2, &fastTracksSnapshot);
+	const uint16_t lengthHeaderY = (uint16_t)(pattCoord2->upperRowsY + 2);
+	drawFastTracksPOCStatus((uint16_t)(lengthHeaderY + 8),
+		&fastTracksSnapshot);
+	drawTrackLengthStatus(lengthHeaderY, (uint16_t)currPattern);
 
 	// channel numbers must be drawn lastly
 	if (config.ptnChnNumbers)
-		drawChannelNumbering(pattCoord2->upperRowsY+2);
+		drawChannelNumbering(lengthHeaderY);
 
 	drawPatternNavPopup();
 }

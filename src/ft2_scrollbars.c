@@ -698,7 +698,7 @@ void initializeScrollBars(void)
 	setScrollBarPageLength(SB_PAL_CONTRAST, 1);
 	setScrollBarEnd(SB_PAL_CONTRAST, 100);
 	setScrollBarPageLength(SB_PAL_LIST, 6);
-	setScrollBarEnd(SB_PAL_LIST, 12);
+	setScrollBarEnd(SB_PAL_LIST, TAPEHEAD_PALETTE_EDIT_COUNT);
 	setScrollBarPageLength(SB_MIDI_SENS, 1);
 	setScrollBarEnd(SB_MIDI_SENS, 200);
 	setScrollBarPageLength(SB_AUDIO_OUTPUT_SCROLL, 6);

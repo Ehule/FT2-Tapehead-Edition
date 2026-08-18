@@ -11,7 +11,7 @@ editor_t editor;
 
 /* Palette persistence hooks are outside this focused config-parser harness. */
 void setUserPatternColor(uint8_t field, uint32_t rgb) { (void)field; (void)rgb; }
-void getUserPatternColors(uint32_t colors[6]) { memset(colors, 0, sizeof (uint32_t) * 6); }
+void getUserPatternColors(uint32_t colors[12]) { memset(colors, 0, sizeof (uint32_t) * 12); }
 
 void SDLCALL SDL_AtomicLock(SDL_SpinLock *lock)
 {

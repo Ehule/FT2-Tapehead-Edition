@@ -91,6 +91,7 @@ checkBox_t checkBoxes[NUM_CHECKBOXES] =
 
 	// ------ CONFIG CHECKBOXES ------
 	//x,   y,   w,   h,  funcOnUp
+	{   3,  78,  90, 12, cbFastTracksUseLEN },
 	{   3,  91,  77, 12, cbToggleAutoSaveConfig },
 	{ 389, 158,  89, 12, cbPreciseBPM },
 	{ 512, 158, 107, 12, cbConfigVolRamp },

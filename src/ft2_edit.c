@@ -1181,8 +1181,8 @@ static void buildTransposeViewTargets(uint8_t mode, uint16_t curPattern,
 			{
 				targetPatterns[channelIndex] = track->sourcePattern;
 				const int32_t sourceNumRows =
-					patternNumRows[targetPatterns[channelIndex]] > 0 ?
-					patternNumRows[targetPatterns[channelIndex]] : 1;
+					fastTracksPOCGetEffectiveTrackLength(
+						targetPatterns[channelIndex], channelIndex);
 				sourceRow = track->sourceRow +
 					(screenIndex - pattCoord->numUpperRows);
 				sourceRow %= sourceNumRows;
@@ -1671,7 +1671,7 @@ void cutTrack(void)
 	const volatile uint16_t curPattern = editor.editPattern;
 
 	note_t *p = pattern[curPattern];
-	if (p == NULL)
+	if (p == NULL && fastTracksPOCPatternMetadataIsDefault(curPattern))
 		return;
 	undoPatternBegin(curPattern, "Cut track");
 
@@ -1759,21 +1759,29 @@ void cutPattern(void)
 	{
 		memset(ptnCopyBuff, 0, (MAX_PATT_LEN * MAX_CHANNELS) * sizeof (note_t));
 
-		for (int16_t x = 0; x < song.numChannels; x++)
+		if (p != NULL)
 		{
-			for (int16_t i = 0; i < numRows; i++)
-				copyNote(&p[(i * MAX_CHANNELS) + x], &ptnCopyBuff[(i * MAX_CHANNELS) + x]);
+			for (int16_t x = 0; x < song.numChannels; x++)
+			{
+				for (int16_t i = 0; i < numRows; i++)
+					copyNote(&p[(i * MAX_CHANNELS) + x],
+						&ptnCopyBuff[(i * MAX_CHANNELS) + x]);
+			}
 		}
 
 		ptnBufLen = numRows;
 	}
 
 	pauseMusic();
-	for (int16_t x = 0; x < song.numChannels; x++)
+	if (p != NULL)
 	{
-		for (int16_t i = 0; i < numRows; i++)
-			memset(&p[(i * MAX_CHANNELS) + x], 0, sizeof (note_t));
+		for (int16_t x = 0; x < song.numChannels; x++)
+		{
+			for (int16_t i = 0; i < numRows; i++)
+				memset(&p[(i * MAX_CHANNELS) + x], 0, sizeof (note_t));
+		}
 	}
+	fastTracksPOCResetPatternMetadata(curPattern);
 	resumeMusic();
 
 	killPatternIfUnused(curPattern);
@@ -1788,15 +1796,19 @@ void copyPattern(void)
 	const volatile uint16_t curPattern = editor.editPattern;
 
 	note_t *p = pattern[curPattern];
-	if (p != NULL)
+	if (p != NULL || !fastTracksPOCPatternMetadataIsDefault(curPattern))
 	{
 		memset(ptnCopyBuff, 0, (MAX_PATT_LEN * MAX_CHANNELS) * sizeof (note_t));
 
 		const int16_t numRows = patternNumRows[curPattern];
-		for (int16_t x = 0; x < song.numChannels; x++)
+		if (p != NULL)
 		{
-			for (int16_t i = 0; i < numRows; i++)
-				copyNote(&p[(i * MAX_CHANNELS) + x], &ptnCopyBuff[(i * MAX_CHANNELS) + x]);
+			for (int16_t x = 0; x < song.numChannels; x++)
+			{
+				for (int16_t i = 0; i < numRows; i++)
+					copyNote(&p[(i * MAX_CHANNELS) + x],
+						&ptnCopyBuff[(i * MAX_CHANNELS) + x]);
+			}
 		}
 
 		ptnBufLen = numRows;
@@ -2021,6 +2033,7 @@ bool extractBlockToPattern(void)
 	}
 
 	patternNumRows[destination] = extractedRows;
+	fastTracksPOCResetPatternMetadata((uint16_t)destination);
 	const int16_t liveRows = song.currNumRows;
 	if (!allocatePattern((uint16_t)destination))
 	{

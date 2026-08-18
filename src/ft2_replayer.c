@@ -20,6 +20,7 @@
 #include "ft2_video.h"
 #include "ft2_audio.h"
 #include "ft2_pattern_ed.h"
+#include "ft2_fasttracks.h"
 #include "ft2_sample_ed.h"
 #include "ft2_inst_ed.h"
 #include "ft2_diskop.h"
@@ -69,6 +70,7 @@ static volatile bool transportPunchSkipResumeRow;
 static bool deferTapeheadGlobalCommands;
 static uint16_t deferredTapeheadGlobalCommandCount;
 static uint8_t deferredTapeheadGlobalCommands[TAPEHEAD_MAX_DEFERRED_GLOBAL_COMMANDS];
+static bool fastTracksControlBoundaryPending;
 
 static note_t nilPatternLine[MAX_CHANNELS];
 
@@ -2617,12 +2619,128 @@ static void handleEffects_TickNonZero(channel_t *ch)
 	JumpTab_TickNonZero[ch->efx](ch, ch->efxData);
 }
 
-static void getNextPos(void)
+static int32_t getControlDestination(int32_t controlTrack)
 {
-	if (song.tick != 1)
+	if (controlTrack < 0 || controlTrack >= song.numChannels)
+		return -1;
+	if (!patternLauncherHasRouting())
+		return controlTrack;
+
+	for (int32_t destination = 0; destination < song.numChannels; destination++)
+	{
+		if (patternLauncherGetSourceForDestination(destination) == controlTrack)
+			return destination;
+	}
+
+	/* A silent source has no private Q/FastTracks head. Fall back to its
+	** master-clock LEN below instead of borrowing an unrelated tunnel. */
+	return -1;
+}
+
+static bool controlUsesPrivateFastTrack(int32_t controlTrack)
+{
+	const int32_t destination = getControlDestination(controlTrack);
+	return destination >= 0 && fastTracksPOCIsEnabled(destination);
+}
+
+static int32_t getControlVisualRow(int32_t controlTrack)
+{
+	if (controlTrack < 0 || controlTrack >= song.numChannels)
+		return song.row;
+
+	const int32_t destination = getControlDestination(controlTrack);
+	int32_t visualRow;
+	if (destination >= 0 && fastTracksPOCIsEnabled(destination) &&
+		!fastTracksPOCIsClutched(destination))
+	{
+		visualRow = fastTracksPOCGetSourceRow(destination);
+	}
+	else
+	{
+		/* A standard or clutched CONTROL lane audibly follows its local LEN
+		** phase even though song.row continues to own FT2 event scheduling. */
+		visualRow = fastTracksPOCResolveMasterSourceRow(song.pattNum,
+			controlTrack, song.row);
+	}
+
+	const int32_t visibleRows = fastTracksPOCGetExtendedPatternLength(
+		song.pattNum);
+	visualRow %= visibleRows;
+	if (visualRow < 0)
+		visualRow += visibleRows;
+	return visualRow;
+}
+
+static void isolateLengthLocalEvent(note_t *event)
+{
+	if (event == NULL)
 		return;
 
-	song.row++;
+	const bool positionJump = event->efx == 0x0B;
+	const bool patternBreak = event->efx == 0x0D;
+	const bool speedOrTempo = event->efx == 0x0F;
+	const bool extendedTransport = event->efx == 0x0E &&
+		((event->efxData & 0xF0) == 0x60 ||
+		 (event->efxData & 0xF0) == 0xE0);
+	const bool tapeheadGlobal = event->efx == 0x23 && event->efxData >= 0x20;
+	if (positionJump || patternBreak || speedOrTempo || extendedTransport ||
+		tapeheadGlobal)
+	{
+		event->efx = 0;
+		event->efxData = 0;
+	}
+}
+
+static void processMasterTransportEffect(channel_t *ch, const note_t *event)
+{
+	if (event == NULL)
+		return;
+
+	switch (event->efx)
+	{
+		case 0x0B: positionJump(ch, event->efxData); break;
+		case 0x0D: patternBreak(ch, event->efxData); break;
+		case 0x0F: setSpeed(ch, event->efxData); break;
+		case 0x0E:
+			if ((event->efxData & 0xF0) == 0x60 ||
+				(event->efxData & 0xF0) == 0xE0)
+			{
+				E_Effects_TickZero(ch, event->efxData);
+			}
+		break;
+		case 0x23:
+			if (event->efxData >= 0x20)
+			tapeheadEffects_TickZero(ch, event->efxData);
+		break;
+		default: break;
+	}
+}
+
+static void getNextPos(void)
+{
+	const bool privateBoundaryRequested = fastTracksControlBoundaryPending;
+	const bool privateBoundaryWaitingForDelay = privateBoundaryRequested &&
+		(song.pattDelTime > 0 || song.pattDelTime2 > 0);
+	if (song.tick != 1 &&
+		(!privateBoundaryRequested || privateBoundaryWaitingForDelay))
+		return;
+	bool privateControlBoundary = privateBoundaryRequested &&
+		!privateBoundaryWaitingForDelay;
+	if (privateControlBoundary)
+		fastTracksControlBoundaryPending = false;
+
+	bool masterRowAdvanced = false;
+	if (!privateControlBoundary)
+	{
+		song.row++;
+		masterRowAdvanced = true;
+	}
+	else
+	{
+		/* Match an ordinary FT2 boundary: the next callback publishes tick zero
+		** of the newly selected pattern even when CONTROL completed mid-row. */
+		song.tick = 1;
+	}
 
 	if (song.pattDelTime > 0)
 	{
@@ -2633,8 +2751,21 @@ static void getNextPos(void)
 	if (song.pattDelTime2 > 0)
 	{
 		song.pattDelTime2--;
-		if (song.pattDelTime2 > 0)
+		if (song.pattDelTime2 > 0 && masterRowAdvanced)
+		{
 			song.row--;
+			masterRowAdvanced = false;
+		}
+	}
+	if (masterRowAdvanced)
+		fastTracksPOCAdvanceMasterCycleRow();
+	if (privateBoundaryWaitingForDelay && song.pattDelTime2 == 0)
+	{
+		/* The CONTROL head has already completed, but EE delayed the shared
+		** transition. Complete it on the final delayed master boundary. */
+		privateControlBoundary = true;
+		fastTracksControlBoundaryPending = false;
+		masterRowAdvanced = false;
 	}
 
 	if (song.pBreakFlag)
@@ -2643,8 +2774,26 @@ static void getNextPos(void)
 		song.row = song.pBreakPos;
 	}
 
-	if (song.row >= song.currNumRows || song.posJumpFlag)
+	const int32_t controlTrack = fastTracksPOCGetControlTrack(song.pattNum);
+	const bool privateControl = controlUsesPrivateFastTrack(controlTrack);
+	const bool standardControlBoundary = controlTrack >= 0 && !privateControl &&
+		masterRowAdvanced && fastTracksPOCGetMasterCycleRow() >=
+		fastTracksPOCGetEffectiveTrackLength(song.pattNum, controlTrack);
+	const bool controlBoundary = privateControlBoundary || standardControlBoundary;
+	const bool ordinaryPatternEnd = song.row >= song.currNumRows;
+
+	/* CONTROL owns the real pattern boundary. The ordinary FT2 row domain can
+	** still wrap internally while a slow CONTROL head completes its cycle. */
+	if (controlTrack >= 0 && !song.posJumpFlag && !controlBoundary)
 	{
+		if (ordinaryPatternEnd)
+			song.row = 0;
+		return;
+	}
+
+	if (ordinaryPatternEnd || song.posJumpFlag || controlBoundary)
+	{
+		fastTracksControlBoundaryPending = false;
 		song.row = song.pBreakPos;
 		song.pBreakPos = 0;
 		song.posJumpFlag = false;
@@ -2720,6 +2869,9 @@ static void getNextPos(void)
 		*/
 		if (song.row >= song.currNumRows)
 			song.row = 0;
+
+		fastTracksPOCResetMasterCycle();
+		fastTracksPOCResetCycleCounters();
 	}
 }
 
@@ -2889,6 +3041,7 @@ void tickReplayer(void) // periodically called from audio callback
 	beginTapeheadGlobalCommandPass();
 
 	ch = channel;
+	const int32_t activeControlTrack = fastTracksPOCGetControlTrack(song.pattNum);
 	for (int32_t i = 0; i < song.numChannels; i++, ch++)
 	{
 		if (patternLauncherConsumeDestinationRelease(i) &&
@@ -2917,18 +3070,40 @@ void tickReplayer(void) // periodically called from audio callback
 		}
 
 		const note_t *masterNote = &rowNotes[sourceChannel];
-
 		const bool fastTrackEnabled = fastTracksPOCIsEnabled(i);
+		const bool localLengthEnabled =
+			fastTracksPOCGetTrackLength(song.pattNum, sourceChannel) != 0;
+		const bool lengthOwnsCurrentPlayback = localLengthEnabled &&
+			(!fastTrackEnabled || fastTracksPOCUsesTrackLengths() ||
+			 fastTracksPOCIsClutched(i));
+		if (readNewNote && lengthOwnsCurrentPlayback)
+			processMasterTransportEffect(ch, masterNote);
+
 		const bool transmissionClutched =
 			fastTrackEnabled && fastTracksPOCTransmissionClutchIsLatched();
 
-		if (transmissionClutched && song.pattDelTime2 == 0)
+		const bool isControlDestination = sourceChannel == activeControlTrack;
+		if (fastTrackEnabled && song.pattDelTime2 == 0 &&
+			(transmissionClutched || (isControlDestination && fastTracksPOCIsClutched(i))))
 		{
 			/* Keep the alternate transport running silently while audible playback
 			** rides the master. Re-engagement therefore bites into the naturally
 			** accumulated Dirty Sync position instead of snapping or resetting. */
-			if (fastTracksPOCAdvanceAudio(i, fastTracksTPL, NULL, 0) > 0)
+			fastTracksCrossing_t hiddenCrossings[FAST_TRACKS_MAX_CROSSINGS_PER_TICK];
+			const int32_t hiddenCount = fastTracksPOCAdvanceAudio(i, sourceChannel,
+				fastTracksTPL, hiddenCrossings, FAST_TRACKS_MAX_CROSSINGS_PER_TICK);
+			if (hiddenCount > 0)
 				ui.updatePatternEditor = true;
+			if (isControlDestination)
+			{
+				const int32_t storedHidden = MIN(hiddenCount,
+					FAST_TRACKS_MAX_CROSSINGS_PER_TICK);
+				for (int32_t crossing = 0; crossing < storedHidden; crossing++)
+				{
+					if (hiddenCrossings[crossing].cycleCompleted)
+						fastTracksControlBoundaryPending = true;
+				}
+			}
 		}
 
 		if (fastTrackEnabled && !fastTracksPOCIsClutched(i) && song.pattDelTime2 == 0)
@@ -2936,7 +3111,8 @@ void tickReplayer(void) // periodically called from audio callback
 			/* Every Fast Track ratio, including 1:1 and 2:1, advances through
 			** this same per-tick rational transport. */
 			fastTracksCrossing_t crossings[FAST_TRACKS_MAX_CROSSINGS_PER_TICK];
-			const int32_t crossingCount = fastTracksPOCAdvanceAudio(i, fastTracksTPL,
+			const int32_t crossingCount = fastTracksPOCAdvanceAudio(i, sourceChannel,
+				fastTracksTPL,
 				crossings, FAST_TRACKS_MAX_CROSSINGS_PER_TICK);
 			if (crossingCount > 0)
 			{
@@ -2946,16 +3122,27 @@ void tickReplayer(void) // periodically called from audio callback
 				const int32_t storedCrossings = MIN(crossingCount, FAST_TRACKS_MAX_CROSSINGS_PER_TICK);
 				for (int32_t crossing = 0; crossing < storedCrossings; crossing++)
 				{
-					int32_t sourcePattern, sourceRow;
+					int32_t sourcePattern = song.pattNum, sourceRow = 0;
 					const note_t *sourceNote = nilPatternLine;
-					if (fastTracksPOCResolveCrossing(i, &crossings[crossing],
-						&sourcePattern, &sourceRow) && pattern[sourcePattern] != NULL)
+					if (fastTracksPOCResolveCrossing(i, sourceChannel,
+						&crossings[crossing],
+						&sourcePattern, &sourceRow) && pattern[sourcePattern] != NULL &&
+						sourceRow < patternNumRows[sourcePattern])
 					{
 						sourceNote = &pattern[sourcePattern]
 							[(sourceRow * MAX_CHANNELS) + sourceChannel];
 					}
 
-					getNewNote(ch, sourceNote);
+					note_t localEvent = *sourceNote;
+					if (fastTracksPOCUsesTrackLengths() &&
+						fastTracksPOCGetTrackLength((uint16_t)sourcePattern,
+						sourceChannel) != 0)
+					{
+						isolateLengthLocalEvent(&localEvent);
+					}
+					getNewNote(ch, &localEvent);
+					if (isControlDestination && crossings[crossing].cycleCompleted)
+						fastTracksControlBoundaryPending = true;
 				}
 
 				ui.updatePatternEditor = true;
@@ -2969,7 +3156,25 @@ void tickReplayer(void) // periodically called from audio callback
 		}
 		else if (readNewNote)
 		{
-			getNewNote(ch, masterNote);
+			const note_t *sourceNote = masterNote;
+			if (localLengthEnabled && pattern[song.pattNum] != NULL)
+			{
+				const int32_t localRow = fastTracksPOCResolveMasterSourceRow(
+					song.pattNum, sourceChannel, song.row);
+				if (localRow < patternNumRows[song.pattNum])
+				{
+					sourceNote = &pattern[song.pattNum]
+						[(localRow * MAX_CHANNELS) + sourceChannel];
+				}
+				else
+				{
+					sourceNote = nilPatternLine;
+				}
+			}
+			note_t localEvent = *sourceNote;
+			if (localLengthEnabled)
+				isolateLengthLocalEvent(&localEvent);
+			getNewNote(ch, &localEvent);
 		}
 		else
 		{
@@ -2979,6 +3184,12 @@ void tickReplayer(void) // periodically called from audio callback
 		updateVolPanAutoVib(ch);
 
 	}
+
+	/* CONTROL is the musical boundary authority, so it is also the visual
+	** scrolling authority. Keep song.row untouched for the replayer and only
+	** publish the CONTROL phase to the delayed editor sync queue. */
+	if (activeControlTrack >= 0)
+		song.curReplayerRow = (uint8_t)getControlVisualRow(activeControlTrack);
 
 	finishTapeheadGlobalCommandPass();
 	getNextPos();
@@ -3014,6 +3225,8 @@ void setSongPos(int16_t songPos, int16_t row, bool resetTick)
 
 	if (songPos > -1)
 	{
+		const int16_t previousSongPos = song.songPos;
+		const uint16_t previousPattern = song.pattNum;
 		song.songPos = songPos;
 		if (song.songLength > 0 && song.songPos >= song.songLength)
 			song.songPos = song.songLength - 1;
@@ -3021,6 +3234,11 @@ void setSongPos(int16_t songPos, int16_t row, bool resetTick)
 		song.pattNum = song.orders[song.songPos];
 		ASSERT(song.pattNum < MAX_PATTERNS);
 		song.currNumRows = patternNumRows[song.pattNum];
+		if (song.songPos != previousSongPos || song.pattNum != previousPattern)
+		{
+			fastTracksPOCResetMasterCycle();
+			fastTracksPOCResetCycleCounters();
+		}
 
 		checkMarkLimits(); // non-FT2 safety
 	}
@@ -3030,6 +3248,7 @@ void setSongPos(int16_t songPos, int16_t row, bool resetTick)
 		song.row = row;
 		if (song.row >= song.currNumRows)
 			song.row = song.currNumRows-1;
+		fastTracksPOCSetMasterCycleRow((uint32_t)MAX(song.row, 0));
 	}
 
 	// if not playing, update local position variables
@@ -3298,6 +3517,7 @@ void freeAllPatterns(void)
 			pattern[i] = NULL;
 		}
 	}
+	fastTracksPOCResetAllPatternMetadata();
 	resumeAudio();
 }
 
@@ -3579,6 +3799,8 @@ void startPlaying(int8_t mode, int16_t row)
 
 	playMode = mode;
 	songPlaying = true;
+	fastTracksControlBoundaryPending = false;
+	fastTracksPOCResetCycleCounters();
 
 	/*
 	** A GAME OVER is earned only if this REC+ take itself generated
