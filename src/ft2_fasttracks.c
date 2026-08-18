@@ -231,6 +231,55 @@ uint16_t fastTracksPOCGetEffectiveTrackLength(uint16_t patternNumber, int32_t ch
 	return (uint16_t)MIN(storedLength, patternLength);
 }
 
+uint16_t fastTracksPOCGetFastTrackLength(uint16_t patternNumber, int32_t channelIndex)
+{
+	if (tapeheadConfig.fastTracksUseTrackLengths)
+		return fastTracksPOCGetEffectiveTrackLength(patternNumber, channelIndex);
+
+	if (patternNumber >= MAX_PATTERNS || !fastTracksPOCChannelIsValid(channelIndex))
+		return 1;
+
+	return (uint16_t)CLAMP(patternNumRows[patternNumber], 1, MAX_PATT_LEN);
+}
+
+bool fastTracksPOCUsesTrackLengths(void)
+{
+	return tapeheadConfig.fastTracksUseTrackLengths;
+}
+
+void fastTracksPOCSetUsesTrackLengths(bool enabled)
+{
+	if (tapeheadConfig.fastTracksUseTrackLengths == enabled)
+		return;
+
+	tapeheadConfig.fastTracksUseTrackLengths = enabled;
+	for (int32_t i = 0; i < FAST_TRACKS_MAX_CHANNELS; i++)
+	{
+		volatile fastTracksChannelState_t *state = &fastTracksPOCChannels[i];
+		if (state->mode == FAST_TRACKS_MODE_STANDARD)
+			continue;
+
+		int32_t patternNumber = song.pattNum;
+		if (state->mode == FAST_TRACKS_MODE_SONG)
+		{
+			const int32_t songLength = CLAMP(song.songLength, 1, MAX_ORDERS);
+			int32_t order = state->sourceOrder % songLength;
+			if (order < 0)
+				order += songLength;
+			patternNumber = song.orders[order];
+		}
+
+		const int32_t rowCount = fastTracksPOCGetFastTrackLength(
+			(uint16_t)CLAMP(patternNumber, 0, MAX_PATTERNS - 1), i);
+		state->sourceRow %= rowCount;
+		if (state->sourceRow < 0)
+			state->sourceRow += rowCount;
+		state->cycleStepCounter = 0;
+	}
+
+	ui.updatePatternEditor = true;
+}
+
 int8_t fastTracksPOCGetControlTrack(uint16_t patternNumber)
 {
 	if (patternNumber >= MAX_PATTERNS || fastTracksControlTrackPlusOne[patternNumber] == 0)
@@ -390,7 +439,7 @@ static int32_t wrapFastTracksPOCRow(int32_t row, uint16_t patternNumber,
 	int32_t sourceChannel)
 {
 	const int32_t rowCount =
-		fastTracksPOCGetEffectiveTrackLength(patternNumber, sourceChannel);
+		fastTracksPOCGetFastTrackLength(patternNumber, sourceChannel);
 	if (rowCount <= 0)
 		return 0;
 
@@ -405,7 +454,7 @@ static bool advanceFastTracksPOCPatternPosition(volatile fastTracksChannelState_
 	int32_t sourceChannel, int32_t rowDirection)
 {
 	const int32_t rowCount =
-		fastTracksPOCGetEffectiveTrackLength(song.pattNum, sourceChannel);
+		fastTracksPOCGetFastTrackLength(song.pattNum, sourceChannel);
 	const int32_t previousRow = wrapFastTracksPOCRow(state->sourceRow,
 		song.pattNum, sourceChannel);
 	int32_t nextRow = previousRow + rowDirection;
@@ -442,7 +491,7 @@ static bool resolveFastTracksPOCSongOrder(int32_t order, int32_t sourceChannel,
 		return false;
 
 	const int32_t rows =
-		fastTracksPOCGetEffectiveTrackLength((uint16_t)pattNum, sourceChannel);
+		fastTracksPOCGetFastTrackLength((uint16_t)pattNum, sourceChannel);
 
 	if (patternNumber != NULL)
 		*patternNumber = pattNum;
@@ -517,7 +566,7 @@ static int32_t getFastTracksPOCCycleLength(
 		}
 	}
 
-	return fastTracksPOCGetEffectiveTrackLength(song.pattNum, sourceChannel);
+	return fastTracksPOCGetFastTrackLength(song.pattNum, sourceChannel);
 }
 
 static int32_t getFastTracksPOCMasterPhaseRow(int32_t sourceChannel)
@@ -773,7 +822,9 @@ void fastTracksPOCGetSnapshot(fastTracksSnapshot_t *snapshot)
 		track->enabled = fastTracksPOCMasterEnabled && track->selected;
 		track->clutched = state->clutchHeld || fastTracksPOCTransmissionClutchLatched;
 		track->reversed = state->reversed;
-		track->sourceRow = track->clutched ? song.row : state->sourceRow;
+		track->sourceRow = track->clutched
+			? fastTracksPOCResolveMasterSourceRow(song.pattNum, i, song.row)
+			: state->sourceRow;
 		track->sourceOrder = state->mode == FAST_TRACKS_MODE_SONG ?
 			(int16_t)wrapFastTracksPOCOrder(state->sourceOrder) : song.songPos;
 		track->sourcePattern = song.pattNum;
@@ -1303,7 +1354,7 @@ bool fastTracksPOCResolveCrossing(int32_t channelIndex,
 	else
 	{
 		pattNum = song.pattNum;
-		patternLength = fastTracksPOCGetEffectiveTrackLength(song.pattNum,
+		patternLength = fastTracksPOCGetFastTrackLength(song.pattNum,
 			sourceChannel);
 	}
 

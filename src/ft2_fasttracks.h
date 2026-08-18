@@ -119,6 +119,9 @@ void fastTracksPOCMasterToggle(void);
 ** ordinary FT2 pattern length. CONTROL is stored as one optional channel. */
 uint16_t fastTracksPOCGetTrackLength(uint16_t patternNumber, int32_t channelIndex);
 uint16_t fastTracksPOCGetEffectiveTrackLength(uint16_t patternNumber, int32_t channelIndex);
+uint16_t fastTracksPOCGetFastTrackLength(uint16_t patternNumber, int32_t channelIndex);
+bool fastTracksPOCUsesTrackLengths(void);
+void fastTracksPOCSetUsesTrackLengths(bool enabled);
 int8_t fastTracksPOCGetControlTrack(uint16_t patternNumber);
 bool fastTracksPOCPatternMetadataIsDefault(uint16_t patternNumber);
 void fastTracksPOCGetPatternMetadata(uint16_t patternNumber,

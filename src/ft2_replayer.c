@@ -3042,12 +3042,15 @@ void tickReplayer(void) // periodically called from audio callback
 		}
 
 		const note_t *masterNote = &rowNotes[sourceChannel];
+		const bool fastTrackEnabled = fastTracksPOCIsEnabled(i);
 		const bool localLengthEnabled =
 			fastTracksPOCGetTrackLength(song.pattNum, sourceChannel) != 0;
-		if (readNewNote && localLengthEnabled)
+		const bool lengthOwnsCurrentPlayback = localLengthEnabled &&
+			(!fastTrackEnabled || fastTracksPOCUsesTrackLengths() ||
+			 fastTracksPOCIsClutched(i));
+		if (readNewNote && lengthOwnsCurrentPlayback)
 			processMasterTransportEffect(ch, masterNote);
 
-		const bool fastTrackEnabled = fastTracksPOCIsEnabled(i);
 		const bool transmissionClutched =
 			fastTrackEnabled && fastTracksPOCTransmissionClutchIsLatched();
 
@@ -3102,7 +3105,8 @@ void tickReplayer(void) // periodically called from audio callback
 					}
 
 					note_t localEvent = *sourceNote;
-					if (fastTracksPOCGetTrackLength((uint16_t)sourcePattern,
+					if (fastTracksPOCUsesTrackLengths() &&
+						fastTracksPOCGetTrackLength((uint16_t)sourcePattern,
 						sourceChannel) != 0)
 					{
 						isolateLengthLocalEvent(&localEvent);

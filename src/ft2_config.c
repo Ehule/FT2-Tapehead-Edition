@@ -39,6 +39,7 @@
 #endif
 #include "ft2_palette.h"
 #include "ft2_pattern_draw.h"
+#include "ft2_fasttracks.h"
 #include "ft2_tables.h"
 #include "ft2_bmp.h"
 #include "ft2_structs.h"
@@ -478,6 +479,8 @@ void saveTapeheadPatternColorMode(void)
 			if (inPattern) continue;
 		}
 		bool owned = inPattern && !_strnicmp(text, "PatternColorMode=", 17);
+		if (!owned)
+			owned = inPattern && !_strnicmp(text, "FastTracksUseTrackLengths=", 26);
 		for (int32_t i = 0; i < 6 && !owned; i++)
 			owned = inPattern && !_strnicmp(text, colorKeys[i], strlen(colorKeys[i])) && text[strlen(colorKeys[i])] == '=';
 		if (inPattern)
@@ -490,6 +493,8 @@ void saveTapeheadPatternColorMode(void)
 	if (in != NULL) fclose(in);
 	fputs("\n[Pattern]\n", f);
 	fprintf(f, "PatternColorMode=%s\n", names[MIN(tapeheadConfig.patternColorMode, 2)]);
+	fprintf(f, "FastTracksUseTrackLengths=%s\n",
+		tapeheadConfig.fastTracksUseTrackLengths ? "true" : "false");
 	for (int32_t i = 0; i < 6; i++) fprintf(f, "%s=#%06X\n", colorKeys[i], colors[i] & 0xFFFFFF);
 	fputs(patternExtras, f);
 	const bool ok = fclose(f) == 0;
@@ -845,7 +850,10 @@ static void writeDefaultTapeheadConfig(const UNICHAR *filePathU)
 	fputs("HDStyle=crisp\n\n", f);
 	fputs("[Pattern]\n\n", f);
 	fputs("; Pattern field colors: edit (only while editing), always, or mono.\n", f);
-	fputs("PatternColorMode=edit\n\n", f);
+	fputs("PatternColorMode=edit\n", f);
+	fputs("; When true, private FastTracks transports wrap inside each track's LEN.\n", f);
+	fputs("; When false, FastTracks uses the complete source-pattern length.\n", f);
+	fputs("FastTracksUseTrackLengths=true\n\n", f);
 	fputs("[Launcher]\n\n", f);
 	fputs("; Startup window. Accepted values: tracker or deck_matrix.\n", f);
 	fputs("; Older Enabled/Standalone keys are still accepted when this is absent.\n", f);
@@ -939,6 +947,7 @@ void loadTapeheadConfig(void)
 	tapeheadConfig.f8ExtractBlock = true;
 	tapeheadConfig.monoOutputs = false;
 	tapeheadConfig.midiPerformanceControl = false;
+	tapeheadConfig.fastTracksUseTrackLengths = true;
 	/* Compatibility default for tapehead.ini files created before the splash. */
 	tapeheadConfig.showSplashScreen = true;
 	tapeheadConfig.midiProfile = TAPEHEAD_MIDI_PROFILE_NONE;
@@ -1084,6 +1093,10 @@ void loadTapeheadConfig(void)
 				if (!_stricmp(value, "edit")) tapeheadConfig.patternColorMode = PATTERN_COLOR_EDIT;
 				else if (!_stricmp(value, "always")) tapeheadConfig.patternColorMode = PATTERN_COLOR_ALWAYS;
 				else if (!_stricmp(value, "mono")) tapeheadConfig.patternColorMode = PATTERN_COLOR_MONO;
+			}
+			else if (!_stricmp(key, "FastTracksUseTrackLengths"))
+			{
+				parseBoolValue(value, &tapeheadConfig.fastTracksUseTrackLengths);
 			}
 			else
 			{
@@ -2030,6 +2043,9 @@ void showConfigScreen(void)
 
 	setConfigRadioButtonStates();
 
+	checkBoxes[CB_CONF_FASTTRACKS_USE_LEN].checked =
+		tapeheadConfig.fastTracksUseTrackLengths;
+	showCheckBox(CB_CONF_FASTTRACKS_USE_LEN);
 	checkBoxes[CB_CONF_AUTOSAVE].checked = config.cfg_AutoSave;
 	showCheckBox(CB_CONF_AUTOSAVE);
 
@@ -2045,6 +2061,7 @@ void showConfigScreen(void)
 #ifdef HAS_MIDI
 	textOutShadow(21, 67, PAL_FORGRND, PAL_DSKTOP2, "MIDI");
 #endif
+	textOutShadow(20, 80, PAL_FORGRND, PAL_DSKTOP2, "FT uses LEN");
 	textOutShadow(20, 93, PAL_FORGRND, PAL_DSKTOP2, "Auto save");
 
 	switch (editor.currConfigScreen)
@@ -2356,6 +2373,7 @@ void hideConfigScreen(void)
 {
 	// CONFIG LEFT SIDE
 	hideRadioButtonGroup(RB_GROUP_CONFIG_SELECT);
+	hideCheckBox(CB_CONF_FASTTRACKS_USE_LEN);
 	hideCheckBox(CB_CONF_AUTOSAVE);
 	hidePushButton(PB_CONFIG_RESET);
 	hidePushButton(PB_CONFIG_LOAD);
@@ -2682,6 +2700,19 @@ void rbConfigFreqSlidesLinear(void)
 void cbToggleAutoSaveConfig(void)
 {
 	config.cfg_AutoSave ^= 1;
+}
+
+void cbFastTracksUseLEN(void)
+{
+	const bool audioWasntLocked = !audio.locked;
+	if (audioWasntLocked)
+		lockAudio();
+	fastTracksPOCSetUsesTrackLengths(
+		checkBoxes[CB_CONF_FASTTRACKS_USE_LEN].checked);
+	if (audioWasntLocked)
+		unlockAudio();
+
+	ui.updatePatternEditor = true;
 }
 
 void cbPreciseBPM(void)

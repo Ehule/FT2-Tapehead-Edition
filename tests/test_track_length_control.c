@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "ft2_audio.h"
+#include "ft2_config.h"
 #include "ft2_fasttracks.h"
 #include "ft2_replayer.h"
 #include "ft2_structs.h"
@@ -10,6 +11,7 @@
 ui_t ui;
 audio_t audio;
 song_t song;
+tapeheadConfig_t tapeheadConfig;
 int16_t patternNumRows[MAX_PATTERNS];
 
 static void initializePatternRows(void)
@@ -184,14 +186,113 @@ static void testPrimeLengthsAndRatioDurations(void)
 	assert(ticksUntilPrivateCycle(17, 13, true) == 12);
 }
 
+static void setPrivateTransport(fastTracksMode_t mode, bool reversed)
+{
+	fastTracksRuntimeState_t state;
+	memset(&state, 0, sizeof (state));
+	state.masterEnabled = true;
+	state.tracks[0].mode = mode;
+	state.tracks[0].ratioIndex = FAST_TRACKS_ONE_TO_ONE_RATIO_INDEX;
+	state.tracks[0].reversed = reversed;
+	state.tracks[0].transportStarted = true;
+	state.tracks[0].lastTPL = 1;
+	fastTracksPOCSetRuntimeState(&state);
+}
+
+static fastTracksCrossing_t advanceOneRow(void)
+{
+	fastTracksCrossing_t crossing;
+	assert(fastTracksPOCAdvanceAudio(0, 0, 1, &crossing, 1) == 1);
+	return crossing;
+}
+
+static void testFastTracksLengthDomainToggle(void)
+{
+	fastTracksPOCResetAllPatternMetadata();
+	patternNumRows[0] = 8;
+	fastTracksPOCSetTrackLength(0, 0, 3);
+	song.pattNum = 0;
+	song.songLength = 1;
+	song.orders[0] = 0;
+
+	fastTracksPOCSetUsesTrackLengths(true);
+	assert(fastTracksPOCUsesTrackLengths());
+	assert(fastTracksPOCGetFastTrackLength(0, 0) == 3);
+	setPrivateTransport(FAST_TRACKS_MODE_PATTERN, false);
+	fastTracksCrossing_t crossing = advanceOneRow();
+	assert(crossing.sourceRow == 1 && !crossing.cycleCompleted);
+	crossing = advanceOneRow();
+	assert(crossing.sourceRow == 2 && !crossing.cycleCompleted);
+	crossing = advanceOneRow();
+	assert(crossing.sourceRow == 0 && crossing.cycleCompleted);
+
+	fastTracksPOCSetUsesTrackLengths(false);
+	assert(!fastTracksPOCUsesTrackLengths());
+	assert(fastTracksPOCGetEffectiveTrackLength(0, 0) == 3);
+	assert(fastTracksPOCGetFastTrackLength(0, 0) == 8);
+	setPrivateTransport(FAST_TRACKS_MODE_PATTERN, false);
+	for (int32_t step = 1; step <= 8; step++)
+	{
+		crossing = advanceOneRow();
+		assert(crossing.sourceRow == step % 8);
+		assert(crossing.cycleCompleted == (step == 8));
+	}
+
+	fastTracksPOCSetUsesTrackLengths(true);
+}
+
+static void testSongModeUsesEachPatternsLength(void)
+{
+	fastTracksPOCResetAllPatternMetadata();
+	patternNumRows[1] = patternNumRows[2] = 8;
+	fastTracksPOCSetTrackLength(1, 0, 2);
+	fastTracksPOCSetTrackLength(2, 0, 4);
+	song.pattNum = 1;
+	song.songLength = 2;
+	song.orders[0] = 1;
+	song.orders[1] = 2;
+
+	fastTracksPOCSetUsesTrackLengths(true);
+	setPrivateTransport(FAST_TRACKS_MODE_SONG, false);
+	fastTracksCrossing_t crossing = advanceOneRow();
+	assert(crossing.sourceOrder == 0 && crossing.sourceRow == 1);
+	crossing = advanceOneRow();
+	assert(crossing.sourceOrder == 1 && crossing.sourceRow == 0);
+	for (int32_t row = 1; row <= 3; row++)
+	{
+		crossing = advanceOneRow();
+		assert(crossing.sourceOrder == 1 && crossing.sourceRow == row);
+	}
+	crossing = advanceOneRow();
+	assert(crossing.sourceOrder == 0 && crossing.sourceRow == 0);
+
+	setPrivateTransport(FAST_TRACKS_MODE_SONG, true);
+	crossing = advanceOneRow();
+	assert(crossing.sourceOrder == 1 && crossing.sourceRow == 3);
+	int32_t sourcePattern = -1, sourceRow = -1;
+	assert(fastTracksPOCResolveCrossing(0, 0, &crossing,
+		&sourcePattern, &sourceRow));
+	assert(sourcePattern == 2 && sourceRow == 3);
+
+	fastTracksPOCSetUsesTrackLengths(false);
+	setPrivateTransport(FAST_TRACKS_MODE_SONG, false);
+	advanceOneRow();
+	crossing = advanceOneRow();
+	assert(crossing.sourceOrder == 0 && crossing.sourceRow == 2);
+	fastTracksPOCSetUsesTrackLengths(true);
+}
+
 int main(void)
 {
 	initializePatternRows();
+	fastTracksPOCSetUsesTrackLengths(true);
 	testDefaultsBoundsAndCopy();
 	testMasterPhaseAndResizeSafety();
 	testXMRoundTrip();
 	testLogicalCycleCompletionForwardAndReverse();
 	testPrimeLengthsAndRatioDurations();
+	testFastTracksLengthDomainToggle();
+	testSongModeUsesEachPatternsLength();
 	puts("Track LEN/CONTROL metadata tests passed.");
 	return 0;
 }

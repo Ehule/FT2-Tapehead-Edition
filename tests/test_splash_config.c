@@ -26,7 +26,7 @@ void SDLCALL SDL_AtomicUnlock(SDL_SpinLock *lock)
 
 int main(int argc, char **argv)
 {
-	if (argc != 3)
+	if (argc != 4)
 		return 2;
 
 	editor.configFileLocationU = argv[1];
@@ -38,6 +38,16 @@ int main(int argc, char **argv)
 			tapeheadConfig.showSplashScreen ? "true" : "false");
 		return 1;
 	}
+
+	const bool expectedFastTracksLEN = !strcmp(argv[3], "true");
+	if (tapeheadConfig.fastTracksUseTrackLengths != expectedFastTracksLEN)
+	{
+		fprintf(stderr, "expected FastTracksUseTrackLengths=%s, got %s\n",
+			argv[3], tapeheadConfig.fastTracksUseTrackLengths ? "true" : "false");
+		return 1;
+	}
+
+	saveTapeheadPatternColorMode();
 
 	return 0;
 }

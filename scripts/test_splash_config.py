@@ -39,18 +39,33 @@ def main() -> None:
         )
 
         cases = (
-            ("[Video]\nshowSplashScreen=true\n", "true"),
-            ("[Video]\nshowSplashScreen=false\n", "false"),
-            ("[Video]\nshowSplashScreen=off\n", "false"),
-            ("[Video]\nshowSplashScreen=yes\n", "true"),
-            ("[Video]\nHDMode=false\n", "true"),
+            ("[Video]\nshowSplashScreen=true\n", "true", "true"),
+            ("[Video]\nshowSplashScreen=false\n", "false", "true"),
+            ("[Video]\nshowSplashScreen=off\n", "false", "true"),
+            ("[Video]\nshowSplashScreen=yes\n", "true", "true"),
+            ("[Video]\nHDMode=false\n", "true", "true"),
+            (
+                "[Video]\nshowSplashScreen=true\n"
+                "[Pattern]\nFastTracksUseTrackLengths=false\n",
+                "true",
+                "false",
+            ),
         )
-        for contents, expected in cases:
+        for contents, expected, expected_fasttracks_len in cases:
             tapehead_ini.write_text(contents, encoding="utf-8")
             subprocess.run(
-                [str(executable), str(tmp_path / "FT2.CFG"), expected],
+                [
+                    str(executable),
+                    str(tmp_path / "FT2.CFG"),
+                    expected,
+                    expected_fasttracks_len,
+                ],
                 check=True,
                 cwd=ROOT,
+            )
+            written = tapehead_ini.read_text(encoding="utf-8")
+            assert (
+                f"FastTracksUseTrackLengths={expected_fasttracks_len}" in written
             )
 
     print("Splash configuration tests passed.")

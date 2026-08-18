@@ -43,6 +43,9 @@ loader = (ROOT / "src/modloaders/ft2_load_xm.c").read_text()
 mouse = (ROOT / "src/ft2_mouse.c").read_text()
 trim = (ROOT / "src/ft2_trim.c").read_text()
 undo = (ROOT / "src/ft2_undo.c").read_text()
+config = (ROOT / "src/ft2_config.c").read_text()
+fasttracks = (ROOT / "src/ft2_fasttracks.c").read_text()
+pattern_draw = (ROOT / "src/ft2_pattern_draw.c").read_text()
 
 assert "fastTracksPOCWriteXMExtension(f)" in saver
 assert "!standardXMSave" in saver
@@ -53,5 +56,13 @@ assert "fastTracksPOCResetAllPatternMetadata();" in trim
 assert "oldPatternMetadata" in trim
 assert '"Set track length"' in mouse
 assert '"Set control track"' in mouse
+assert "pattCoord->upperRowsY + 10" in mouse
 assert "positionJump || patternBreak || speedOrTempo || extendedTransport" in replayer
 assert "processMasterTransportEffect(ch, masterNote)" in replayer
+assert "fastTracksPOCUsesTrackLengths() &&" in replayer
+assert '"FT uses LEN"' in config
+assert '"FastTracksUseTrackLengths"' in config
+assert "fastTracksPOCGetFastTrackLength" in fasttracks
+assert "lengthHeaderY + 8" in pattern_draw
+assert "displayedRow >= fastTracksPOCGetEffectiveTrackLength" in pattern_draw
+assert "drawTrackPlayheadOutline" in pattern_draw

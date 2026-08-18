@@ -93,13 +93,16 @@ Channels 30–32: Z X C
 - `Ctrl+Shift+Click` Fast Tracks logo — Randomize and resynchronize
 - `Right-click` Fast Tracks logo — Return assigned transports to 1:1 while preserving phase
 - `Ctrl+Right-click` Fast Tracks logo — Return assigned transports to 1:1 and synchronize
-- `Right-click` an assigned channel header — Reverse that private transport
-- `Shift+Right-click` an assigned channel header — Toggle Pattern/Song transport
-- `Mouse Wheel` over a channel header — Adjust that pattern's track `LEN`
-- `Shift+Mouse Wheel` over a channel header — Adjust `LEN` in steps of eight
-- `Ctrl+Mouse Wheel` over a channel header — Reset `LEN` to `OFF`
-- Click the eject-like separator icon — Select that track as `CONTROL`; click
+- `Right-click` an assigned FastTracks header (the conditional lower strip) — Reverse that private transport
+- `Shift+Right-click` an assigned FastTracks header — Toggle Pattern/Song transport
+- `Mouse Wheel` over the persistent upper channel header — Adjust that pattern's track `LEN`
+- `Shift+Mouse Wheel` over the upper header — Adjust `LEN` in steps of eight
+- `Ctrl+Mouse Wheel` over the upper header — Reset `LEN` to `OFF`
+- Click the eject-like button at the right of the upper header — Select that track as `CONTROL`; click
   the red active icon again to return to ordinary FT2 pattern boundaries
+- Config panel `FT uses LEN` — When checked (the default), private FastTracks
+  transports wrap inside `LEN`; when unchecked, FastTracks uses the complete
+  source-pattern length without changing standard, Q, or Poly LEN behavior
 
 `LEN OFF` inherits the pattern's normal row count. Numeric lengths wrap only
 that track's resolved source row, including Fast Tracks ratio, reverse, clutch,
@@ -107,6 +110,13 @@ Q routing, and Poly playback. A `CONTROL` track changes when the overall
 pattern/order boundary occurs; it does not force other tracks onto its row.
 Tapehead XM saves retain this metadata, while standard XM export omits it and
 ordinary XMs load with every `LEN` off and no `CONTROL` track.
+
+The LEN header is always visible. While FastTracks is enabled, its ratio,
+reverse, phase, and Song `order>pattern` diagnostics occupy a separate strip
+directly below it. Rows outside an active FastTracks LEN remain visible but
+dimmed instead of being repeated through the short loop. Cyan per-track cell
+outlines show LEN playheads, red identifies the CONTROL playhead, and amber
+identifies a private FastTracks playhead that is using the full-pattern domain.
 
 
 ### Pattern-programmable transport (`Zxx`)

@@ -801,11 +801,12 @@ static bool handleFastTracksLogoRightClick(uint8_t mouseButton)
 
 static bool handleFastTracksHeaderRightClick(uint8_t mouseButton)
 {
-	if (mouseButton != SDL_BUTTON_RIGHT || !ui.patternEditorShown)
+	if (mouseButton != SDL_BUTTON_RIGHT || !ui.patternEditorShown ||
+		!fastTracksPOCMasterIsEnabled())
 		return false;
 
 	const pattCoord2_t *pattCoord = &pattCoord2Table[config.ptnStretch][ui.pattChanScrollShown][getPatternEditorView()];
-	const int32_t headerY = pattCoord->upperRowsY + 2;
+	const int32_t headerY = pattCoord->upperRowsY + 10;
 	if (mouse.y < headerY || mouse.y >= headerY + 8 || mouse.x < 30)
 		return false;
 
@@ -850,8 +851,10 @@ static bool handleControlTrackHeaderClick(uint8_t mouseButton)
 	for (int32_t visibleChannel = 0; visibleChannel < ui.numChannelsShown;
 		visibleChannel++)
 	{
-		const int32_t iconX = 30 + (visibleChannel * ui.patternChannelWidth) - 3;
-		if (mouse.x >= iconX && mouse.x < iconX + 4)
+		const int32_t panelWidth = ui.patternChannelWidth - 2;
+		const int32_t iconX = 30 + (visibleChannel * ui.patternChannelWidth) +
+			panelWidth - 8;
+		if (mouse.x >= iconX - 1 && mouse.x < iconX + 8)
 		{
 			channelIndex = ui.channelOffset + visibleChannel;
 			break;
