@@ -60,9 +60,16 @@ assert "pattCoord->upperRowsY + 10" in mouse
 assert "positionJump || patternBreak || speedOrTempo || extendedTransport" in replayer
 assert "processMasterTransportEffect(ch, masterNote)" in replayer
 assert "fastTracksPOCUsesTrackLengths() &&" in replayer
+assert "getControlVisualRow" in replayer
+assert "song.curReplayerRow = (uint8_t)getControlVisualRow" in replayer
 assert '"FT uses LEN"' in config
 assert '"FastTracksUseTrackLengths"' in config
 assert "fastTracksPOCGetFastTrackLength" in fasttracks
 assert "lengthHeaderY + 8" in pattern_draw
 assert "displayedRow >= fastTracksPOCGetEffectiveTrackLength" in pattern_draw
 assert "drawTrackPlayheadOutline" in pattern_draw
+assert "drawDirectHLine" in pattern_draw
+assert "drawPlayhead = displayedRow == fastTrack->sourceRow" in pattern_draw
+assert "fastTrack->sourceRow + (i - pattCoord->numUpperRows)" not in pattern_draw
+assert "panelWidth - 15" in pattern_draw
+assert "panelWidth - 11" in mouse

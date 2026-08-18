@@ -2643,6 +2643,33 @@ static bool controlUsesPrivateFastTrack(int32_t controlTrack)
 	return destination >= 0 && fastTracksPOCIsEnabled(destination);
 }
 
+static int32_t getControlVisualRow(int32_t controlTrack)
+{
+	if (controlTrack < 0 || controlTrack >= song.numChannels)
+		return song.row;
+
+	const int32_t destination = getControlDestination(controlTrack);
+	int32_t visualRow;
+	if (destination >= 0 && fastTracksPOCIsEnabled(destination) &&
+		!fastTracksPOCIsClutched(destination))
+	{
+		visualRow = fastTracksPOCGetSourceRow(destination);
+	}
+	else
+	{
+		/* A standard or clutched CONTROL lane audibly follows its local LEN
+		** phase even though song.row continues to own FT2 event scheduling. */
+		visualRow = fastTracksPOCResolveMasterSourceRow(song.pattNum,
+			controlTrack, song.row);
+	}
+
+	const int32_t visibleRows = CLAMP(song.currNumRows, 1, MAX_PATT_LEN);
+	visualRow %= visibleRows;
+	if (visualRow < 0)
+		visualRow += visibleRows;
+	return visualRow;
+}
+
 static void isolateLengthLocalEvent(note_t *event)
 {
 	if (event == NULL)
@@ -3148,6 +3175,12 @@ void tickReplayer(void) // periodically called from audio callback
 		updateVolPanAutoVib(ch);
 
 	}
+
+	/* CONTROL is the musical boundary authority, so it is also the visual
+	** scrolling authority. Keep song.row untouched for the replayer and only
+	** publish the CONTROL phase to the delayed editor sync queue. */
+	if (activeControlTrack >= 0)
+		song.curReplayerRow = (uint8_t)getControlVisualRow(activeControlTrack);
 
 	finishTapeheadGlobalCommandPass();
 	getNextPos();

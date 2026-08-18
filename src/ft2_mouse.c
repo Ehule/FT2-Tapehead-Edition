@@ -853,7 +853,7 @@ static bool handleControlTrackHeaderClick(uint8_t mouseButton)
 	{
 		const int32_t panelWidth = ui.patternChannelWidth - 2;
 		const int32_t iconX = 30 + (visibleChannel * ui.patternChannelWidth) +
-			panelWidth - 8;
+			panelWidth - 11;
 		if (mouse.x >= iconX - 1 && mouse.x < iconX + 8)
 		{
 			channelIndex = ui.channelOffset + visibleChannel;

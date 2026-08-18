@@ -114,7 +114,10 @@ ordinary XMs load with every `LEN` off and no `CONTROL` track.
 The LEN header is always visible. While FastTracks is enabled, its ratio,
 reverse, phase, and Song `order>pattern` diagnostics occupy a separate strip
 directly below it. Rows outside an active FastTracks LEN remain visible but
-dimmed instead of being repeated through the short loop. Cyan per-track cell
+dimmed instead of being repeated through the short loop. FastTracks source
+patterns remain stationary while their independent playhead outlines move
+through the rows. When a CONTROL track is assigned, its local phase also owns
+the tracker's central scrolling row. Cyan per-track cell
 outlines show LEN playheads, red identifies the CONTROL playhead, and amber
 identifies a private FastTracks playhead that is using the full-pattern domain.
 
