@@ -25,6 +25,7 @@
 #include "ft2_bmp.h"
 #include "ft2_structs.h"
 #include "ft2_interpolation.h"
+#include "ft2_fasttracks.h"
 #include "ft2_replayer.h"
 #include "ft2_keyboard.h"
 #include "ft2_edit.h"
@@ -1814,6 +1815,8 @@ int16_t findUnusedPattern(void)
 	{
 		if (pattern[pattNum] != NULL)
 			continue;
+		if (!fastTracksPOCPatternMetadataIsDefault((uint16_t)pattNum))
+			continue;
 
 		bool referenced = false;
 		for (uint16_t i = 0; i < song.songLength; i++)
@@ -1875,6 +1878,7 @@ bool insertNewPatternAfterCurrentSongPos(bool selectNewPosition)
 	for (int32_t i = song.songLength; i > newSongPos; i--)
 		song.orders[i] = song.orders[i-1];
 
+	fastTracksPOCResetPatternMetadata(newPatt);
 	inheritPatternLengthIfUnused(oldPatt, newPatt);
 	song.orders[newSongPos] = newPatt;
 	song.songLength++;
@@ -1915,11 +1919,13 @@ static bool insertDuplicatePatternAfterCurrentSongPos(bool selectNewPosition)
 	** pattern with the source pattern's exact length and data.
 	*/
 	patternNumRows[newPatt] = sourcePattLength;
+	fastTracksPOCCopyPatternMetadata(sourcePatt, newPatt);
 	if (sourceData != NULL)
 	{
 		if (!allocatePattern(newPatt))
 		{
 			patternNumRows[newPatt] = previousNewPattLength;
+			fastTracksPOCResetPatternMetadata(newPatt);
 			undoCancelTransaction();
 			return false;
 		}
@@ -1965,6 +1971,7 @@ bool appendNewPatternToSong(void)
 	{
 		return false;
 	}
+	fastTracksPOCResetPatternMetadata(newPatt);
 	inheritPatternLengthIfUnused(oldPatt, newPatt);
 	song.orders[song.songLength++] = newPatt;
 	patternLauncherNotifySongOrderChanged();
@@ -2078,6 +2085,7 @@ static uint8_t findBlankPatternExcept(uint8_t excludedPatt)
 	for (uint16_t pattNum = 0; pattNum < MAX_PATTERNS; pattNum++)
 	{
 		if (pattNum != excludedPatt && pattern[pattNum] == NULL &&
+			fastTracksPOCPatternMetadataIsDefault(pattNum) &&
 			!patternIsReferenced((uint8_t)pattNum))
 		{
 			return (uint8_t)pattNum;
@@ -2094,8 +2102,9 @@ static uint8_t findBlankPatternExcept(uint8_t excludedPatt)
 bool patternMatrixClearPattern(uint8_t pattNum, bool removeSongReferences)
 {
 	const bool hasData = pattern[pattNum] != NULL;
+	const bool hasMetadata = !fastTracksPOCPatternMetadataIsDefault(pattNum);
 	const bool isReferenced = patternIsReferenced(pattNum);
-	if (!hasData && (!removeSongReferences || !isReferenced))
+	if (!hasData && !hasMetadata && (!removeSongReferences || !isReferenced))
 		return false;
 
 	const bool undoStarted = removeSongReferences
@@ -2147,6 +2156,7 @@ bool patternMatrixClearPattern(uint8_t pattNum, bool removeSongReferences)
 		memset(pattern[pattNum], 0, (uint32_t)patternNumRows[pattNum] * TRACK_WIDTH);
 		killPatternIfUnused(pattNum);
 	}
+	fastTracksPOCResetPatternMetadata(pattNum);
 
 	if (audioWasntLocked)
 		unlockAudio();
@@ -3471,6 +3481,7 @@ static void zapPatternData(void)
 		if (pattern[i] != NULL)
 			memset(pattern[i], 0, (MAX_PATT_LEN * TRACK_WIDTH) + 16);
 	}
+	fastTracksPOCResetAllPatternMetadata();
 
 	/*
 	** allocatePattern() temporarily updates song.currNumRows, so restore

@@ -68,6 +68,8 @@ Fast Tracks gives each tracker channel its own pattern-row transport while retai
 - Ratio randomization with immediate resynchronization
 - Independent scrolling pattern columns
 - Per-track ratio, row, and phase indicators
+- Per-pattern, per-track playback lengths (`LEN`) without deleting hidden rows
+- One optional per-pattern `CONTROL` track for the Pattern/Song cycle boundary
 - Theme-aware event and clutch highlighting
 - Fast Tracks timing integrated with playback and offline rendering
 
@@ -93,6 +95,18 @@ Channels 30–32: Z X C
 - `Ctrl+Right-click` Fast Tracks logo — Return assigned transports to 1:1 and synchronize
 - `Right-click` an assigned channel header — Reverse that private transport
 - `Shift+Right-click` an assigned channel header — Toggle Pattern/Song transport
+- `Mouse Wheel` over a channel header — Adjust that pattern's track `LEN`
+- `Shift+Mouse Wheel` over a channel header — Adjust `LEN` in steps of eight
+- `Ctrl+Mouse Wheel` over a channel header — Reset `LEN` to `OFF`
+- Click the eject-like separator icon — Select that track as `CONTROL`; click
+  the red active icon again to return to ordinary FT2 pattern boundaries
+
+`LEN OFF` inherits the pattern's normal row count. Numeric lengths wrap only
+that track's resolved source row, including Fast Tracks ratio, reverse, clutch,
+Q routing, and Poly playback. A `CONTROL` track changes when the overall
+pattern/order boundary occurs; it does not force other tracks onto its row.
+Tapehead XM saves retain this metadata, while standard XM export omits it and
+ordinary XMs load with every `LEN` off and no `CONTROL` track.
 
 
 ### Pattern-programmable transport (`Zxx`)

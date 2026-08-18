@@ -27,6 +27,8 @@
 #include "ft2_keyboard.h"
 #include "ft2_edit.h"
 #include "ft2_replayer.h"
+#include "ft2_audio.h"
+#include "ft2_fasttracks.h"
 #include "ft2_tables.h"
 #include "ft2_pattern_launcher_ui.h"
 #include "ft2_tapesister_exchange.h"
@@ -463,6 +465,74 @@ static void mouseWheelIncRow(void)
 	setSongPos(-1, row, RESET_SONG_TICK);
 }
 
+static bool getTrackHeaderChannel(int32_t *channelIndex)
+{
+	if (!ui.patternEditorShown || mouse.x < 30)
+		return false;
+
+	const pattCoord2_t *pattCoord = &pattCoord2Table[config.ptnStretch]
+		[ui.pattChanScrollShown][getPatternEditorView()];
+	const int32_t headerY = pattCoord->upperRowsY + 2;
+	if (mouse.y < headerY || mouse.y >= headerY + 8)
+		return false;
+
+	const int32_t visibleChannel = (mouse.x - 30) / ui.patternChannelWidth;
+	if (visibleChannel < 0 || visibleChannel >= ui.numChannelsShown)
+		return false;
+
+	const int32_t resolvedChannel = ui.channelOffset + visibleChannel;
+	if (resolvedChannel < 0 || resolvedChannel >= song.numChannels ||
+		resolvedChannel >= MAX_CHANNELS)
+		return false;
+
+	*channelIndex = resolvedChannel;
+	return true;
+}
+
+static bool handleTrackLengthHeaderWheel(bool directionUp)
+{
+	int32_t channelIndex;
+	if (!getTrackHeaderChannel(&channelIndex))
+		return false;
+
+	const uint16_t oldLength = fastTracksPOCGetTrackLength(
+		editor.editPattern, channelIndex);
+	uint16_t newLength = oldLength;
+	const SDL_Keymod modifiers = SDL_GetModState();
+	if (modifiers & KMOD_CTRL)
+	{
+		newLength = 0; // explicit, quick LEN OFF gesture
+	}
+	else
+	{
+		const uint16_t step = (modifiers & KMOD_SHIFT) ? 8 : 1;
+		if (directionUp)
+			newLength = (uint16_t)MIN((int32_t)MAX_PATT_LEN,
+				(int32_t)oldLength + step);
+		else if (oldLength <= step)
+			newLength = 0;
+		else
+			newLength = oldLength - step;
+	}
+
+	if (newLength == oldLength)
+		return true;
+	if (!undoPatternBegin(editor.editPattern, "Set track length"))
+		return true;
+
+	const bool audioWasntLocked = !audio.locked;
+	if (audioWasntLocked)
+		lockAudio();
+	fastTracksPOCSetTrackLength(editor.editPattern, channelIndex, newLength);
+	setSongModifiedFlag();
+	undoPatternCommit();
+	if (audioWasntLocked)
+		unlockAudio();
+
+	ui.updatePatternEditor = true;
+	return true;
+}
+
 void mouseWheelHandler(bool directionUp)
 {
 	if (ui.sysReqShown || editor.editTextFlag)
@@ -470,6 +540,8 @@ void mouseWheelHandler(bool directionUp)
 	if (patternLauncherHandleStandaloneWheel(mouse.x, mouse.y, directionUp))
 		return;
 	if (paletteListMouseWheel(directionUp, mouse.x, mouse.y))
+		return;
+	if (handleTrackLengthHeaderWheel(directionUp))
 		return;
 
 	// Ctrl+wheel over a scope adjusts that channel's output trim.
@@ -761,6 +833,52 @@ static bool handleFastTracksHeaderRightClick(uint8_t mouseButton)
 	return true;
 }
 
+static bool handleControlTrackHeaderClick(uint8_t mouseButton)
+{
+	if (mouseButton != SDL_BUTTON_LEFT || ui.sysReqShown || editor.editTextFlag)
+		return false;
+
+	if (!ui.patternEditorShown)
+		return false;
+	const pattCoord2_t *pattCoord = &pattCoord2Table[config.ptnStretch]
+		[ui.pattChanScrollShown][getPatternEditorView()];
+	const int32_t headerY = pattCoord->upperRowsY + 2;
+	if (mouse.y < headerY || mouse.y >= headerY + 8)
+		return false;
+
+	int32_t channelIndex = -1;
+	for (int32_t visibleChannel = 0; visibleChannel < ui.numChannelsShown;
+		visibleChannel++)
+	{
+		const int32_t iconX = 30 + (visibleChannel * ui.patternChannelWidth) - 3;
+		if (mouse.x >= iconX && mouse.x < iconX + 4)
+		{
+			channelIndex = ui.channelOffset + visibleChannel;
+			break;
+		}
+	}
+	if (channelIndex < 0 || channelIndex >= song.numChannels ||
+		channelIndex >= MAX_CHANNELS)
+		return false;
+
+	const int8_t oldControl = fastTracksPOCGetControlTrack(editor.editPattern);
+	const int32_t newControl = oldControl == channelIndex ? -1 : channelIndex;
+	if (!undoPatternBegin(editor.editPattern, "Set control track"))
+		return true;
+
+	const bool audioWasntLocked = !audio.locked;
+	if (audioWasntLocked)
+		lockAudio();
+	fastTracksPOCSetControlTrack(editor.editPattern, newControl);
+	setSongModifiedFlag();
+	undoPatternCommit();
+	if (audioWasntLocked)
+		unlockAudio();
+
+	ui.updatePatternEditor = true;
+	return true;
+}
+
 void mouseButtonDownHandler(uint8_t mouseButton)
 {
 	if (mouseButton == SDL_BUTTON_LEFT && paletteListMouseDown(mouse.x, mouse.y))
@@ -782,6 +900,7 @@ void mouseButtonDownHandler(uint8_t mouseButton)
 	}
 
 	if (handleFastTracksLogoRightClick(mouseButton)) return;
+	if (handleControlTrackHeaderClick(mouseButton)) return;
 	if (handleFastTracksHeaderRightClick(mouseButton)) return;
 
 	/* Tapehead Edition: Shift-click the Disk Op. Sample selector to import

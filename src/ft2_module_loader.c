@@ -36,6 +36,7 @@
 #include "ft2_pattern_launcher_ui.h"
 #include "ft2_sample_launcher.h"
 #include "ft2_tapehead_actions.h"
+#include "ft2_fasttracks.h"
 
 bool detectBEM(FILE *f);
 bool loadBEM(FILE *f, uint32_t filesize);
@@ -238,6 +239,7 @@ loadError:
 static void clearTmpModule(void)
 {
 	sampleLauncherBeginModuleLoad();
+	fastTracksPOCBeginModuleLoad();
 	memset(patternTmp, 0, sizeof (patternTmp));
 	memset(instrTmp, 0, sizeof (instrTmp));
 	memset(&songTmp, 0, sizeof (songTmp));
@@ -437,6 +439,7 @@ static void setupLoadedModule(void)
 		}
 	}
 	sampleLauncherCommitXMMetadata();
+	fastTracksPOCCommitXMExtension();
 
 	// we are the owners of the allocated memory ptrs set by the loader thread now
 

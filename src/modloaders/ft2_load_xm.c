@@ -15,6 +15,7 @@
 #include "../ft2_sysreqs.h"
 #include "../ft2_sample_launcher.h"
 #include "../ft2_tuning_lane_io.h"
+#include "../ft2_fasttracks.h"
 
 /* ModPlug Tracker & OpenMPT supports up to 32 samples per instrument for XMs -  we don't.
 ** For such modules, we use a temporary array here to store the extra sample data lengths
@@ -188,6 +189,8 @@ bool loadXM(FILE *f, uint32_t filesize)
 	sampleLauncherReadXMMetadata(f, filesize);
 	if (!tuningLaneReadXMExtension(f, filesize))
 		loaderMsgBox("Warning: corrupt or unsupported Tapehead tuning extension ignored.");
+	if (!fastTracksPOCReadXMExtension(f, filesize))
+		loaderMsgBox("Warning: corrupt or unsupported Tapehead LEN/CONTROL extension ignored.");
 
 	return true;
 }

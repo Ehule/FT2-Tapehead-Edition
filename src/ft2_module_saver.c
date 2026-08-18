@@ -21,6 +21,7 @@
 #include "ft2_tables.h"
 #include "ft2_structs.h"
 #include "ft2_sample_launcher.h"
+#include "ft2_fasttracks.h"
 #include "ft2_diskop.h"
 #include "ft2_undo.h"
 
@@ -208,12 +209,15 @@ bool saveXM(UNICHAR *filenameU)
 	i = MAX_PATTERNS;
 	do
 	{
-		if (patternEmpty(i-1))
+		if (patternEmpty(i-1) && (standardXMSave ||
+			fastTracksPOCPatternMetadataIsDefault((uint16_t)(i-1))))
 			i--;
 		else
 			break;
 	}
 	while (i > 0);
+	for (uint16_t order = 0; order < song.songLength; order++)
+		i = MAX(i, (int32_t)song.orders[order] + 1);
 	h.numPatterns = i;
 
 	// count number of instruments
@@ -412,6 +416,12 @@ bool saveXM(UNICHAR *filenameU)
 	{
 		fclose(f);
 		okBoxThreadSafe(0, "System message", "Error saving Tapehead tuning metadata!", NULL);
+		return false;
+	}
+	if (!standardXMSave && !fastTracksPOCWriteXMExtension(f))
+	{
+		fclose(f);
+		okBoxThreadSafe(0, "System message", "Error saving Tapehead LEN/CONTROL metadata!", NULL);
 		return false;
 	}
 

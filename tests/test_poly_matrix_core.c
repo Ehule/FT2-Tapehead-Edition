@@ -18,6 +18,22 @@ static uint8_t fastTrackNumerator[MAX_CHANNELS];
 static uint8_t fastTrackDenominator[MAX_CHANNELS];
 static bool qOwnedDestination[MAX_CHANNELS];
 static bool patternExposed[MAX_PATTERNS];
+static uint16_t trackLength[MAX_PATTERNS][MAX_CHANNELS];
+static int8_t controlTrack[MAX_PATTERNS];
+
+uint16_t fastTracksPOCGetEffectiveTrackLength(uint16_t patternNumber,
+	int32_t channelIndex)
+{
+	const uint16_t storedLength = trackLength[patternNumber][channelIndex];
+	if (storedLength == 0 || storedLength > patternNumRows[patternNumber])
+		return patternNumRows[patternNumber];
+	return storedLength;
+}
+
+int8_t fastTracksPOCGetControlTrack(uint16_t patternNumber)
+{
+	return controlTrack[patternNumber];
+}
 
 bool patternLauncherTileIsLaunchable(uint8_t patternNum)
 {
@@ -87,6 +103,8 @@ static void resetFixture(void)
 	memset(fastTrackReversed, 0, sizeof (fastTrackReversed));
 	memset(qOwnedDestination, 0, sizeof (qOwnedDestination));
 	memset(patternExposed, 1, sizeof (patternExposed));
+	memset(trackLength, 0, sizeof (trackLength));
+	memset(controlTrack, -1, sizeof (controlTrack));
 
 	for (int32_t i = 0; i < MAX_CHANNELS; i++)
 	{
@@ -96,6 +114,58 @@ static void resetFixture(void)
 
 	song.numChannels = 4;
 	polyMatrixReset();
+}
+
+static void testControlTrackOwnsGracefulBoundary(void)
+{
+	static note_t source[MAX_PATT_LEN * MAX_CHANNELS];
+	const note_t *events[FAST_TRACKS_MAX_CROSSINGS_PER_TICK];
+
+	resetFixture();
+	memset(source, 0, sizeof (source));
+	pattern[26] = source;
+	patternNumRows[26] = 4;
+	trackLength[26][0] = 2;
+	controlTrack[26] = 0;
+	source[0].note = 48;
+	source[1].note = 52;
+
+	assert(polyMatrixTogglePattern(26, false));
+	assert(polyMatrixAdvanceAudio(0, 1, events,
+		FAST_TRACKS_MAX_CROSSINGS_PER_TICK) == 2);
+	assert(polyMatrixAdvanceAudio(1, 1, events,
+		FAST_TRACKS_MAX_CROSSINGS_PER_TICK) == 2);
+	assert(polyMatrixTogglePattern(26, false));
+
+	assert(polyMatrixAdvanceAudio(0, 1, events,
+		FAST_TRACKS_MAX_CROSSINGS_PER_TICK) == 0);
+	assert(!polyMatrixIsPatternActive(26));
+	assert(polyMatrixConsumeDestinationRelease(0));
+	assert(polyMatrixConsumeDestinationRelease(1));
+}
+
+static void testIndependentTrackLengthWrap(void)
+{
+	static note_t source[MAX_PATT_LEN * MAX_CHANNELS];
+	const note_t *events[FAST_TRACKS_MAX_CROSSINGS_PER_TICK];
+
+	resetFixture();
+	memset(source, 0, sizeof (source));
+	pattern[25] = source;
+	patternNumRows[25] = 4;
+	trackLength[25][0] = 2;
+	source[(0 * MAX_CHANNELS) + 0].note = 48;
+	source[(1 * MAX_CHANNELS) + 0].note = 49;
+	source[(2 * MAX_CHANNELS) + 0].note = 50;
+
+	assert(polyMatrixTogglePattern(25, false));
+	assert(polyMatrixAdvanceAudio(0, 1, events,
+		FAST_TRACKS_MAX_CROSSINGS_PER_TICK) == 2);
+	assert(events[0]->note == 48);
+	assert(events[1]->note == 49);
+	assert(polyMatrixAdvanceAudio(0, 1, events,
+		FAST_TRACKS_MAX_CROSSINGS_PER_TICK) == 1);
+	assert(events[0]->note == 48);
 }
 
 static void testInitialRowAndOneToOneClock(void)
@@ -429,6 +499,8 @@ static void testUnavailablePatternsCannotStartPoly(void)
 int main(void)
 {
 	testInitialRowAndOneToOneClock();
+	testIndependentTrackLengthWrap();
+	testControlTrackOwnsGracefulBoundary();
 	testOccupiedTunnelWrapsForward();
 	testQOwnedTunnelWrapsForward();
 	testPolySlotLabelsRemainStable();
@@ -441,6 +513,6 @@ int main(void)
 	testMoreThanEightThreadsIsRejected();
 	testPolyEventsCannotSteerMainTransport();
 	testUnavailablePatternsCannotStartPoly();
-	puts("13 native Poly Matrix core tests passed.");
+	puts("15 native Poly Matrix core tests passed.");
 	return 0;
 }

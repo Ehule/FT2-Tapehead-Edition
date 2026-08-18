@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "ft2_config.h"
+#include "ft2_fasttracks.h"
 #include "ft2_replayer.h"
 #include "ft2_sample_launcher.h"
 #include "ft2_structs.h"
@@ -19,6 +20,21 @@ note_t *pattern[MAX_PATTERNS];
 int16_t patternNumRows[MAX_PATTERNS];
 
 static sampleLauncherUndoState_t launcherState;
+static fastTracksPatternMetadata_t fastTracksMetadata[MAX_PATTERNS];
+
+void fastTracksPOCGetPatternMetadata(uint16_t patternNumber,
+    fastTracksPatternMetadata_t *metadata)
+{
+    assert(patternNumber < MAX_PATTERNS);
+    *metadata = fastTracksMetadata[patternNumber];
+}
+
+void fastTracksPOCSetPatternMetadata(uint16_t patternNumber,
+    const fastTracksPatternMetadata_t *metadata)
+{
+    assert(patternNumber < MAX_PATTERNS);
+    fastTracksMetadata[patternNumber] = *metadata;
+}
 
 bool allocatePattern(uint16_t patternNum)
 {
@@ -134,6 +150,9 @@ static void resetFixture(void)
     memset(&editor, 0, sizeof (editor));
     memset(&ui, 0, sizeof (ui));
     memset(&launcherState, 0, sizeof (launcherState));
+    memset(fastTracksMetadata, 0, sizeof (fastTracksMetadata));
+    for (int32_t i = 0; i < MAX_PATTERNS; i++)
+        fastTracksMetadata[i].controlTrack = -1;
     song.songLength = 1;
     song.orders[0] = 0;
     song.numChannels = 8;
@@ -141,6 +160,24 @@ static void resetFixture(void)
     assert(allocatePattern(0));
     undoResetForLoadedProject();
     song.isModified = false;
+}
+
+static void test_pattern_metadata_undo_redo(void)
+{
+    resetFixture();
+    assert(undoPatternBegin(0, "Set polymeter"));
+    fastTracksMetadata[0].trackLength[2] = 13;
+    fastTracksMetadata[0].controlTrack = 2;
+    setSongModifiedFlag();
+    undoPatternCommit();
+
+    undoPerform();
+    assert(fastTracksMetadata[0].trackLength[2] == 0);
+    assert(fastTracksMetadata[0].controlTrack == -1);
+
+    redoPerform();
+    assert(fastTracksMetadata[0].trackLength[2] == 13);
+    assert(fastTracksMetadata[0].controlTrack == 2);
 }
 
 static void test_pattern_undo_redo_and_no_skip(void)
@@ -302,6 +339,7 @@ int main(void)
     tapeheadConfig.undoMemoryMB = 32;
     undoInit();
     test_pattern_undo_redo_and_no_skip();
+    test_pattern_metadata_undo_redo();
     test_composite_transaction();
     test_saved_state_checkpoint();
     test_oversized_transaction_becomes_barrier();

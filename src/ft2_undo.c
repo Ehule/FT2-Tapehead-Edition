@@ -12,6 +12,7 @@
 #include "ft2_structs.h"
 #include "ft2_gui.h"
 #include "ft2_sample_launcher.h"
+#include "ft2_fasttracks.h"
 #include "ft2_undo.h"
 
 #define UNDO_MAX_STEPS 128
@@ -41,6 +42,7 @@ typedef struct patternSnapshot_t
 	bool exists;
 	uint16_t patternNum;
 	int16_t numRows;
+	fastTracksPatternMetadata_t fastTracksMetadata;
 	note_t *data;
 } patternSnapshot_t;
 
@@ -205,6 +207,7 @@ static bool capturePattern(uint16_t patternNum, patternSnapshot_t *dst)
 
 	dst->patternNum = patternNum;
 	dst->numRows = patternNumRows[patternNum];
+	fastTracksPOCGetPatternMetadata(patternNum, &dst->fastTracksMetadata);
 	if (pattern[patternNum] == NULL)
 		return true;
 
@@ -246,7 +249,9 @@ static uint32_t instrumentSnapshotBytes(const instrumentSnapshot_t *ins)
 
 static bool patternsEqual(const patternSnapshot_t *a, const patternSnapshot_t *b)
 {
-	if (a->exists != b->exists || a->numRows != b->numRows)
+	if (a->exists != b->exists || a->numRows != b->numRows ||
+		memcmp(&a->fastTracksMetadata, &b->fastTracksMetadata,
+			sizeof (a->fastTracksMetadata)) != 0)
 		return false;
 	if (!a->exists)
 		return true;
@@ -660,6 +665,7 @@ static bool restoreInstrument(uint8_t instrNum, const instrumentSnapshot_t *src)
 static bool restorePattern(const patternSnapshot_t *src)
 {
 	setPatternLen(src->patternNum, src->numRows);
+	fastTracksPOCSetPatternMetadata(src->patternNum, &src->fastTracksMetadata);
 	if (!src->exists)
 	{
 		if (pattern[src->patternNum] != NULL)

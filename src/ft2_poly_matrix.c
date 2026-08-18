@@ -211,6 +211,23 @@ static bool everyThreadIsWaiting(
 	return true;
 }
 
+static bool spoolContainsSource(const volatile polyMatrixSpool_t *spool,
+	int32_t sourceChannel)
+{
+	for (uint8_t i = 0; i < spool->threadCount; i++)
+	{
+		if (spool->threads[i].sourceChannel == sourceChannel)
+			return true;
+	}
+	return false;
+}
+
+static void holdAllThreadsAtBoundary(volatile polyMatrixSpool_t *spool)
+{
+	for (uint8_t i = 0; i < spool->threadCount; i++)
+		spool->threads[i].waitingAtBoundary = true;
+}
+
 bool polyMatrixTogglePattern(uint8_t patternNum, bool immediate)
 {
 	/* An active voice may always be pulled, but unavailable material can never
@@ -545,7 +562,8 @@ int32_t polyMatrixAdvanceAudio(int32_t destinationChannel, uint16_t tpl,
 	if (thread == NULL || spool == NULL || notes == NULL || maxNotes <= 0)
 		return 0;
 
-	const int32_t numRows = patternNumRows[spool->patternNum];
+	const int32_t numRows = fastTracksPOCGetEffectiveTrackLength(
+		spool->patternNum, thread->sourceChannel);
 	if (numRows <= 0 || pattern[spool->patternNum] == NULL)
 	{
 		removeSpoolUnlocked(spool);
@@ -594,11 +612,28 @@ int32_t polyMatrixAdvanceAudio(int32_t destinationChannel, uint16_t tpl,
 			(reversed && thread->row >= previousRow);
 		if (wrapped && (spool->stopAtWrap || spool->qHandoffRequested))
 		{
+			const int32_t controlTrack =
+				fastTracksPOCGetControlTrack(spool->patternNum);
+			const bool controlBoundaryOwned = controlTrack >= 0 &&
+				spoolContainsSource(spool, controlTrack);
+			if (controlBoundaryOwned && thread->sourceChannel != controlTrack)
+			{
+				/* This pattern has an audible CONTROL thread, so other local LEN
+				** wraps do not quantize an atomic pull or Poly -> Q handoff. */
+				notes[count++] = &pattern[spool->patternNum]
+					[(thread->row * MAX_CHANNELS) + thread->sourceChannel];
+				continue;
+			}
+
 			thread->waitingAtBoundary = true;
-			if (everyThreadIsWaiting(spool))
+			if (controlBoundaryOwned || everyThreadIsWaiting(spool))
 			{
 				if (spool->qHandoffRequested)
+				{
+					if (controlBoundaryOwned)
+						holdAllThreadsAtBoundary(spool);
 					spool->qHandoffReady = true;
+				}
 				else
 					removeSpoolUnlocked(spool);
 			}

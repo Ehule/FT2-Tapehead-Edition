@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdio.h>
 
 #define FAST_TRACKS_CHANNEL_COUNT 32
 #define FAST_TRACKS_MAX_CROSSINGS_PER_TICK 8
@@ -23,7 +24,14 @@ typedef struct fastTracksCrossing_t
 {
 	int16_t sourceOrder;
 	int32_t sourceRow;
+	bool cycleCompleted;
 } fastTracksCrossing_t;
+
+typedef struct fastTracksPatternMetadata_t
+{
+	uint16_t trackLength[FAST_TRACKS_CHANNEL_COUNT];
+	int8_t controlTrack;
+} fastTracksPatternMetadata_t;
 
 /*
 ** One coherent UI view of a track. The replayer owns the mutable transport;
@@ -54,13 +62,14 @@ typedef struct fastTracksRuntimeTrack_t
 	bool clutchHeld, reversed, transportStarted;
 	int16_t sourceOrder;
 	int32_t sourceRow, tickAccumulator;
-	uint16_t lastTPL;
+	uint16_t lastTPL, cycleStepCounter;
 	uint8_t ratioIndex;
 } fastTracksRuntimeTrack_t;
 
 typedef struct fastTracksRuntimeState_t
 {
 	bool masterEnabled, transmissionClutchLatched;
+	uint32_t masterCycleRow;
 	fastTracksRuntimeTrack_t tracks[FAST_TRACKS_CHANNEL_COUNT];
 } fastTracksRuntimeState_t;
 
@@ -106,8 +115,44 @@ void fastTracksPOCResetForLoadedModule(void);
 void fastTracksPOCSetMasterEnabled(bool enabled);
 void fastTracksPOCMasterToggle(void);
 
+/* Per-pattern polymeter metadata. A stored length of zero inherits the
+** ordinary FT2 pattern length. CONTROL is stored as one optional channel. */
+uint16_t fastTracksPOCGetTrackLength(uint16_t patternNumber, int32_t channelIndex);
+uint16_t fastTracksPOCGetEffectiveTrackLength(uint16_t patternNumber, int32_t channelIndex);
+int8_t fastTracksPOCGetControlTrack(uint16_t patternNumber);
+bool fastTracksPOCPatternMetadataIsDefault(uint16_t patternNumber);
+void fastTracksPOCGetPatternMetadata(uint16_t patternNumber,
+	fastTracksPatternMetadata_t *metadata);
+void fastTracksPOCSetPatternMetadata(uint16_t patternNumber,
+	const fastTracksPatternMetadata_t *metadata);
+void fastTracksPOCSetTrackLength(uint16_t patternNumber, int32_t channelIndex,
+	uint16_t length);
+void fastTracksPOCSetControlTrack(uint16_t patternNumber, int32_t channelIndex);
+void fastTracksPOCResetPatternMetadata(uint16_t patternNumber);
+void fastTracksPOCResetAllPatternMetadata(void);
+void fastTracksPOCCopyPatternMetadata(uint16_t sourcePattern,
+	uint16_t destinationPattern);
+
+/* The master-cycle row is independent of song.row so a slow CONTROL track can
+** keep a pattern alive across ordinary FT2 row-domain wraps. */
+void fastTracksPOCResetMasterCycle(void);
+void fastTracksPOCSetMasterCycleRow(uint32_t row);
+void fastTracksPOCAdvanceMasterCycleRow(void);
+uint32_t fastTracksPOCGetMasterCycleRow(void);
+void fastTracksPOCResetCycleCounters(void);
+int32_t fastTracksPOCResolveMasterSourceRow(uint16_t patternNumber,
+	int32_t channelIndex, int32_t masterRow);
+
+/* Backward-compatible Tapehead XM extension lifecycle. */
+bool fastTracksPOCWriteXMExtension(FILE *f);
+void fastTracksPOCBeginModuleLoad(void);
+bool fastTracksPOCReadXMExtension(FILE *f, uint32_t fileSize);
+void fastTracksPOCCommitXMExtension(void);
+
 /* Audio-thread transport interface. These never acquire the SDL audio lock. */
-int32_t fastTracksPOCAdvanceAudio(int32_t channelIndex, uint16_t tpl,
+int32_t fastTracksPOCAdvanceAudio(int32_t channelIndex, int32_t sourceChannel,
+	uint16_t tpl,
 	fastTracksCrossing_t *crossings, int32_t maxCrossings);
 bool fastTracksPOCResolveCrossing(int32_t channelIndex,
-	const fastTracksCrossing_t *crossing, int32_t *patternNumber, int32_t *row);
+	int32_t sourceChannel, const fastTracksCrossing_t *crossing,
+	int32_t *patternNumber, int32_t *row);

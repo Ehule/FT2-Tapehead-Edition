@@ -25,6 +25,20 @@
 */
 #define FAST_TRACKS_MAX_CHANNELS MAX_CHANNELS
 
+#define FAST_TRACKS_XM_META_MAGIC "THPLEN01"
+#define FAST_TRACKS_XM_META_PATTERN_SIZE (1 + (FAST_TRACKS_MAX_CHANNELS * 2))
+#define FAST_TRACKS_XM_META_SIZE (MAX_PATTERNS * FAST_TRACKS_XM_META_PATTERN_SIZE)
+
+/* Zero is deliberately the complete default representation: every track
+** inherits the FT2 pattern length and no CONTROL channel is selected. The
+** plus-one CONTROL encoding avoids a runtime initializer in the audio path. */
+static uint16_t fastTracksPatternLength[MAX_PATTERNS][FAST_TRACKS_MAX_CHANNELS];
+static uint8_t fastTracksControlTrackPlusOne[MAX_PATTERNS];
+static uint16_t pendingFastTracksPatternLength[MAX_PATTERNS][FAST_TRACKS_MAX_CHANNELS];
+static uint8_t pendingFastTracksControlTrackPlusOne[MAX_PATTERNS];
+static bool pendingFastTracksMetadataValid;
+static volatile uint32_t fastTracksMasterCycleRow;
+
 /*
 ** A track can remain selected while the master switch is suspended.
 ** This distinction lets the large logo stop/resume the whole Fast Tracks
@@ -84,7 +98,7 @@ typedef struct fastTracksChannelState_t
 	int16_t sourceOrder;
 	int32_t sourceRow;
 	int32_t tickAccumulator;
-	uint16_t lastTPL;
+	uint16_t lastTPL, cycleStepCounter;
 	bool transportStarted;
 	uint8_t ratioIndex;
 } fastTracksChannelState_t;
@@ -92,7 +106,7 @@ typedef struct fastTracksChannelState_t
 #define FAST_TRACKS_MAX_CROSSINGS_PER_TICK 8
 
 #define FAST_TRACKS_DEFAULT_CHANNEL_STATE \
-	{ FAST_TRACKS_MODE_STANDARD, false, false, 0, 0, 0, 0, false, FAST_TRACKS_DEFAULT_RATIO_INDEX }
+	{ FAST_TRACKS_MODE_STANDARD, false, false, 0, 0, 0, 0, 0, false, FAST_TRACKS_DEFAULT_RATIO_INDEX }
 
 static volatile fastTracksChannelState_t fastTracksPOCChannels[FAST_TRACKS_MAX_CHANNELS] =
 {
@@ -125,6 +139,7 @@ void fastTracksPOCGetRuntimeState(fastTracksRuntimeState_t *state)
 
 	state->masterEnabled = fastTracksPOCMasterEnabled;
 	state->transmissionClutchLatched = fastTracksPOCTransmissionClutchLatched;
+	state->masterCycleRow = fastTracksMasterCycleRow;
 	for (int32_t i = 0; i < FAST_TRACKS_MAX_CHANNELS; i++)
 	{
 		const volatile fastTracksChannelState_t *src = &fastTracksPOCChannels[i];
@@ -136,6 +151,7 @@ void fastTracksPOCGetRuntimeState(fastTracksRuntimeState_t *state)
 		dst->sourceRow = src->sourceRow;
 		dst->tickAccumulator = src->tickAccumulator;
 		dst->lastTPL = src->lastTPL;
+		dst->cycleStepCounter = src->cycleStepCounter;
 		dst->transportStarted = src->transportStarted;
 		dst->ratioIndex = src->ratioIndex;
 	}
@@ -148,6 +164,7 @@ void fastTracksPOCSetRuntimeState(const fastTracksRuntimeState_t *state)
 
 	fastTracksPOCMasterEnabled = state->masterEnabled;
 	fastTracksPOCTransmissionClutchLatched = state->transmissionClutchLatched;
+	fastTracksMasterCycleRow = state->masterCycleRow;
 	for (int32_t i = 0; i < FAST_TRACKS_MAX_CHANNELS; i++)
 	{
 		const fastTracksRuntimeTrack_t *src = &state->tracks[i];
@@ -159,6 +176,7 @@ void fastTracksPOCSetRuntimeState(const fastTracksRuntimeState_t *state)
 		dst->sourceRow = src->sourceRow;
 		dst->tickAccumulator = src->tickAccumulator;
 		dst->lastTPL = src->lastTPL;
+		dst->cycleStepCounter = src->cycleStepCounter;
 		dst->transportStarted = src->transportStarted;
 		dst->ratioIndex = src->ratioIndex;
 	}
@@ -183,24 +201,219 @@ static void resetFastTracksPOCTransport(volatile fastTracksChannelState_t *state
 	state->sourceRow = sourceRow;
 	state->tickAccumulator = 0;
 	state->lastTPL = song.speed > 0 ? song.speed : 1;
+	state->cycleStepCounter = 0;
 	state->transportStarted = false;
 }
 
-static int32_t wrapFastTracksPOCRow(int32_t row)
+uint16_t fastTracksPOCGetTrackLength(uint16_t patternNumber, int32_t channelIndex)
 {
-	if (song.currNumRows <= 0)
+	if (patternNumber >= MAX_PATTERNS || !fastTracksPOCChannelIsValid(channelIndex))
 		return 0;
 
-	row %= song.currNumRows;
+	return fastTracksPatternLength[patternNumber][channelIndex];
+}
+
+uint16_t fastTracksPOCGetEffectiveTrackLength(uint16_t patternNumber, int32_t channelIndex)
+{
+	if (patternNumber >= MAX_PATTERNS || !fastTracksPOCChannelIsValid(channelIndex))
+		return 1;
+
+	int32_t patternLength = patternNumRows[patternNumber];
+	if (patternLength <= 0)
+		patternLength = 1;
+	else if (patternLength > MAX_PATT_LEN)
+		patternLength = MAX_PATT_LEN;
+
+	const uint16_t storedLength = fastTracksPatternLength[patternNumber][channelIndex];
+	if (storedLength == 0)
+		return (uint16_t)patternLength;
+
+	return (uint16_t)MIN(storedLength, patternLength);
+}
+
+int8_t fastTracksPOCGetControlTrack(uint16_t patternNumber)
+{
+	if (patternNumber >= MAX_PATTERNS || fastTracksControlTrackPlusOne[patternNumber] == 0)
+		return -1;
+
+	return (int8_t)(fastTracksControlTrackPlusOne[patternNumber] - 1);
+}
+
+bool fastTracksPOCPatternMetadataIsDefault(uint16_t patternNumber)
+{
+	if (patternNumber >= MAX_PATTERNS)
+		return true;
+	if (fastTracksControlTrackPlusOne[patternNumber] != 0)
+		return false;
+
+	for (int32_t i = 0; i < FAST_TRACKS_MAX_CHANNELS; i++)
+	{
+		if (fastTracksPatternLength[patternNumber][i] != 0)
+			return false;
+	}
+
+	return true;
+}
+
+void fastTracksPOCGetPatternMetadata(uint16_t patternNumber,
+	fastTracksPatternMetadata_t *metadata)
+{
+	if (metadata == NULL)
+		return;
+	memset(metadata, 0, sizeof (*metadata));
+	metadata->controlTrack = -1;
+	if (patternNumber >= MAX_PATTERNS)
+		return;
+
+	memcpy(metadata->trackLength, fastTracksPatternLength[patternNumber],
+		sizeof (metadata->trackLength));
+	metadata->controlTrack = fastTracksPOCGetControlTrack(patternNumber);
+}
+
+void fastTracksPOCSetPatternMetadata(uint16_t patternNumber,
+	const fastTracksPatternMetadata_t *metadata)
+{
+	if (patternNumber >= MAX_PATTERNS || metadata == NULL)
+		return;
+
+	for (int32_t i = 0; i < FAST_TRACKS_MAX_CHANNELS; i++)
+	{
+		fastTracksPatternLength[patternNumber][i] =
+			MIN(metadata->trackLength[i], MAX_PATT_LEN);
+	}
+	fastTracksControlTrackPlusOne[patternNumber] =
+		metadata->controlTrack >= 0 && metadata->controlTrack < FAST_TRACKS_MAX_CHANNELS
+		? (uint8_t)(metadata->controlTrack + 1) : 0;
+	if (patternNumber == song.pattNum)
+		fastTracksPOCResetCycleCounters();
+}
+
+void fastTracksPOCSetTrackLength(uint16_t patternNumber, int32_t channelIndex,
+	uint16_t length)
+{
+	if (patternNumber >= MAX_PATTERNS || !fastTracksPOCChannelIsValid(channelIndex))
+		return;
+
+	fastTracksPatternLength[patternNumber][channelIndex] = MIN(length, MAX_PATT_LEN);
+	ui.updatePatternEditor = true;
+}
+
+void fastTracksPOCSetControlTrack(uint16_t patternNumber, int32_t channelIndex)
+{
+	if (patternNumber >= MAX_PATTERNS)
+		return;
+
+	fastTracksControlTrackPlusOne[patternNumber] =
+		channelIndex >= 0 && channelIndex < FAST_TRACKS_MAX_CHANNELS
+		? (uint8_t)(channelIndex + 1) : 0;
+	if (patternNumber == song.pattNum)
+		fastTracksPOCResetCycleCounters();
+	ui.updatePatternEditor = true;
+}
+
+void fastTracksPOCResetPatternMetadata(uint16_t patternNumber)
+{
+	if (patternNumber >= MAX_PATTERNS)
+		return;
+
+	memset(fastTracksPatternLength[patternNumber], 0,
+		sizeof (fastTracksPatternLength[patternNumber]));
+	fastTracksControlTrackPlusOne[patternNumber] = 0;
+	if (patternNumber == song.pattNum)
+		fastTracksPOCResetCycleCounters();
+	ui.updatePatternEditor = true;
+}
+
+void fastTracksPOCResetAllPatternMetadata(void)
+{
+	memset(fastTracksPatternLength, 0, sizeof (fastTracksPatternLength));
+	memset(fastTracksControlTrackPlusOne, 0, sizeof (fastTracksControlTrackPlusOne));
+	fastTracksMasterCycleRow = 0;
+	fastTracksPOCResetCycleCounters();
+	ui.updatePatternEditor = true;
+}
+
+void fastTracksPOCCopyPatternMetadata(uint16_t sourcePattern,
+	uint16_t destinationPattern)
+{
+	if (sourcePattern >= MAX_PATTERNS || destinationPattern >= MAX_PATTERNS)
+		return;
+
+	memcpy(fastTracksPatternLength[destinationPattern],
+		fastTracksPatternLength[sourcePattern],
+		sizeof (fastTracksPatternLength[destinationPattern]));
+	fastTracksControlTrackPlusOne[destinationPattern] =
+		fastTracksControlTrackPlusOne[sourcePattern];
+}
+
+void fastTracksPOCResetMasterCycle(void)
+{
+	fastTracksMasterCycleRow = 0;
+}
+
+void fastTracksPOCSetMasterCycleRow(uint32_t row)
+{
+	fastTracksMasterCycleRow = row;
+}
+
+void fastTracksPOCAdvanceMasterCycleRow(void)
+{
+	if (fastTracksMasterCycleRow < UINT32_MAX)
+		fastTracksMasterCycleRow++;
+}
+
+uint32_t fastTracksPOCGetMasterCycleRow(void)
+{
+	return fastTracksMasterCycleRow;
+}
+
+void fastTracksPOCResetCycleCounters(void)
+{
+	for (int32_t i = 0; i < FAST_TRACKS_MAX_CHANNELS; i++)
+		fastTracksPOCChannels[i].cycleStepCounter = 0;
+}
+
+int32_t fastTracksPOCResolveMasterSourceRow(uint16_t patternNumber,
+	int32_t channelIndex, int32_t masterRow)
+{
+	const uint16_t storedLength = fastTracksPOCGetTrackLength(patternNumber, channelIndex);
+	if (storedLength == 0)
+		return masterRow;
+
+	const uint16_t effectiveLength =
+		fastTracksPOCGetEffectiveTrackLength(patternNumber, channelIndex);
+	return effectiveLength > 0
+		? (int32_t)(fastTracksMasterCycleRow % effectiveLength) : 0;
+}
+
+static int32_t wrapFastTracksPOCRow(int32_t row, uint16_t patternNumber,
+	int32_t sourceChannel)
+{
+	const int32_t rowCount =
+		fastTracksPOCGetEffectiveTrackLength(patternNumber, sourceChannel);
+	if (rowCount <= 0)
+		return 0;
+
+	row %= rowCount;
 	if (row < 0)
-		row += song.currNumRows;
+		row += rowCount;
 
 	return row;
 }
 
-static bool advanceFastTracksPOCPatternPosition(volatile fastTracksChannelState_t *state, int32_t rowDirection)
+static bool advanceFastTracksPOCPatternPosition(volatile fastTracksChannelState_t *state,
+	int32_t sourceChannel, int32_t rowDirection)
 {
-	state->sourceRow = wrapFastTracksPOCRow(state->sourceRow + rowDirection);
+	const int32_t rowCount =
+		fastTracksPOCGetEffectiveTrackLength(song.pattNum, sourceChannel);
+	const int32_t previousRow = wrapFastTracksPOCRow(state->sourceRow,
+		song.pattNum, sourceChannel);
+	int32_t nextRow = previousRow + rowDirection;
+	if (nextRow >= rowCount)
+		nextRow = 0;
+	else if (nextRow < 0)
+		nextRow = rowCount - 1;
+	state->sourceRow = nextRow;
 	return true;
 }
 
@@ -219,7 +432,8 @@ static int32_t wrapFastTracksPOCOrder(int32_t order)
 	return order;
 }
 
-static bool resolveFastTracksPOCSongOrder(int32_t order, int32_t *patternNumber, int32_t *patternLength)
+static bool resolveFastTracksPOCSongOrder(int32_t order, int32_t sourceChannel,
+	int32_t *patternNumber, int32_t *patternLength)
 {
 	order = wrapFastTracksPOCOrder(order);
 
@@ -227,9 +441,8 @@ static bool resolveFastTracksPOCSongOrder(int32_t order, int32_t *patternNumber,
 	if (pattNum < 0 || pattNum >= MAX_PATTERNS)
 		return false;
 
-	int32_t rows = patternNumRows[pattNum];
-	if (rows <= 0)
-		rows = 1;
+	const int32_t rows =
+		fastTracksPOCGetEffectiveTrackLength((uint16_t)pattNum, sourceChannel);
 
 	if (patternNumber != NULL)
 		*patternNumber = pattNum;
@@ -239,12 +452,13 @@ static bool resolveFastTracksPOCSongOrder(int32_t order, int32_t *patternNumber,
 	return true;
 }
 
-static bool advanceFastTracksPOCSongPosition(volatile fastTracksChannelState_t *state, int32_t rowDirection)
+static bool advanceFastTracksPOCSongPosition(volatile fastTracksChannelState_t *state,
+	int32_t sourceChannel, int32_t rowDirection)
 {
 	int32_t patternLength;
-	if (!resolveFastTracksPOCSongOrder(state->sourceOrder, NULL, &patternLength))
+	if (!resolveFastTracksPOCSongOrder(state->sourceOrder, sourceChannel, NULL,
+		&patternLength))
 		return false;
-
 	if (rowDirection >= 0)
 	{
 		state->sourceRow++;
@@ -260,7 +474,8 @@ static bool advanceFastTracksPOCSongPosition(volatile fastTracksChannelState_t *
 		if (state->sourceRow < 0)
 		{
 			state->sourceOrder = (int16_t)wrapFastTracksPOCOrder(state->sourceOrder - 1);
-			if (!resolveFastTracksPOCSongOrder(state->sourceOrder, NULL, &patternLength))
+			if (!resolveFastTracksPOCSongOrder(state->sourceOrder, sourceChannel,
+				NULL, &patternLength))
 				return false;
 
 			state->sourceRow = patternLength - 1;
@@ -270,15 +485,18 @@ static bool advanceFastTracksPOCSongPosition(volatile fastTracksChannelState_t *
 	return true;
 }
 
-static bool advanceFastTracksPOCSourcePosition(volatile fastTracksChannelState_t *state, int32_t rowDirection)
+static bool advanceFastTracksPOCSourcePosition(volatile fastTracksChannelState_t *state,
+	int32_t sourceChannel, int32_t rowDirection)
 {
 	switch (state->mode)
 	{
 		case FAST_TRACKS_MODE_PATTERN:
-			return advanceFastTracksPOCPatternPosition(state, rowDirection);
+			return advanceFastTracksPOCPatternPosition(state, sourceChannel,
+				rowDirection);
 
 		case FAST_TRACKS_MODE_SONG:
-			return advanceFastTracksPOCSongPosition(state, rowDirection);
+			return advanceFastTracksPOCSongPosition(state, sourceChannel,
+				rowDirection);
 
 		case FAST_TRACKS_MODE_STANDARD:
 		default:
@@ -286,7 +504,23 @@ static bool advanceFastTracksPOCSourcePosition(volatile fastTracksChannelState_t
 	}
 }
 
-static int32_t getFastTracksPOCMasterPhaseRow(void)
+static int32_t getFastTracksPOCCycleLength(
+	const volatile fastTracksChannelState_t *state, int32_t sourceChannel)
+{
+	if (state->mode == FAST_TRACKS_MODE_SONG)
+	{
+		int32_t patternLength;
+		if (resolveFastTracksPOCSongOrder(state->sourceOrder, sourceChannel,
+			NULL, &patternLength))
+		{
+			return patternLength;
+		}
+	}
+
+	return fastTracksPOCGetEffectiveTrackLength(song.pattNum, sourceChannel);
+}
+
+static int32_t getFastTracksPOCMasterPhaseRow(int32_t sourceChannel)
 {
 	/* FT2 pre-advances song.row at the end of master tick 1, one audio
 	** callback before tick zero actually reads the new row. During that
@@ -295,18 +529,20 @@ static int32_t getFastTracksPOCMasterPhaseRow(void)
 	** Track the next row plus the previous row's fractional phase, causing
 	** it to advance one row too far on the following tick zero. */
 	if (song.tick == 1)
-		return wrapFastTracksPOCRow(song.row - 1);
+		return wrapFastTracksPOCRow(song.row - 1, song.pattNum, sourceChannel);
 
-	return song.row;
+	return wrapFastTracksPOCRow(song.row, song.pattNum, sourceChannel);
 }
 
 static void syncFastTracksPOCTransportToMaster(volatile fastTracksChannelState_t *state,
-	const fastTracksRatio_t *ratio, uint16_t masterTPL, int32_t masterElapsedTicks)
+	int32_t sourceChannel, const fastTracksRatio_t *ratio, uint16_t masterTPL,
+	int32_t masterElapsedTicks)
 {
 	state->sourceOrder = song.songPos;
-	state->sourceRow = getFastTracksPOCMasterPhaseRow();
+	state->sourceRow = getFastTracksPOCMasterPhaseRow(sourceChannel);
 	state->tickAccumulator = ratio->denominator * masterElapsedTicks;
 	state->lastTPL = masterTPL;
+	state->cycleStepCounter = 0;
 	state->transportStarted = true;
 }
 
@@ -328,7 +564,8 @@ static int32_t getFastTracksPOCThreshold(int32_t channelIndex, uint16_t tpl)
 	return ratio->denominator * tpl;
 }
 
-int32_t fastTracksPOCAdvanceAudio(int32_t channelIndex, uint16_t tpl,
+int32_t fastTracksPOCAdvanceAudio(int32_t channelIndex, int32_t sourceChannel,
+	uint16_t tpl,
 	fastTracksCrossing_t *crossings, int32_t maxCrossings)
 {
 	volatile fastTracksChannelState_t *state = getFastTracksPOCChannelState(channelIndex);
@@ -355,12 +592,20 @@ int32_t fastTracksPOCAdvanceAudio(int32_t channelIndex, uint16_t tpl,
 		** one Boolean/final-row event. The present ratio bank needs at most five
 		** entries at TPL=1; the larger fixed bound leaves safe expansion room. */
 		const int32_t rowDirection = state->reversed ? -1 : 1;
-		if (advanceFastTracksPOCSourcePosition(state, rowDirection))
+		const int32_t cycleLength =
+			getFastTracksPOCCycleLength(state, sourceChannel);
+		if (advanceFastTracksPOCSourcePosition(state, sourceChannel, rowDirection))
 		{
+			state->cycleStepCounter++;
+			const bool cycleCompleted = cycleLength > 0 &&
+				state->cycleStepCounter >= cycleLength;
+			if (cycleCompleted)
+				state->cycleStepCounter = 0;
 			if (crossings != NULL && crossingCount < maxCrossings)
 			{
 				crossings[crossingCount].sourceOrder = state->sourceOrder;
 				crossings[crossingCount].sourceRow = state->sourceRow;
+				crossings[crossingCount].cycleCompleted = cycleCompleted;
 			}
 
 			crossingCount++;
@@ -451,7 +696,8 @@ int32_t fastTracksPOCGetSourcePattern(int32_t channelIndex)
 		return song.pattNum;
 
 	int32_t pattNum;
-	if (!resolveFastTracksPOCSongOrder(state->sourceOrder, &pattNum, NULL))
+	if (!resolveFastTracksPOCSongOrder(state->sourceOrder, channelIndex,
+			&pattNum, NULL))
 		return song.pattNum;
 
 	return pattNum;
@@ -475,7 +721,7 @@ bool fastTracksPOCIsMasterAligned(int32_t channelIndex)
 	const fastTracksRatio_t *ratio = getFastTracksPOCRatio(channelIndex);
 	const int32_t expectedAccumulator = ratio->denominator * masterElapsedTicks;
 
-	return state->sourceRow == getFastTracksPOCMasterPhaseRow() &&
+	return state->sourceRow == getFastTracksPOCMasterPhaseRow(channelIndex) &&
 		state->tickAccumulator == expectedAccumulator;
 }
 
@@ -534,7 +780,7 @@ void fastTracksPOCGetSnapshot(fastTracksSnapshot_t *snapshot)
 		if (!track->clutched && state->mode == FAST_TRACKS_MODE_SONG)
 		{
 			int32_t sourcePattern;
-			if (resolveFastTracksPOCSongOrder(state->sourceOrder,
+			if (resolveFastTracksPOCSongOrder(state->sourceOrder, i,
 				&sourcePattern, NULL))
 			{
 				track->sourcePattern = (int16_t)sourcePattern;
@@ -652,7 +898,8 @@ void fastTracksPOCSetClutch(int32_t channelIndex, bool engaged)
 			masterElapsedTicks = masterTPL - 1;
 
 		const fastTracksRatio_t *ratio = getFastTracksPOCRatio(channelIndex);
-		syncFastTracksPOCTransportToMaster(state, ratio, masterTPL, masterElapsedTicks);
+		syncFastTracksPOCTransportToMaster(state, channelIndex, ratio, masterTPL,
+			masterElapsedTicks);
 	}
 
 	/* Pattern commands may prepare clutch state while the master Fast Tracks
@@ -700,7 +947,8 @@ void fastTracksPOCRandomizeSelectedRatios(bool syncToMaster)
 		if (syncToMaster)
 		{
 			const fastTracksRatio_t *ratio = getFastTracksPOCRatio(i);
-			syncFastTracksPOCTransportToMaster(state, ratio, masterTPL, masterElapsedTicks);
+			syncFastTracksPOCTransportToMaster(state, i, ratio, masterTPL,
+				masterElapsedTicks);
 		}
 		else
 		{
@@ -750,15 +998,18 @@ void fastTracksPOCSetMode(int32_t channelIndex, fastTracksMode_t mode)
 		state->sourceOrder = song.songPos;
 
 		int32_t patternLength;
-		if (resolveFastTracksPOCSongOrder(state->sourceOrder, NULL, &patternLength))
+		if (resolveFastTracksPOCSongOrder(state->sourceOrder, channelIndex,
+			NULL, &patternLength))
 			state->sourceRow = CLAMP(state->sourceRow, 0, patternLength - 1);
 	}
 	else if (mode == FAST_TRACKS_MODE_PATTERN)
 	{
-		state->sourceRow = wrapFastTracksPOCRow(state->sourceRow);
+		state->sourceRow = wrapFastTracksPOCRow(state->sourceRow,
+			song.pattNum, channelIndex);
 	}
 
 	state->mode = mode;
+	state->cycleStepCounter = 0;
 
 	if (audioWasntLocked)
 		unlockAudio();
@@ -850,7 +1101,8 @@ void fastTracksPOCSyncTrackToMaster(int32_t channelIndex)
 	** state remain unchanged, so a non-1:1 track immediately begins drifting
 	** again after the command. It also works on latent disabled transports. */
 	const fastTracksRatio_t *ratio = getFastTracksPOCRatio(channelIndex);
-	syncFastTracksPOCTransportToMaster(state, ratio, masterTPL, masterElapsedTicks);
+	syncFastTracksPOCTransportToMaster(state, channelIndex, ratio, masterTPL,
+		masterElapsedTicks);
 
 	if (audioWasntLocked)
 		unlockAudio();
@@ -874,6 +1126,7 @@ void fastTracksPOCToggleDirection(int32_t channelIndex)
 		lockAudio();
 
 	state->reversed = !state->reversed;
+	state->cycleStepCounter = 0;
 
 	if (audioWasntLocked)
 		unlockAudio();
@@ -932,7 +1185,8 @@ void fastTracksPOCSyncSelectedToMaster(void)
 			continue;
 
 		const fastTracksRatio_t *ratio = getFastTracksPOCRatio(i);
-		syncFastTracksPOCTransportToMaster(state, ratio, masterTPL, masterElapsedTicks);
+		syncFastTracksPOCTransportToMaster(state, i, ratio, masterTPL,
+			masterElapsedTicks);
 	}
 
 	if (audioWasntLocked)
@@ -996,7 +1250,7 @@ void fastTracksPOCResetAllRatios(void)
 			continue;
 
 		state->ratioIndex = FAST_TRACKS_ONE_TO_ONE_RATIO_INDEX;
-		syncFastTracksPOCTransportToMaster(state,
+		syncFastTracksPOCTransportToMaster(state, i,
 			&fastTracksPOCRatioBank[FAST_TRACKS_ONE_TO_ONE_RATIO_INDEX], masterTPL, masterElapsedTicks);
 	}
 
@@ -1031,7 +1285,8 @@ void fastTracksPOCMasterToggle(void)
 }
 
 bool fastTracksPOCResolveCrossing(int32_t channelIndex,
-	const fastTracksCrossing_t *crossing, int32_t *patternNumber, int32_t *row)
+	int32_t sourceChannel, const fastTracksCrossing_t *crossing,
+	int32_t *patternNumber, int32_t *row)
 {
 	const volatile fastTracksChannelState_t *state = getFastTracksPOCChannelState(channelIndex);
 	if (state == NULL || crossing == NULL || patternNumber == NULL || row == NULL)
@@ -1041,13 +1296,15 @@ bool fastTracksPOCResolveCrossing(int32_t channelIndex,
 	int32_t patternLength;
 	if (state->mode == FAST_TRACKS_MODE_SONG)
 	{
-		if (!resolveFastTracksPOCSongOrder(crossing->sourceOrder, &pattNum, &patternLength))
+		if (!resolveFastTracksPOCSongOrder(crossing->sourceOrder, sourceChannel,
+			&pattNum, &patternLength))
 			return false;
 	}
 	else
 	{
 		pattNum = song.pattNum;
-		patternLength = song.currNumRows;
+		patternLength = fastTracksPOCGetEffectiveTrackLength(song.pattNum,
+			sourceChannel);
 	}
 
 	if (pattNum < 0 || pattNum >= MAX_PATTERNS || patternLength <= 0)
@@ -1060,4 +1317,106 @@ bool fastTracksPOCResolveCrossing(int32_t channelIndex,
 	*patternNumber = pattNum;
 	*row = sourceRow;
 	return true;
+}
+
+bool fastTracksPOCWriteXMExtension(FILE *f)
+{
+	if (f == NULL)
+		return false;
+
+	const uint32_t payloadSize = FAST_TRACKS_XM_META_SIZE;
+	if (fwrite(FAST_TRACKS_XM_META_MAGIC, 1, 8, f) != 8 ||
+		fwrite(&payloadSize, sizeof (payloadSize), 1, f) != 1)
+	{
+		return false;
+	}
+
+	for (uint16_t patternNumber = 0; patternNumber < MAX_PATTERNS; patternNumber++)
+	{
+		if (fwrite(&fastTracksControlTrackPlusOne[patternNumber], 1, 1, f) != 1 ||
+			fwrite(fastTracksPatternLength[patternNumber], sizeof (uint16_t),
+				FAST_TRACKS_MAX_CHANNELS, f) != FAST_TRACKS_MAX_CHANNELS)
+		{
+			return false;
+		}
+	}
+
+	return true;
+}
+
+void fastTracksPOCBeginModuleLoad(void)
+{
+	pendingFastTracksMetadataValid = false;
+	memset(pendingFastTracksPatternLength, 0,
+		sizeof (pendingFastTracksPatternLength));
+	memset(pendingFastTracksControlTrackPlusOne, 0,
+		sizeof (pendingFastTracksControlTrackPlusOne));
+}
+
+bool fastTracksPOCReadXMExtension(FILE *f, uint32_t fileSize)
+{
+	if (f == NULL)
+		return false;
+
+	const long position = ftell(f);
+	if (position < 0 ||
+		(uint64_t)position + 12 + FAST_TRACKS_XM_META_SIZE > fileSize)
+	{
+		return true; /* no extension is valid */
+	}
+
+	char magic[8];
+	uint32_t payloadSize;
+	if (fread(magic, 1, sizeof (magic), f) != sizeof (magic) ||
+		fread(&payloadSize, sizeof (payloadSize), 1, f) != 1)
+	{
+		return false;
+	}
+	if (memcmp(magic, FAST_TRACKS_XM_META_MAGIC, sizeof (magic)) != 0)
+	{
+		fseek(f, position, SEEK_SET);
+		return true;
+	}
+	if (payloadSize != FAST_TRACKS_XM_META_SIZE)
+		return false;
+
+	for (uint16_t patternNumber = 0; patternNumber < MAX_PATTERNS; patternNumber++)
+	{
+		uint8_t controlPlusOne;
+		uint16_t lengths[FAST_TRACKS_MAX_CHANNELS];
+		if (fread(&controlPlusOne, 1, 1, f) != 1 ||
+			fread(lengths, sizeof (uint16_t), FAST_TRACKS_MAX_CHANNELS, f) !=
+				FAST_TRACKS_MAX_CHANNELS)
+		{
+			return false;
+		}
+		if (controlPlusOne > FAST_TRACKS_MAX_CHANNELS)
+			return false;
+		for (int32_t channelIndex = 0; channelIndex < FAST_TRACKS_MAX_CHANNELS;
+			channelIndex++)
+		{
+			if (lengths[channelIndex] > MAX_PATT_LEN)
+				return false;
+		}
+		pendingFastTracksControlTrackPlusOne[patternNumber] = controlPlusOne;
+		memcpy(pendingFastTracksPatternLength[patternNumber], lengths,
+			sizeof (lengths));
+	}
+
+	pendingFastTracksMetadataValid = true;
+	return true;
+}
+
+void fastTracksPOCCommitXMExtension(void)
+{
+	fastTracksPOCResetAllPatternMetadata();
+	if (pendingFastTracksMetadataValid)
+	{
+		memcpy(fastTracksPatternLength, pendingFastTracksPatternLength,
+			sizeof (fastTracksPatternLength));
+		memcpy(fastTracksControlTrackPlusOne,
+			pendingFastTracksControlTrackPlusOne,
+			sizeof (fastTracksControlTrackPlusOne));
+	}
+	pendingFastTracksMetadataValid = false;
 }
