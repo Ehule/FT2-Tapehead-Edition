@@ -1,4 +1,4 @@
-; Tapehead Edition six-color palette
+; Tapehead Edition palette
 ; Copy this file between installations or edit the hex values manually.
 ; Press I in Config > Layout to import it into User defined.
 
@@ -9,5 +9,17 @@ TextOnBlock=#009EE3
 Mouse=#FFD265
 Desktop=#1C1C1C
 Buttons=#5D555D
+PatternNote=#FFFF00
+PatternInstrument=#45FFFF
+PatternVolume=#8A79FF
+PatternTuning=#FFB608
+PatternEffect=#A2EB00
+PatternEmpty=#DB00EB
+TrackLengthPlayhead=#41D7FF
+FastTracksPlayhead=#FFAE20
+ControlPlayhead=#FF3131
+FastTracksSync=#00CE41
+FastTracksPhase=#FF3131
+FastTracksSong=#FFAE20
 DesktopContrast=52
 ButtonsContrast=67

@@ -121,5 +121,8 @@ bool tapeheadActionPatternJogRelative(int32_t delta);
 bool tapeheadActionPatternJogAbsolute(int32_t value);
 bool tapeheadActionPatternJogStopAudition(void);
 void tapeheadActionPatternJogService(void);
+bool tapeheadActionPatternJogGetVisualPosition(uint16_t *patternNum,
+	uint16_t *row);
+bool tapeheadActionPatternJogTrackParticipates(int32_t channelIndex);
 
 void tapeheadActionsResetForLoadedModule(void);

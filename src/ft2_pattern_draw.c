@@ -18,6 +18,8 @@
 #include "ft2_replayer.h"
 #include "ft2_interpolation.h"
 #include "ft2_fasttracks.h"
+#include "ft2_tapehead_actions.h"
+#include "ft2_transport_visuals.h"
 
 #define CURSOR_BREATHE_FRAMES 120
 
@@ -1258,7 +1260,6 @@ void writePattern(int32_t currRow, int32_t currPattern)
 {
 	uint32_t noteTextColors[2];
 
-
 	/* Draw pattern framework every time (erasing existing content).
 	** FT2 doesn't do this. This is quite lazy and consumes more CPU
 	** time than needed (overlapped drawing), but it makes the pattern
@@ -1266,145 +1267,216 @@ void writePattern(int32_t currRow, int32_t currPattern)
 	*/
 	drawPatternBorders();
 
-	// setup variables
-
 	uint32_t chans = ui.numChannelsShown;
 	if (chans > ui.maxVisibleChannels)
 		chans = ui.maxVisibleChannels;
 
 	ASSERT(chans >= 2 && chans <= 12);
 
-	// get channel width
 	const uint32_t chanWidth = chanWidths[(chans / 2) - 1];
 	ui.patternChannelWidth = (uint16_t)(chanWidth + 3);
 
-	// get heights/pos/rows depending on configuration
-	uint32_t rowHeight = config.ptnStretch ? 11 : 8;
+	const uint32_t rowHeight = config.ptnStretch ? 11 : 8;
 	const pattCoord_t *pattCoord = &pattCoordTable[config.ptnStretch][ui.pattChanScrollShown][getPatternEditorView()];
 	const pattCoord2_t *pattCoord2 = &pattCoord2Table[config.ptnStretch][ui.pattChanScrollShown][getPatternEditorView()];
 	const int32_t midRowTextY = pattCoord->midRowTextY;
 	const int32_t lowerRowsTextY = pattCoord->lowerRowsTextY;
-	int32_t row = currRow - pattCoord->numUpperRows;
 	const int32_t rowsOnScreen = pattCoord->numUpperRows + 1 + pattCoord->numLowerRows;
-	int32_t textY = pattCoord->upperRowsTextY;
-	const int32_t afterCurrRow = currRow + 1;
 	const int32_t numChannels = ui.numChannelsShown;
-	note_t *pattPtr = pattern[currPattern];
+	const int32_t numRows = fastTracksPOCGetExtendedPatternLength((uint16_t)currPattern);
 	const int32_t physicalRows = patternNumRows[currPattern];
-	const int32_t numRows = fastTracksPOCGetExtendedPatternLength(
-		(uint16_t)currPattern);
+
+	/* Editing and block transforms retain the original FT2 coordinate model.
+	** The performance-only hybrid renderer drops back to the legacy view as
+	** soon as recording or a block mark is active, so displayed rows can never
+	** cause a write to a different logical row. */
+	const bool hybridVisuals = tapeheadPerTrackTransportVisualsEnabled() &&
+		songPlaying && playMode != PLAYMODE_RECPATT &&
+		playMode != PLAYMODE_RECSONG && pattMark.markY1 == pattMark.markY2;
+	const int32_t visualMasterRow = hybridVisuals ? song.row : currRow;
+	int32_t row = visualMasterRow - pattCoord->numUpperRows;
+	int32_t textY = pattCoord->upperRowsTextY;
+	const int32_t afterMasterRow = visualMasterRow + 1;
+
 	fastTracksSnapshot_t fastTracksSnapshot;
 	fastTracksPOCGetSnapshot(&fastTracksSnapshot);
 
-	// increment pattern data pointer by horizontal scrollbar offset/channel
-	if (pattPtr != NULL)
-		pattPtr += ui.channelOffset;
+	uint16_t jogPattern = 0, jogRow = 0;
+	const bool jogVisualActive = hybridVisuals &&
+		tapeheadActionPatternJogGetVisualPosition(&jogPattern, &jogRow);
 
-	noteTextColors[0] = video.palette[PAL_PATTEXT]; // not selected
-	noteTextColors[1] = video.palette[PAL_FORGRND]; // selected
+	noteTextColors[0] = video.palette[PAL_PATTEXT];
+	noteTextColors[1] = video.palette[PAL_FORGRND];
 
-	// draw pattern data
 	for (int32_t i = 0; i < rowsOnScreen; i++)
 	{
-		if (row >= 0)
-		{
-			const bool selectedRowFlag = (row == currRow);
-
+		const bool masterRowValid = row >= 0 && row < numRows;
+		const bool selectedRowFlag = masterRowValid && row == visualMasterRow;
+		if (masterRowValid)
 			drawRowNums(textY, (uint8_t)row, selectedRowFlag);
 
-			const note_t *p = pattPtr == NULL || row >= physicalRows
-				? emptyPattern : &pattPtr[(uint32_t)row * MAX_CHANNELS];
-			const int32_t xWidth = ui.patternChannelWidth;
-			const uint32_t color = noteTextColors[selectedRowFlag];
-
-			// FastTracks can resolve a different source pattern per channel, but row
-			// coordinates stay fixed on screen. The private playhead moves through
-			// this stationary lane instead of pinning itself to the center row.
-			int32_t xPos = 29;
-			for (int32_t j = 0; j < numChannels; j++, p++, xPos += xWidth)
+		const int32_t xWidth = ui.patternChannelWidth;
+		const uint32_t selectedColor = noteTextColors[selectedRowFlag];
+		int32_t xPos = 29;
+		for (int32_t j = 0; j < numChannels; j++, xPos += xWidth)
+		{
+			const int32_t absoluteChannel = ui.channelOffset + j;
+			if (absoluteChannel < 0 || absoluteChannel >= song.numChannels ||
+				absoluteChannel >= MAX_CHANNELS)
 			{
-				const int32_t absoluteChannel = ui.channelOffset + j;
-				const fastTracksTrackSnapshot_t *fastTrack = &fastTracksSnapshot.tracks[absoluteChannel];
-				const bool fastTrackVisible = fastTrack->enabled;
-				const note_t *drawPtr = p;
-				int32_t displayedPattern = currPattern;
-				int32_t displayedRow = row;
+				continue;
+			}
+			const fastTracksTrackSnapshot_t *fastTrack =
+				&fastTracksSnapshot.tracks[absoluteChannel];
+			const bool fastTrackVisible = fastTrack->enabled;
 
-				if (fastTrackVisible)
+			int32_t displayedPattern = currPattern;
+			if (fastTrackVisible)
+			{
+				displayedPattern = fastTrack->sourcePattern;
+				if (displayedPattern < 0 || displayedPattern >= MAX_PATTERNS)
+					displayedPattern = currPattern;
+			}
+
+			uint16_t storedLength = fastTracksPOCGetTrackLength(
+				(uint16_t)displayedPattern, absoluteChannel);
+			const bool independentVisual =
+				tapeheadTrackUsesIndependentTransportVisual(hybridVisuals,
+					songPlaying, fastTrackVisible, storedLength != 0,
+					tapeheadActionTransportPunchIsFrozen());
+
+			if (!masterRowValid && !independentVisual)
+				continue;
+
+			int32_t playheadRow = -1;
+			bool jogOverridesPrivateHead = false;
+			if (independentVisual && jogVisualActive &&
+				tapeheadActionPatternJogTrackParticipates(absoluteChannel))
+			{
+				/* Pattern Jog/strum is a deliberate manual read of the ordinary
+				** pattern. While the gesture is live, show that real source rather
+				** than pretending the private FastTracks head produced the note. */
+				displayedPattern = jogPattern < MAX_PATTERNS ? jogPattern : currPattern;
+				storedLength = fastTracksPOCGetTrackLength(
+					(uint16_t)displayedPattern, absoluteChannel);
+				playheadRow = jogRow;
+				jogOverridesPrivateHead = true;
+			}
+			else if (independentVisual && fastTrackVisible)
+			{
+				playheadRow = fastTrack->sourceRow;
+			}
+			else if (independentVisual && storedLength != 0)
+			{
+				playheadRow = fastTracksPOCResolveMasterSourceRow(
+					(uint16_t)displayedPattern, absoluteChannel, song.row);
+			}
+			else if (independentVisual)
+			{
+				/* Transport Punch freezes the authoritative master row itself. */
+				playheadRow = song.row;
+			}
+
+			int32_t displayedRow = row;
+			if (independentVisual)
+			{
+				int32_t transportRows;
+				if (jogOverridesPrivateHead)
 				{
-					displayedPattern = fastTrack->sourcePattern;
-					if (displayedPattern < 0 || displayedPattern >= MAX_PATTERNS)
-						displayedPattern = currPattern;
-
-					/* Playback can wrap at LEN, but the display deliberately keeps the
-					** complete source pattern stationary so the unused tail can be dimmed
-					** and the independent playhead has a visible path to follow. */
-					const int32_t sourceNumRows =
-						fastTracksPOCGetExtendedPatternLength(
-							(uint16_t)displayedPattern);
-					displayedRow = row;
-
-					drawPtr = pattern[displayedPattern] == NULL ||
-						displayedRow >= patternNumRows[displayedPattern] ||
-						displayedRow >= sourceNumRows
-						? emptyPattern
-						: &pattern[displayedPattern]
-							[(displayedRow * MAX_CHANNELS) + absoluteChannel];
+					transportRows = fastTracksPOCGetExtendedPatternLength(
+						(uint16_t)displayedPattern);
+				}
+				else if (fastTrackVisible)
+				{
+					transportRows = fastTracksPOCGetFastTrackLength(
+						(uint16_t)displayedPattern, absoluteChannel);
+				}
+				else if (storedLength != 0)
+				{
+					transportRows = fastTracksPOCGetEffectiveTrackLength(
+						(uint16_t)displayedPattern, absoluteChannel);
+				}
+				else
+				{
+					transportRows = fastTracksPOCGetExtendedPatternLength(
+						(uint16_t)displayedPattern);
 				}
 
-				// Theme-safe Fast Tracks coloring: only populated event fields receive
-				// the emphasized-row palette color. Empty dots/dashes retain FT2's
-				// normal row color, making the event data look attached to the moving barrel.
-				uint32_t noteColor = patternFieldColor(0, drawPtr->note != 0);
-				uint32_t instColor = patternFieldColor(1, drawPtr->instr != 0);
-				uint32_t volColor = patternFieldColor(2, drawPtr->vol >= 0x10);
-				uint32_t tuneColor = patternFieldColor(3, drawPtr->tuneType != 0);
-				uint32_t efxColor = patternFieldColor(4, drawPtr->efx != 0 || drawPtr->efxData != 0);
+				if (transportRows < 1)
+					transportRows = 1;
+				if (playheadRow < 0)
+					playheadRow = 0;
+				if (playheadRow >= transportRows && !jogOverridesPrivateHead)
+					playheadRow %= transportRows;
 
-				/* Selected-row emphasis remains an established palette feature in MONO. */
-				if (selectedRowFlag && !patternFieldColorsActive())
-					noteColor = instColor = volColor = tuneColor = efxColor = color;
+				/* A private lane never scrolls one row per tick. For patterns taller
+				** than the viewport, it changes page only when its real head crosses
+				** a page boundary. No duplicate visual counter can drift from audio. */
+				const int32_t pageStart = tapeheadTransportVisualPageStart(
+					playheadRow, rowsOnScreen);
+				displayedRow = pageStart + i;
+			}
 
-				if (fastTrackVisible)
-				{
-					const bool clutchHeld = fastTrack->clutched;
-					const uint32_t fastTrackColor = clutchHeld
-						? video.palette[PAL_BLCKMRK]
-						: video.palette[PAL_BLCKTXT];
+			const int32_t sourceNumRows = fastTracksPOCGetExtendedPatternLength(
+				(uint16_t)displayedPattern);
+			const note_t *drawPtr = pattern[displayedPattern] == NULL ||
+				displayedRow < 0 || displayedRow >= patternNumRows[displayedPattern] ||
+				displayedRow >= sourceNumRows
+				? emptyPattern
+				: &pattern[displayedPattern]
+					[(displayedRow * MAX_CHANNELS) + absoluteChannel];
 
-					if (drawPtr->note != 0)
-						noteColor = fastTrackColor;
-					if (drawPtr->instr != 0)
-						instColor = fastTrackColor;
-					if (drawPtr->vol != 0)
-						volColor = fastTrackColor;
-					if (drawPtr->efx != 0 || drawPtr->efxData != 0)
-						efxColor = fastTrackColor;
-					if (drawPtr->tuneType != 0)
-						tuneColor = fastTrackColor;
-				}
+			uint32_t noteColor = patternFieldColor(0, drawPtr->note != 0);
+			uint32_t instColor = patternFieldColor(1, drawPtr->instr != 0);
+			uint32_t volColor = patternFieldColor(2, drawPtr->vol >= 0x10);
+			uint32_t tuneColor = patternFieldColor(3, drawPtr->tuneType != 0);
+			uint32_t efxColor = patternFieldColor(4,
+				drawPtr->efx != 0 || drawPtr->efxData != 0);
 
-				const uint16_t storedLength = fastTracksPOCGetTrackLength(
-					displayedPattern, absoluteChannel);
-				const bool lenOwnsFastTrack = fastTrackVisible &&
-					(fastTracksPOCUsesTrackLengths() || fastTrack->clutched);
-				const bool inactiveLengthRow = storedLength != 0 &&
-					(!fastTrackVisible || lenOwnsFastTrack) &&
-					displayedRow >= fastTracksPOCGetEffectiveTrackLength(
-						displayedPattern, absoluteChannel);
-				if (inactiveLengthRow)
-				{
-					noteColor = dimPatternColor(noteColor);
-					instColor = dimPatternColor(instColor);
-					volColor = dimPatternColor(volColor);
-					tuneColor = dimPatternColor(tuneColor);
-					efxColor = dimPatternColor(efxColor);
-				}
+			/* Only the row that is logically selected receives selected-row text
+			** emphasis. A stationary private lane must not imply that its screen
+			** slot is the row an edit cursor would write to. */
+			const bool logicalSelectedCell = selectedRowFlag &&
+				displayedPattern == currPattern && displayedRow == currRow;
+			if (logicalSelectedCell && !patternFieldColorsActive())
+				noteColor = instColor = volColor = tuneColor = efxColor = selectedColor;
 
-				drawAdaptiveCell(xPos, textY, drawPtr, noteColor, instColor,
-					volColor, tuneColor, efxColor);
+			if (fastTrackVisible)
+			{
+				const bool clutchHeld = fastTrack->clutched;
+				const uint32_t fastTrackColor = clutchHeld
+					? video.palette[PAL_BLCKMRK]
+					: video.palette[PAL_BLCKTXT];
 
-				bool drawPlayhead = false;
+				if (drawPtr->note != 0) noteColor = fastTrackColor;
+				if (drawPtr->instr != 0) instColor = fastTrackColor;
+				if (drawPtr->vol != 0) volColor = fastTrackColor;
+				if (drawPtr->efx != 0 || drawPtr->efxData != 0)
+					efxColor = fastTrackColor;
+				if (drawPtr->tuneType != 0) tuneColor = fastTrackColor;
+			}
+
+			const bool lenOwnsFastTrack = fastTrackVisible &&
+				(fastTracksPOCUsesTrackLengths() || fastTrack->clutched);
+			const bool inactiveLengthRow = storedLength != 0 &&
+				(!fastTrackVisible || lenOwnsFastTrack) &&
+				displayedRow >= fastTracksPOCGetEffectiveTrackLength(
+					(uint16_t)displayedPattern, absoluteChannel);
+			if (inactiveLengthRow)
+			{
+				noteColor = dimPatternColor(noteColor);
+				instColor = dimPatternColor(instColor);
+				volColor = dimPatternColor(volColor);
+				tuneColor = dimPatternColor(tuneColor);
+				efxColor = dimPatternColor(efxColor);
+			}
+
+			drawAdaptiveCell(xPos, textY, drawPtr, noteColor, instColor,
+				volColor, tuneColor, efxColor);
+
+			bool drawPlayhead = independentVisual && displayedRow == playheadRow;
+			if (!independentVisual && !hybridVisuals)
+			{
 				if (songPlaying && fastTrackVisible)
 					drawPlayhead = displayedRow == fastTrack->sourceRow;
 				else if (songPlaying && storedLength != 0 &&
@@ -1414,34 +1486,32 @@ void writePattern(int32_t currRow, int32_t currPattern)
 						(uint16_t)currPattern, absoluteChannel, song.row);
 					drawPlayhead = row == localRow;
 				}
+			}
 
-				if (drawPlayhead)
+			if (drawPlayhead)
+			{
+				uint32_t playheadColor = fastTrackVisible && !lenOwnsFastTrack
+					? video.palette[PAL_FASTTRACKS_PLAYHEAD]
+					: video.palette[PAL_TRACK_LENGTH_PLAYHEAD];
+				if (fastTracksPOCGetControlTrack((uint16_t)displayedPattern) ==
+					absoluteChannel)
 				{
-					uint32_t playheadColor = fastTrackVisible && !lenOwnsFastTrack
-						? video.palette[PAL_FASTTRACKS_PLAYHEAD]
-						: video.palette[PAL_TRACK_LENGTH_PLAYHEAD];
-					if (fastTracksPOCGetControlTrack((uint16_t)displayedPattern) ==
-						absoluteChannel)
-					{
-						playheadColor = video.palette[PAL_CONTROL_PLAYHEAD];
-					}
-
-					drawTrackPlayheadOutline((uint16_t)(xPos + 1),
-						(uint16_t)(textY - 1),
-						(uint16_t)(ui.patternChannelWidth - 2),
-						(uint16_t)rowHeight, playheadColor);
+					playheadColor = video.palette[PAL_CONTROL_PLAYHEAD];
 				}
+
+				drawTrackPlayheadOutline((uint16_t)(xPos + 1),
+					(uint16_t)(textY - 1),
+					(uint16_t)(ui.patternChannelWidth - 2),
+					(uint16_t)rowHeight, playheadColor);
 			}
 		}
 
-		// next row
-		if (++row >= numRows)
+		if (++row >= numRows && !hybridVisuals)
 			break;
 
-		// adjust textY position
-		if (row == currRow)
+		if (row == visualMasterRow)
 			textY = midRowTextY;
-		else if (row == afterCurrRow)
+		else if (row == afterMasterRow)
 			textY = lowerRowsTextY;
 		else
 			textY += rowHeight;
@@ -1449,7 +1519,6 @@ void writePattern(int32_t currRow, int32_t currPattern)
 
 	writeCursor();
 
-	// draw pattern marking (if anything is marked)
 	if (pattMark.markY1 != pattMark.markY2)
 		writePatternBlockMark(currRow, rowHeight, pattCoord);
 
@@ -1458,7 +1527,6 @@ void writePattern(int32_t currRow, int32_t currPattern)
 		&fastTracksSnapshot);
 	drawTrackLengthStatus(lengthHeaderY, (uint16_t)currPattern);
 
-	// channel numbers must be drawn lastly
 	if (config.ptnChnNumbers)
 		drawChannelNumbering(lengthHeaderY);
 
