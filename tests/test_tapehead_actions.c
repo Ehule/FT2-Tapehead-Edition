@@ -503,21 +503,21 @@ static void testShiftResetAndKeyboardUseSharedPerformanceActions(void)
 	assert(!lengthTopologyBypassed);
 	tapeheadActionSetShiftModifier(false);
 
-	/* Keyboard Freeze is momentary and composes with the pedal-owned toggle. */
-	assert(tapeheadActionTransportPunchKeyboard(true));
+	/* Keyboard Freeze toggles and composes with the pedal-owned toggle. */
+	assert(tapeheadActionTransportPunchKeyboardToggle());
 	assert(tapeheadActionTransportPunchIsFrozen());
 	assert(!tapeheadActionTransportPunchPedal(true));
 	assert(!tapeheadActionTransportPunchPedal(false));
 	assert(!tapeheadActionTransportPunchPedal(true)); /* pedal latch returns off */
 	assert(!tapeheadActionTransportPunchPedal(false));
-	assert(tapeheadActionTransportPunchKeyboard(false));
+	assert(tapeheadActionTransportPunchKeyboardToggle());
 	assert(!tapeheadActionTransportPunchIsFrozen());
 
-	/* In Hold mode, releasing Space cannot cancel a pedal that remains down. */
+	/* In Hold mode, toggling the keyboard latch cannot cancel a held pedal. */
 	tapeheadConfig.transportFreezePedalHold = true;
 	assert(tapeheadActionTransportPunchPedal(true));
-	assert(!tapeheadActionTransportPunchKeyboard(true));
-	assert(!tapeheadActionTransportPunchKeyboard(false));
+	assert(!tapeheadActionTransportPunchKeyboardToggle());
+	assert(!tapeheadActionTransportPunchKeyboardToggle());
 	assert(tapeheadActionTransportPunchIsFrozen());
 	assert(tapeheadActionTransportPunchPedal(false));
 	assert(!tapeheadActionTransportPunchIsFrozen());

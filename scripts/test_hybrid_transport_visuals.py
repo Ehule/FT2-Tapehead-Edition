@@ -23,6 +23,9 @@ loop = draw.index("for (int32_t j = 0; j < numChannels")
 choice = draw.index("tapeheadTrackUsesIndependentTransportVisual", loop)
 assert choice > loop
 assert "const int32_t visualMasterRow = hybridVisuals ? song.row : currRow;" in draw
+assert "const bool trackLengthVisualActive = lengthTopologyActive" in draw
+assert "songPlaying, fastTrackVisible, trackLengthVisualActive" in draw
+assert "songPlaying, fastTrackVisible, lengthTopologyActive" not in draw
 assert "fastTrack->sourceRow" in draw
 assert "fastTracksPOCResolveMasterSourceRow" in draw
 assert "fastTracksPOCGetFastTrackLength" in draw

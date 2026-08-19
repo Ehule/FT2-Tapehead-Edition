@@ -1295,8 +1295,6 @@ void writePattern(int32_t currRow, int32_t currPattern)
 		fastTracksPOCLengthTopologyIsActive((uint16_t)currPattern);
 	const bool lengthTopologyBypassed =
 		fastTracksPOCLengthTopologyIsBypassed();
-	const int32_t sharedBoundary =
-		fastTracksPOCGetSharedBoundary((uint16_t)currPattern);
 
 	/* Editing and block transforms retain the original FT2 coordinate model.
 	** The performance-only hybrid renderer drops back to the legacy view as
@@ -1352,9 +1350,15 @@ void writePattern(int32_t currRow, int32_t currPattern)
 
 			uint16_t storedLength = fastTracksPOCGetTrackLength(
 				(uint16_t)displayedPattern, absoluteChannel);
+			/* Preserve PR42's per-lane visual contract: a LEN OFF lane keeps
+			** ordinary FT2 scrolling even while another lane owns the shared LEN
+			** boundary. The clutch also disables LEN visuals without erasing the
+			** stored value, so bypassed lanes return to normal scrolling. */
+			const bool trackLengthVisualActive = lengthTopologyActive &&
+				storedLength != 0;
 			const bool independentVisual =
 				tapeheadTrackUsesIndependentTransportVisual(hybridVisuals,
-					songPlaying, fastTrackVisible, lengthTopologyActive,
+					songPlaying, fastTrackVisible, trackLengthVisualActive,
 					tapeheadActionTransportPunchIsFrozen());
 
 			if (!masterRowValid && !independentVisual)
@@ -1378,16 +1382,10 @@ void writePattern(int32_t currRow, int32_t currPattern)
 			{
 				playheadRow = fastTrack->sourceRow;
 			}
-			else if (independentVisual && storedLength != 0)
+			else if (independentVisual && trackLengthVisualActive)
 			{
 				playheadRow = fastTracksPOCResolveMasterSourceRow(
 					(uint16_t)displayedPattern, absoluteChannel, song.row);
-			}
-			else if (independentVisual && lengthTopologyActive)
-			{
-				playheadRow = sharedBoundary > 0
-					? (int32_t)(fastTracksPOCGetMasterCycleRow() %
-						(uint32_t)sharedBoundary) : 0;
 			}
 			else if (independentVisual)
 			{
@@ -1409,14 +1407,10 @@ void writePattern(int32_t currRow, int32_t currPattern)
 					transportRows = fastTracksPOCGetFastTrackLength(
 						(uint16_t)displayedPattern, absoluteChannel);
 				}
-				else if (storedLength != 0)
+				else if (trackLengthVisualActive)
 				{
 					transportRows = fastTracksPOCGetEffectiveTrackLength(
 						(uint16_t)displayedPattern, absoluteChannel);
-				}
-				else if (lengthTopologyActive)
-				{
-					transportRows = sharedBoundary;
 				}
 				else
 				{

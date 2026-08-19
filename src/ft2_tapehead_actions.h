@@ -116,7 +116,7 @@ bool tapeheadActionTransportStopSelectedDeck(void);
 bool tapeheadActionTransportStopDeck(void);
 bool tapeheadActionTransportStopAll(void);
 bool tapeheadActionTransportPunchPedal(bool pressed);
-bool tapeheadActionTransportPunchKeyboard(bool pressed);
+bool tapeheadActionTransportPunchKeyboardToggle(void);
 bool tapeheadActionTransportPunchIsFrozen(void);
 
 bool tapeheadActionPatternJogRelative(int32_t delta);

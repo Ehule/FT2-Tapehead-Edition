@@ -44,18 +44,15 @@ freeze = replayer.index("tapeheadActionTransportPunchIsFrozen()", tick)
 baker = replayer.index("bakerBeginTick();", tick)
 assert baker < freeze
 
-# Preserve Ctrl+Shift+Space, then claim the two new chords without repeat.
+# Preserve Ctrl+Shift+Space, then claim the two new toggle chords without repeat.
 popup = keyboard.index("openPatternNavPopup();")
 length_toggle = keyboard.index("tapeheadActionTrackLengthBypassToggle();")
-freeze_down = keyboard.index("tapeheadActionTransportPunchKeyboard(true);")
-assert popup < length_toggle < freeze_down
-for call in (length_toggle, freeze_down):
+freeze_toggle = keyboard.index("tapeheadActionTransportPunchKeyboardToggle();")
+assert popup < length_toggle < freeze_toggle
+for call in (length_toggle, freeze_toggle):
     assert "!keyWasRepeated" in keyboard[call - 120:call]
-assert keyboard.index("tapeheadActionTransportPunchKeyboard(false);") < keyboard.index(
-    "if (editor.editTextFlag || ui.sysReqShown)"
-)
-assert "SDL_WINDOWEVENT_FOCUS_LOST" in events
-assert "tapeheadActionTransportPunchKeyboard(false)" in events
+assert "tapeheadActionTransportPunchKeyboard(" not in keyboard
+assert "tapeheadActionTransportPunchKeyboard" not in events
 
 # APC Device Lock keeps one action path: Shift branches in the shared action,
 # and the physical LED preserves normal FastTracks feedback while reporting the

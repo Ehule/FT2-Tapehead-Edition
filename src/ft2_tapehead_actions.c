@@ -31,7 +31,7 @@ static uint32_t jogVisualLastTick;
 static uint16_t jogVisualPattern, jogVisualRow;
 static volatile bool transportPunchFrozen;
 static bool transportPunchPedalDown, transportPunchPedalLatched;
-static bool transportPunchKeyboardDown;
+static bool transportPunchKeyboardLatched;
 static bool transportPunchConsumedRow;
 
 typedef struct matrixSequence_t
@@ -1585,26 +1585,25 @@ bool tapeheadActionTransportPunchPedal(bool pressed)
 	transportPunchPedalDown = pressed;
 
 	if (tapeheadConfig.transportFreezePedalHold)
-		return setTransportPunchFrozen(transportPunchKeyboardDown || pressed);
+		return setTransportPunchFrozen(transportPunchKeyboardLatched || pressed);
 
-	/* Toggle mode changes only the pedal-owned latch. A held keyboard Freeze
-	** remains authoritative until Space is released. */
+	/* Toggle mode changes only the pedal-owned latch. The keyboard-owned latch
+	** remains authoritative until Shift+Space toggles it off. */
 	if (!pressed)
 		return false;
 	transportPunchPedalLatched = !transportPunchPedalLatched;
-	return setTransportPunchFrozen(transportPunchKeyboardDown ||
+	return setTransportPunchFrozen(transportPunchKeyboardLatched ||
 		transportPunchPedalLatched);
 }
 
-bool tapeheadActionTransportPunchKeyboard(bool pressed)
+bool tapeheadActionTransportPunchKeyboardToggle(void)
 {
-	if (transportPunchKeyboardDown == pressed)
-		return false;
-	transportPunchKeyboardDown = pressed;
+	transportPunchKeyboardLatched = !transportPunchKeyboardLatched;
 
 	const bool pedalOwnsFreeze = tapeheadConfig.transportFreezePedalHold
 		? transportPunchPedalDown : transportPunchPedalLatched;
-	return setTransportPunchFrozen(pressed || pedalOwnsFreeze);
+	return setTransportPunchFrozen(transportPunchKeyboardLatched ||
+		pedalOwnsFreeze);
 }
 
 void tapeheadActionsResetForLoadedModule(void)
@@ -1618,7 +1617,7 @@ void tapeheadActionsResetForLoadedModule(void)
 	jogVisualLastTick = 0;
 	jogVisualPattern = jogVisualRow = 0;
 	transportPunchFrozen = transportPunchPedalDown = false;
-	transportPunchPedalLatched = transportPunchKeyboardDown = false;
+	transportPunchPedalLatched = transportPunchKeyboardLatched = false;
 	transportPunchConsumedRow = false;
 	memset(&matrixSequence, 0, sizeof (matrixSequence));
 	matrixMasterGain = matrixQGain = matrixPolyGain = 256;

@@ -117,11 +117,6 @@ void readKeyModifiers(void)
 
 void keyUpHandler(SDL_Scancode scancode, SDL_Keycode keycode)
 {
-	/* Release the momentary Freeze before any modal early-return. This prevents
-	** Shift+Space from remaining stuck after a dialog opens while it is held. */
-	if (scancode == SDL_SCANCODE_SPACE)
-		(void)tapeheadActionTransportPunchKeyboard(false);
-
 	if (editor.editTextFlag || ui.sysReqShown)
 		return; // kludge: don't handle key up! (XXX: Is this hack really needed anymore?)
 
@@ -252,7 +247,7 @@ void keyDownHandler(SDL_Scancode scancode, SDL_Keycode keycode, SDL_Keymod modif
 		!keyb.leftCtrlPressed && !keyb.leftAltPressed)
 	{
 		if (!keyWasRepeated)
-			(void)tapeheadActionTransportPunchKeyboard(true);
+			(void)tapeheadActionTransportPunchKeyboardToggle();
 		return;
 	}
 
