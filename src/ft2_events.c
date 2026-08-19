@@ -13,6 +13,7 @@
 #include <unistd.h> // chdir()
 #endif
 #include <stdio.h>
+#include <string.h>
 #include <sys/stat.h>
 #include "ft2_header.h"
 #include "ft2_config.h"

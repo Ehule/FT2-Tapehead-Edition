@@ -21,5 +21,6 @@ ControlPlayhead=#FF3131
 FastTracksSync=#00CE41
 FastTracksPhase=#FF3131
 FastTracksSong=#FFAE20
+FastTracksLengthPlayhead=#D061FF
 DesktopContrast=52
 ButtonsContrast=67

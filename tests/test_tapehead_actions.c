@@ -26,11 +26,15 @@ audio_t audio;
 note_t *pattern[MAX_PATTERNS];
 int16_t patternNumRows[MAX_PATTERNS];
 
+uint32_t SDL_GetTicks(void) { return 0; }
+
 static bool fastSelected[MAX_CHANNELS], fastReversed[MAX_CHANNELS];
 static bool fastClutched[MAX_CHANNELS], fastMaster, transmissionClutch;
+static bool lengthTopologyBypassed;
 static fastTracksMode_t fastMode[MAX_CHANNELS];
 static uint8_t fastRatio[MAX_CHANNELS];
 static uint16_t fastTrackLength[MAX_CHANNELS];
+static int8_t fastControlTrack;
 static bool sampleDeck, patternExposed[MAX_PATTERNS];
 static bool sampleLoaded[SAMPLE_LAUNCHER_MAX_TILES];
 static uint8_t patternPage, sampleBank;
@@ -161,11 +165,19 @@ void fastTracksPOCResetAllRatios(void)
 	for (int32_t i = 0; i < MAX_CHANNELS; i++)
 		if (fastSelected[i]) fastRatio[i] = FAST_TRACKS_ONE_TO_ONE_RATIO_INDEX;
 }
+bool fastTracksPOCLengthTopologyIsBypassed(void)
+{ return lengthTopologyBypassed; }
+void fastTracksPOCToggleLengthTopologyBypass(void)
+{ lengthTopologyBypassed ^= 1; }
 uint16_t fastTracksPOCGetTrackLength(uint16_t patternNumber, int32_t i)
 { (void)patternNumber; return fastTrackLength[i]; }
 void fastTracksPOCSetTrackLength(uint16_t patternNumber, int32_t i,
 	uint16_t length)
 { (void)patternNumber; fastTrackLength[i] = length; }
+int8_t fastTracksPOCGetControlTrack(uint16_t patternNumber)
+{ (void)patternNumber; return fastControlTrack; }
+void fastTracksPOCSetControlTrack(uint16_t patternNumber, int32_t channelIndex)
+{ (void)patternNumber; fastControlTrack = (int8_t)channelIndex; }
 bool fastTracksPOCIsReversed(int32_t i) { return fastReversed[i]; }
 void fastTracksPOCToggleDirection(int32_t i) { fastReversed[i] ^= 1; }
 bool fastTracksPOCIsClutched(int32_t i) { return fastClutched[i]; }
@@ -243,11 +255,17 @@ void pbPlaySong(void)
 void pbPlayPtn(void)
 { playPatternCount++; songPlaying = true; playMode = PLAYMODE_PATT; }
 void pbRecPtn(void) { songPlaying = true; playMode = PLAYMODE_RECPATT; }
-void stopPlayingKeepPoly(void) { stopSongCount++; songPlaying = false; }
+void stopPlayingKeepPoly(void)
+{
+	stopSongCount++;
+	songPlaying = false;
+	tapeheadActionTransportPunchClearForStop();
+}
 void stopPlaying(void)
 {
 	stopAllCount++;
 	songPlaying = patternEnabled = polyWork = false;
+	tapeheadActionTransportPunchClearForStop();
 }
 
 static void resetFixture(int32_t numChannels)
@@ -262,6 +280,7 @@ static void resetFixture(int32_t numChannels)
 	memset(fastMode, 0, sizeof (fastMode));
 	memset(fastRatio, FAST_TRACKS_ONE_TO_ONE_RATIO_INDEX, sizeof (fastRatio));
 	memset(fastTrackLength, 0, sizeof (fastTrackLength));
+	fastControlTrack = -1;
 	memset(patternExposed, 1, sizeof (patternExposed));
 	memset(sampleLoaded, 1, sizeof (sampleLoaded));
 	memset(pattern, 0, sizeof (pattern));
@@ -275,6 +294,7 @@ static void resetFixture(int32_t numChannels)
 	memset(&song, 0, sizeof (song));
 	song.numChannels = numChannels;
 	sampleDeck = fastMaster = songPlaying = transmissionClutch = false;
+	lengthTopologyBypassed = false;
 	standaloneShown = false;
 	playMode = PLAYMODE_IDLE;
 	memset(&ui, 0, sizeof (ui));
@@ -283,6 +303,9 @@ static void resetFixture(int32_t numChannels)
 	tapeheadConfig.trackTrimMaxPercent = 200;
 	tapeheadConfig.trackTrimDisplayWidth = 2;
 	tapeheadConfig.trackLengthControlMax = MAX_PATT_LEN;
+	tapeheadConfig.controlTrackLeftStart = 1;
+	tapeheadConfig.controlTrackRightStart = 8;
+	tapeheadConfig.controlTrackNavigationWrap = true;
 	tapeheadConfig.patternJogAudition = TAPEHEAD_PATTERN_JOG_AUDITION_LATCHED;
 	memset(&audio, 0, sizeof (audio));
 	config.masterVol = 128;
@@ -477,6 +500,87 @@ static void testTrackLengthControllerUsesConfigurableCeiling(void)
 	assert(!tapeheadActionTrackLengthSet(8, 12));
 	assert(tapeheadActionTrackLengthSet(2, 0));
 	assert(fastTrackLength[2] == 0);
+}
+
+static void testControlTrackNavigationUsesPerformanceDefaultsAndWrap(void)
+{
+	resetFixture(8);
+	/* CONTROL is allowed on a lane whose LEN is OFF. */
+	assert(fastTrackLength[0] == 0);
+	assert(tapeheadActionTrackLengthControlMove(-1));
+	assert(fastControlTrack == 0);
+	assert(tapeheadActionTrackLengthControlMove(-1));
+	assert(fastControlTrack == 7);
+	assert(tapeheadActionTrackLengthControlMove(1));
+	assert(fastControlTrack == 0);
+
+	fastControlTrack = -1;
+	assert(tapeheadActionTrackLengthControlMove(1));
+	assert(fastControlTrack == 7);
+
+	tapeheadConfig.controlTrackNavigationWrap = false;
+	assert(!tapeheadActionTrackLengthControlMove(1));
+	assert(fastControlTrack == 7);
+
+	resetFixture(4);
+	tapeheadConfig.controlTrackLeftStart = 3;
+	tapeheadConfig.controlTrackRightStart = 8;
+	assert(tapeheadActionTrackLengthControlMove(-1));
+	assert(fastControlTrack == 2);
+	fastControlTrack = -1;
+	assert(tapeheadActionTrackLengthControlMove(1));
+	assert(fastControlTrack == 3); /* configured track 8 clamps to active track 4 */
+	assert(song.isModified && !audio.locked);
+	assert(!tapeheadActionTrackLengthControlMove(0));
+}
+
+static void testShiftResetAndKeyboardUseSharedPerformanceActions(void)
+{
+	resetFixture(8);
+	fastSelected[0] = true;
+	fastRatio[0] = 16;
+	assert(tapeheadActionFastTrackResetAll());
+	assert(fastRatio[0] == FAST_TRACKS_ONE_TO_ONE_RATIO_INDEX);
+	assert(!lengthTopologyBypassed);
+
+	tapeheadActionSetShiftModifier(true);
+	assert(tapeheadActionFastTrackResetAll());
+	assert(lengthTopologyBypassed);
+	assert(tapeheadActionTrackLengthBypassToggle());
+	assert(!lengthTopologyBypassed);
+	tapeheadActionSetShiftModifier(false);
+
+	/* Toggle mode has one shared latch: either input can undo the other. */
+	songPlaying = true;
+	assert(tapeheadActionTransportPunchKeyboardToggle());
+	assert(tapeheadActionTransportPunchIsFrozen());
+	assert(tapeheadActionTransportPunchPedal(true));
+	assert(!tapeheadActionTransportPunchIsFrozen());
+	assert(!tapeheadActionTransportPunchPedal(false));
+	assert(tapeheadActionTransportPunchPedal(true));
+	assert(tapeheadActionTransportPunchIsFrozen());
+	assert(!tapeheadActionTransportPunchPedal(false));
+	assert(tapeheadActionTransportPunchKeyboardToggle());
+	assert(!tapeheadActionTransportPunchIsFrozen());
+
+	/* A stop clears Freeze, and inputs cannot pre-arm the following playback. */
+	assert(tapeheadActionTransportPunchKeyboardToggle());
+	assert(tapeheadActionTransportPunchIsFrozen());
+	assert(tapeheadActionTransportStop());
+	assert(!songPlaying && !tapeheadActionTransportPunchIsFrozen());
+	assert(!tapeheadActionTransportPunchKeyboardToggle());
+	assert(!tapeheadActionTransportPunchPedal(true));
+	songPlaying = true;
+	assert(!tapeheadActionTransportPunchIsFrozen());
+
+	/* In Hold mode, a held pedal remains physical while Shift+Space toggles. */
+	tapeheadConfig.transportFreezePedalHold = true;
+	assert(tapeheadActionTransportPunchPedal(true));
+	assert(!tapeheadActionTransportPunchKeyboardToggle());
+	assert(!tapeheadActionTransportPunchKeyboardToggle());
+	assert(tapeheadActionTransportPunchIsFrozen());
+	assert(tapeheadActionTransportPunchPedal(false));
+	assert(!tapeheadActionTransportPunchIsFrozen());
 }
 
 static void testMatrixFocusBanksAndSlotsAreIndependent(void)
@@ -996,6 +1100,8 @@ int main(void)
 	testOrdinaryMuteAndUnmuteAllRemainExplicit();
 	testTrackSelectionAndFastTracksActions();
 	testTrackLengthControllerUsesConfigurableCeiling();
+	testControlTrackNavigationUsesPerformanceDefaultsAndWrap();
+	testShiftResetAndKeyboardUseSharedPerformanceActions();
 	testMatrixFocusBanksAndSlotsAreIndependent();
 	testTransportActionsRemainDistinct();
 	testModuleLoadClearsPerformanceRuntime();
@@ -1014,6 +1120,6 @@ int main(void)
 	testSongOrderActionsStopAtBoundaries();
 	testOneShotAndManualPingPongStrumDirections();
 	testTransportPunchToggleHoldCutAndNavigationConsumption();
-	puts("24 native Tapehead action groups passed.");
+	puts("26 native Tapehead action groups passed.");
 	return 0;
 }

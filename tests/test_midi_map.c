@@ -27,11 +27,15 @@ audio_t audio;
 note_t *pattern[MAX_PATTERNS];
 int16_t patternNumRows[MAX_PATTERNS];
 
+uint32_t SDL_GetTicks(void) { return 0; }
+
 static bool fastSelected[MAX_CHANNELS], fastReversed[MAX_CHANNELS];
 static bool fastClutched[MAX_CHANNELS], fastMaster, transmissionClutch;
+static bool lengthTopologyBypassed;
 static fastTracksMode_t fastMode[MAX_CHANNELS];
 static uint8_t fastRatio[MAX_CHANNELS];
 static uint16_t fastTrackLength[MAX_CHANNELS];
+static int8_t fastControlTrack;
 static bool sampleDeck, patternExposed[MAX_PATTERNS];
 static uint8_t patternPage, sampleBank;
 static int32_t lastPatternRequest, lastSampleRequest;
@@ -131,11 +135,19 @@ void fastTracksPOCResetAllRatios(void)
 	for (int32_t i = 0; i < MAX_CHANNELS; i++)
 		if (fastSelected[i]) fastRatio[i] = FAST_TRACKS_ONE_TO_ONE_RATIO_INDEX;
 }
+bool fastTracksPOCLengthTopologyIsBypassed(void)
+{ return lengthTopologyBypassed; }
+void fastTracksPOCToggleLengthTopologyBypass(void)
+{ lengthTopologyBypassed ^= 1; }
 uint16_t fastTracksPOCGetTrackLength(uint16_t patternNumber, int32_t i)
 { (void)patternNumber; return fastTrackLength[i]; }
 void fastTracksPOCSetTrackLength(uint16_t patternNumber, int32_t i,
 	uint16_t length)
 { (void)patternNumber; fastTrackLength[i] = length; }
+int8_t fastTracksPOCGetControlTrack(uint16_t patternNumber)
+{ (void)patternNumber; return fastControlTrack; }
+void fastTracksPOCSetControlTrack(uint16_t patternNumber, int32_t channelIndex)
+{ (void)patternNumber; fastControlTrack = (int8_t)channelIndex; }
 bool fastTracksPOCIsReversed(int32_t i) { return fastReversed[i]; }
 void fastTracksPOCToggleDirection(int32_t i) { fastReversed[i] ^= 1; }
 bool fastTracksPOCIsClutched(int32_t i) { return fastClutched[i]; }
@@ -244,6 +256,7 @@ static void resetFixture(void)
 	memset(fastMode, 0, sizeof (fastMode));
 	memset(fastRatio, FAST_TRACKS_ONE_TO_ONE_RATIO_INDEX, sizeof (fastRatio));
 	memset(fastTrackLength, 0, sizeof (fastTrackLength));
+	fastControlTrack = -1;
 	memset(patternExposed, 1, sizeof (patternExposed));
 	memset(pattern, 0, sizeof (pattern));
 	memset(patternNumRows, 0, sizeof (patternNumRows));
@@ -256,6 +269,7 @@ static void resetFixture(void)
 	for (int32_t i = 0; i < MAX_CHANNELS; i++)
 		channelVolumeTrim[i] = TAPEHEAD_TRACK_TRIM_UNITY;
 	sampleDeck = fastMaster = songPlaying = transmissionClutch = false;
+	lengthTopologyBypassed = false;
 	standaloneShown = sampleMorphArmed = false;
 	playMode = PLAYMODE_IDLE;
 	memset(&ui, 0, sizeof (ui));
@@ -264,6 +278,9 @@ static void resetFixture(void)
 	tapeheadConfig.trackTrimMaxPercent = 200;
 	tapeheadConfig.trackTrimDisplayWidth = 2;
 	tapeheadConfig.trackLengthControlMax = MAX_PATT_LEN;
+	tapeheadConfig.controlTrackLeftStart = 1;
+	tapeheadConfig.controlTrackRightStart = 8;
+	tapeheadConfig.controlTrackNavigationWrap = true;
 	tapeheadConfig.patternJogAudition = TAPEHEAD_PATTERN_JOG_AUDITION_LATCHED;
 	memset(&audio, 0, sizeof (audio));
 	song.BPM = 125;
@@ -722,7 +739,10 @@ static void testTransportPunchEdgesAndShiftedClutchSafety(void)
 	assert(tapeheadMidiMapAddBinding("NoteOn.1.41", "ShiftModifier"));
 	assert(tapeheadMidiMapAddBinding("NoteOn.1.71",
 		"FastTrackClutchToggle:3"));
+	assert(tapeheadMidiMapAddBinding("NoteOn.1.63", "FastTrackResetAll"));
 	tapeheadMidiMapSetEnabled(true);
+	songPlaying = true;
+	playMode = PLAYMODE_SONG;
 
 	/* A switch CC is not a fader: press and release must both survive the
 	** queue or Toggle/Hold behavior becomes nondeterministic. */
@@ -745,6 +765,57 @@ static void testTransportPunchEdgesAndShiftedClutchSafety(void)
 	assert(tapeheadMidiMapHandleMessage(0x90, 71, 127));
 	tapeheadMidiMapProcessPending();
 	assert(fastClutched[2]);
+
+	/* APC Shift + Device Lock reaches the same runtime LEN bypass as the
+	** keyboard action. Releasing Shift restores Device Lock's original ratio
+	** reset without altering the bypass state. */
+	fastTracksPOCSetTrackEnabled(0, true);
+	fastRatio[0] = 16;
+	assert(tapeheadMidiMapHandleMessage(0x90, 41, 127));
+	assert(tapeheadMidiMapHandleMessage(0x90, 63, 127));
+	assert(tapeheadMidiMapHandleMessage(0x80, 63, 0));
+	tapeheadMidiMapProcessPending();
+	assert(lengthTopologyBypassed);
+	assert(fastRatio[0] == 16);
+
+	assert(tapeheadMidiMapHandleMessage(0x80, 41, 0));
+	assert(tapeheadMidiMapHandleMessage(0x90, 63, 127));
+	assert(tapeheadMidiMapHandleMessage(0x80, 63, 0));
+	tapeheadMidiMapProcessPending();
+	assert(lengthTopologyBypassed);
+	assert(fastRatio[0] == FAST_TRACKS_ONE_TO_ONE_RATIO_INDEX);
+
+	assert(tapeheadMidiMapHandleMessage(0x90, 41, 127));
+	assert(tapeheadMidiMapHandleMessage(0x90, 63, 127));
+	assert(tapeheadMidiMapHandleMessage(0x80, 63, 0));
+	assert(tapeheadMidiMapHandleMessage(0x80, 41, 0));
+	tapeheadMidiMapProcessPending();
+	assert(!lengthTopologyBypassed);
+}
+
+static void testControlTrackNavigationVocabularyAndDispatch(void)
+{
+	resetFixture();
+	assert(tapeheadMidiMapAddBinding("NoteOn.1.96",
+		"TrackLengthControlNext"));
+	assert(tapeheadMidiMapAddBinding("NoteOn.1.97",
+		"TrackLengthControlPrevious"));
+	tapeheadMidiMapSetEnabled(true);
+
+	assert(tapeheadMidiMapHandleMessage(0x90, 96, 127));
+	tapeheadMidiMapProcessPending();
+	assert(fastControlTrack == 7);
+	assert(tapeheadMidiMapHandleMessage(0x90, 96, 127));
+	tapeheadMidiMapProcessPending();
+	assert(fastControlTrack == 0);
+	assert(tapeheadMidiMapHandleMessage(0x90, 97, 127));
+	tapeheadMidiMapProcessPending();
+	assert(fastControlTrack == 7);
+
+	fastControlTrack = -1;
+	assert(tapeheadMidiMapHandleMessage(0x90, 97, 127));
+	tapeheadMidiMapProcessPending();
+	assert(fastControlTrack == 0);
 }
 
 int main(void)
@@ -761,6 +832,7 @@ int main(void)
 	testPhase42VocabularyAndDispatch();
 	testPhase431JogAndModeEventsAreNotCollapsed();
 	testTransportPunchEdgesAndShiftedClutchSafety();
+	testControlTrackNavigationVocabularyAndDispatch();
 	puts("Tapehead generic MIDI map tests passed.");
 	return 0;
 }

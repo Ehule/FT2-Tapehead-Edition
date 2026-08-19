@@ -68,7 +68,7 @@ typedef struct fastTracksRuntimeTrack_t
 
 typedef struct fastTracksRuntimeState_t
 {
-	bool masterEnabled, transmissionClutchLatched;
+	bool masterEnabled, transmissionClutchLatched, lengthTopologyBypassed;
 	uint32_t masterCycleRow;
 	fastTracksRuntimeTrack_t tracks[FAST_TRACKS_CHANNEL_COUNT];
 } fastTracksRuntimeState_t;
@@ -124,6 +124,12 @@ uint16_t fastTracksPOCGetTrackLength(uint16_t patternNumber, int32_t channelInde
 uint16_t fastTracksPOCGetExtendedPatternLength(uint16_t patternNumber);
 uint16_t fastTracksPOCGetEffectiveTrackLength(uint16_t patternNumber, int32_t channelIndex);
 uint16_t fastTracksPOCGetFastTrackLength(uint16_t patternNumber, int32_t channelIndex);
+uint16_t fastTracksPOCGetSharedBoundary(uint16_t patternNumber);
+bool fastTracksPOCHasExplicitTrackLengths(void);
+bool fastTracksPOCLengthTopologyIsActive(uint16_t patternNumber);
+bool fastTracksPOCLengthTopologyIsBypassed(void);
+void fastTracksPOCSetLengthTopologyBypassed(bool bypassed);
+void fastTracksPOCToggleLengthTopologyBypass(void);
 bool fastTracksPOCUsesTrackLengths(void);
 void fastTracksPOCSetUsesTrackLengths(bool enabled);
 int8_t fastTracksPOCGetControlTrack(uint16_t patternNumber);

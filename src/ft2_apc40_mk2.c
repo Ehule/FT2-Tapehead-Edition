@@ -118,8 +118,8 @@ static const apcControl_t fixedControls[] =
 	{ "Record", "NoteOn.1.93", "TransportPlayPatternToggle" },
 	{ "Up", "NoteOn.1.94", "SongOrderPrevious" },
 	{ "Down", "NoteOn.1.95", "SongOrderNext" },
-	{ "Right", "NoteOn.1.96", "CursorRight" },
-	{ "Left", "NoteOn.1.97", "CursorLeft" },
+	{ "Right", "NoteOn.1.96", "TrackLengthControlNext" },
+	{ "Left", "NoteOn.1.97", "TrackLengthControlPrevious" },
 	{ "Shift", "NoteOn.1.98", "ShiftModifier" },
 	{ "TapTempo", "NoteOn.1.99", "FastTrackGlobalModeToggle" },
 	{ "NudgeMinus", "NoteOn.1.100", "SpeedDown" },
@@ -664,7 +664,11 @@ static void refreshGlobalButtons(void)
 	sendNote(0, 0x3C, fastTracksPOCAnyEnabled());
 	sendNote(0, 0x3D, fastTracksPOCAnyEnabled());
 	sendNote(0, 0x3E, sampleMorphIsArmed());
-	sendNote(0, 0x3F, fastTracksPOCAnyEnabled());
+	/* Preserve Device Lock's existing FastTracks indication. A brighter state
+	** makes the shifted LEN bypass visible without changing the unshifted
+	** reset-to-1:1 behavior or its normal feedback. */
+	sendNote(0, 0x3F, fastTracksPOCLengthTopologyIsBypassed()
+		? 2 : fastTracksPOCAnyEnabled());
 	sendNote(0, 0x40, fastTracksPOCTransmissionClutchIsLatched());
 	sendNote(0, 0x41, fastTracksPOCMasterIsEnabled());
 	sendNote(0, 0x50, allMute ? 1 : (anyMute ? 2 : 0));

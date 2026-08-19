@@ -27,7 +27,7 @@ void SDLCALL SDL_AtomicUnlock(SDL_SpinLock *lock)
 
 int main(int argc, char **argv)
 {
-	if (argc != 5)
+	if (argc != 8)
 		return 2;
 
 	editor.configFileLocationU = argv[1];
@@ -53,6 +53,21 @@ int main(int argc, char **argv)
 	{
 		fprintf(stderr, "expected TrackLengthControlMax=%u, got %u\n",
 			expectedTrackLengthMax, tapeheadConfig.trackLengthControlMax);
+		return 1;
+	}
+
+	const uint8_t expectedLeftStart = (uint8_t)strtoul(argv[5], NULL, 10);
+	const uint8_t expectedRightStart = (uint8_t)strtoul(argv[6], NULL, 10);
+	const bool expectedWrap = !strcmp(argv[7], "true");
+	if (tapeheadConfig.controlTrackLeftStart != expectedLeftStart ||
+		tapeheadConfig.controlTrackRightStart != expectedRightStart ||
+		tapeheadConfig.controlTrackNavigationWrap != expectedWrap)
+	{
+		fprintf(stderr, "expected CONTROL starts=%u/%u wrap=%s, got %u/%u %s\n",
+			expectedLeftStart, expectedRightStart, argv[7],
+			tapeheadConfig.controlTrackLeftStart,
+			tapeheadConfig.controlTrackRightStart,
+			tapeheadConfig.controlTrackNavigationWrap ? "true" : "false");
 		return 1;
 	}
 

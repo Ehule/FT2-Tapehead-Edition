@@ -30,7 +30,7 @@ static bool jogVisualActive;
 static uint32_t jogVisualLastTick;
 static uint16_t jogVisualPattern, jogVisualRow;
 static volatile bool transportPunchFrozen;
-static bool transportPunchPedalDown;
+static bool transportPunchPedalDown, transportPunchToggleLatched;
 static bool transportPunchConsumedRow;
 
 typedef struct matrixSequence_t
@@ -570,6 +570,55 @@ bool tapeheadActionTrackLengthSet(int32_t channelIndex, uint16_t length)
 	return true;
 }
 
+bool tapeheadActionTrackLengthControlMove(int32_t direction)
+{
+	if (direction != -1 && direction != 1)
+		return false;
+
+	/* The APC surface has eight track strips. A shorter module simply clamps
+	** both configurable entry points and navigation to its active channels. */
+	const int32_t trackCount = MIN(song.numChannels, 8);
+	if (trackCount <= 0)
+		return false;
+
+	const int32_t oldControl = fastTracksPOCGetControlTrack(editor.editPattern);
+	int32_t newControl;
+	if (oldControl < 0 || oldControl >= trackCount)
+	{
+		const uint8_t configuredStart = direction < 0
+			? tapeheadConfig.controlTrackLeftStart
+			: tapeheadConfig.controlTrackRightStart;
+		newControl = CLAMP((int32_t)configuredStart, 1, trackCount) - 1;
+	}
+	else
+	{
+		newControl = oldControl + direction;
+		if (newControl < 0 || newControl >= trackCount)
+		{
+			if (!tapeheadConfig.controlTrackNavigationWrap)
+				return false;
+			newControl = newControl < 0 ? trackCount - 1 : 0;
+		}
+	}
+
+	if (newControl == oldControl)
+		return false;
+	if (!undoPatternBegin(editor.editPattern, "Set control track"))
+		return false;
+
+	const bool audioWasntLocked = !audio.locked;
+	if (audioWasntLocked)
+		lockAudio();
+	fastTracksPOCSetControlTrack(editor.editPattern, newControl);
+	setSongModifiedFlag();
+	undoPatternCommit();
+	if (audioWasntLocked)
+		unlockAudio();
+
+	ui.updatePatternEditor = true;
+	return true;
+}
+
 bool tapeheadActionFastTrackRatioNext(int32_t channelIndex)
 {
 	if (!channelIndexIsActive(channelIndex))
@@ -599,6 +648,11 @@ bool tapeheadActionFastTrackRatioReset(int32_t channelIndex)
 
 bool tapeheadActionFastTrackResetAll(void)
 {
+	/* APC40 mkII Device Lock keeps its ordinary reset on the unshifted press;
+	** Shift turns the same physical control into the global LEN clutch. */
+	if (shiftModifierHeld)
+		return tapeheadActionTrackLengthBypassToggle();
+
 	bool hasSelectedTrack = false;
 	for (int32_t i = 0; i < song.numChannels && i < MAX_CHANNELS; i++)
 		hasSelectedTrack |= fastTracksPOCIsSelected(i);
@@ -608,6 +662,13 @@ bool tapeheadActionFastTrackResetAll(void)
 
 	fastTracksPOCResetAllRatios();
 	return true;
+}
+
+bool tapeheadActionTrackLengthBypassToggle(void)
+{
+	const bool oldState = fastTracksPOCLengthTopologyIsBypassed();
+	fastTracksPOCToggleLengthTopologyBypass();
+	return fastTracksPOCLengthTopologyIsBypassed() != oldState;
 }
 
 bool tapeheadActionFastTrackReverseToggle(int32_t channelIndex)
@@ -1567,15 +1628,48 @@ static bool setTransportPunchFrozen(bool frozen)
 
 bool tapeheadActionTransportPunchPedal(bool pressed)
 {
+	/* Neither input may pre-arm Freeze while stopped. Every playback begins
+	** from a clean shared latch. */
+	if (!songPlaying)
+		return false;
 	if (transportPunchPedalDown == pressed)
 		return false;
 	transportPunchPedalDown = pressed;
 
 	if (tapeheadConfig.transportFreezePedalHold)
-		return setTransportPunchFrozen(pressed);
+		return setTransportPunchFrozen(transportPunchToggleLatched || pressed);
 
-	/* Toggle mode acts only on the pedal's downstroke. */
-	return pressed && setTransportPunchFrozen(!transportPunchFrozen);
+	/* Toggle mode uses the same latch as Shift+Space, so either control can
+	** freeze or unfreeze the other. Releases are edge bookkeeping only. */
+	if (!pressed)
+		return false;
+	transportPunchToggleLatched = !transportPunchToggleLatched;
+	return setTransportPunchFrozen(transportPunchToggleLatched);
+}
+
+bool tapeheadActionTransportPunchKeyboardToggle(void)
+{
+	if (!songPlaying)
+		return false;
+
+	transportPunchToggleLatched = !transportPunchToggleLatched;
+	return setTransportPunchFrozen(transportPunchToggleLatched ||
+		(tapeheadConfig.transportFreezePedalHold && transportPunchPedalDown));
+}
+
+void tapeheadActionTransportPunchClearForStop(void)
+{
+	const bool changed = transportPunchFrozen || transportPunchPedalDown ||
+		transportPunchToggleLatched || transportPunchConsumedRow;
+	transportPunchFrozen = false;
+	transportPunchPedalDown = false;
+	transportPunchToggleLatched = false;
+	transportPunchConsumedRow = false;
+	if (changed)
+	{
+		ui.updatePosSections = true;
+		ui.updatePatternEditor = true;
+	}
 }
 
 void tapeheadActionsResetForLoadedModule(void)
@@ -1588,8 +1682,7 @@ void tapeheadActionsResetForLoadedModule(void)
 	jogVisualActive = false;
 	jogVisualLastTick = 0;
 	jogVisualPattern = jogVisualRow = 0;
-	transportPunchFrozen = transportPunchPedalDown = false;
-	transportPunchConsumedRow = false;
+	tapeheadActionTransportPunchClearForStop();
 	memset(&matrixSequence, 0, sizeof (matrixSequence));
 	matrixMasterGain = matrixQGain = matrixPolyGain = 256;
 	matrixCrossfader = 64;

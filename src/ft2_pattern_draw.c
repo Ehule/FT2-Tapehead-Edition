@@ -1198,9 +1198,12 @@ static void drawControlEjectSymbol(uint16_t x, uint16_t y, uint32_t color)
 	drawDirectHLine(x, (uint16_t)(y + 5), 7, color);
 }
 
+static uint32_t dimPatternColor(uint32_t color);
+
 static void drawTrackLengthStatus(uint16_t yPos, uint16_t patternNumber)
 {
 	const int32_t controlTrack = fastTracksPOCGetControlTrack(patternNumber);
+	const bool topologyBypassed = fastTracksPOCLengthTopologyIsBypassed();
 	for (int32_t visibleChannel = 0; visibleChannel < ui.numChannelsShown;
 		visibleChannel++)
 	{
@@ -1219,16 +1222,20 @@ static void drawTrackLengthStatus(uint16_t yPos, uint16_t patternNumber)
 			snprintf(lengthText, sizeof (lengthText), "LEN%u", storedLength);
 		else
 			strcpy(lengthText, "LEN OFF");
-		textOutTiny(xPos + 10, yPos + 1, lengthText,
-			storedLength != 0 ? video.palette[PAL_BLCKTXT] :
+		uint32_t lengthColor = storedLength != 0 ? video.palette[PAL_BLCKTXT] :
 			breatheColorToward(video.palette[PAL_BLCKTXT],
-				video.palette[PAL_DESKTOP]));
+				video.palette[PAL_DESKTOP]);
+		if (topologyBypassed)
+			lengthColor = dimPatternColor(lengthColor);
+		textOutTiny(xPos + 10, yPos + 1, lengthText, lengthColor);
 
 		const bool isControl = controlTrack == channelIndex;
-		const uint32_t controlColor = isControl ?
+		uint32_t controlColor = isControl ?
 			video.palette[PAL_CONTROL_PLAYHEAD] :
 			breatheColorToward(video.palette[PAL_BLCKTXT],
 				video.palette[PAL_DESKTOP]);
+		if (topologyBypassed)
+			controlColor = dimPatternColor(controlColor);
 		drawControlEjectSymbol((uint16_t)(xPos + panelWidth - 11),
 			(uint16_t)(yPos + 1),
 			controlColor);
@@ -1284,7 +1291,10 @@ void writePattern(int32_t currRow, int32_t currPattern)
 	const int32_t rowsOnScreen = pattCoord->numUpperRows + 1 + pattCoord->numLowerRows;
 	const int32_t numChannels = ui.numChannelsShown;
 	const int32_t numRows = fastTracksPOCGetExtendedPatternLength((uint16_t)currPattern);
-	const int32_t physicalRows = patternNumRows[currPattern];
+	const bool lengthTopologyActive =
+		fastTracksPOCLengthTopologyIsActive((uint16_t)currPattern);
+	const bool lengthTopologyBypassed =
+		fastTracksPOCLengthTopologyIsBypassed();
 
 	/* Editing and block transforms retain the original FT2 coordinate model.
 	** The performance-only hybrid renderer drops back to the legacy view as
@@ -1340,9 +1350,15 @@ void writePattern(int32_t currRow, int32_t currPattern)
 
 			uint16_t storedLength = fastTracksPOCGetTrackLength(
 				(uint16_t)displayedPattern, absoluteChannel);
+			/* Preserve PR42's per-lane visual contract: a LEN OFF lane keeps
+			** ordinary FT2 scrolling even while another lane owns the shared LEN
+			** boundary. The clutch also disables LEN visuals without erasing the
+			** stored value, so bypassed lanes return to normal scrolling. */
+			const bool trackLengthVisualActive = lengthTopologyActive &&
+				storedLength != 0;
 			const bool independentVisual =
 				tapeheadTrackUsesIndependentTransportVisual(hybridVisuals,
-					songPlaying, fastTrackVisible, storedLength != 0,
+					songPlaying, fastTrackVisible, trackLengthVisualActive,
 					tapeheadActionTransportPunchIsFrozen());
 
 			if (!masterRowValid && !independentVisual)
@@ -1366,7 +1382,7 @@ void writePattern(int32_t currRow, int32_t currPattern)
 			{
 				playheadRow = fastTrack->sourceRow;
 			}
-			else if (independentVisual && storedLength != 0)
+			else if (independentVisual && trackLengthVisualActive)
 			{
 				playheadRow = fastTracksPOCResolveMasterSourceRow(
 					(uint16_t)displayedPattern, absoluteChannel, song.row);
@@ -1391,7 +1407,7 @@ void writePattern(int32_t currRow, int32_t currPattern)
 					transportRows = fastTracksPOCGetFastTrackLength(
 						(uint16_t)displayedPattern, absoluteChannel);
 				}
-				else if (storedLength != 0)
+				else if (trackLengthVisualActive)
 				{
 					transportRows = fastTracksPOCGetEffectiveTrackLength(
 						(uint16_t)displayedPattern, absoluteChannel);
@@ -1456,9 +1472,9 @@ void writePattern(int32_t currRow, int32_t currPattern)
 				if (drawPtr->tuneType != 0) tuneColor = fastTrackColor;
 			}
 
-			const bool lenOwnsFastTrack = fastTrackVisible &&
+			const bool lenOwnsFastTrack = lengthTopologyActive && fastTrackVisible &&
 				(fastTracksPOCUsesTrackLengths() || fastTrack->clutched);
-			const bool inactiveLengthRow = storedLength != 0 &&
+			const bool inactiveLengthRow = lengthTopologyActive && storedLength != 0 &&
 				(!fastTrackVisible || lenOwnsFastTrack) &&
 				displayedRow >= fastTracksPOCGetEffectiveTrackLength(
 					(uint16_t)displayedPattern, absoluteChannel);
@@ -1490,14 +1506,20 @@ void writePattern(int32_t currRow, int32_t currPattern)
 
 			if (drawPlayhead)
 			{
-				uint32_t playheadColor = fastTrackVisible && !lenOwnsFastTrack
+				const bool hybridFastTracksLength = fastTrackVisible &&
+					storedLength != 0 && fastTracksPOCUsesTrackLengths();
+				uint32_t playheadColor = fastTrackVisible
 					? video.palette[PAL_FASTTRACKS_PLAYHEAD]
 					: video.palette[PAL_TRACK_LENGTH_PLAYHEAD];
+				if (hybridFastTracksLength)
+					playheadColor = video.palette[PAL_FASTTRACKS_LENGTH_PLAYHEAD];
 				if (fastTracksPOCGetControlTrack((uint16_t)displayedPattern) ==
 					absoluteChannel)
 				{
 					playheadColor = video.palette[PAL_CONTROL_PLAYHEAD];
 				}
+				if (lengthTopologyBypassed)
+					playheadColor = dimPatternColor(playheadColor);
 
 				drawTrackPlayheadOutline((uint16_t)(xPos + 1),
 					(uint16_t)(textY - 1),

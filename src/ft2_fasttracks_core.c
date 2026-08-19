@@ -45,3 +45,52 @@ int32_t fastTracksClockTick(bool *started, int32_t *accumulator, uint16_t *lastT
 
 	return crossings;
 }
+
+fastTracksSharedBoundaryAction_t fastTracksResolveSharedBoundary(
+	bool topologyActive, bool privateControl, bool masterRowAdvanced,
+	uint32_t masterCycleRow, uint16_t sharedBoundary, int32_t physicalRow,
+	int32_t physicalRows, bool positionJump, bool privateControlBoundary)
+{
+	if (physicalRows < 1)
+		physicalRows = 1;
+	if (sharedBoundary < 1)
+		sharedBoundary = (uint16_t)physicalRows;
+
+	/* Explicit FT2 jumps always win. A private CONTROL completion is only an
+	** authority while the LEN/CONTROL topology is engaged. */
+	if (positionJump || (topologyActive && privateControlBoundary))
+		return FAST_TRACKS_SHARED_BOUNDARY_TRANSITION;
+
+	if (topologyActive)
+	{
+		/* Private CONTROL advances in rational FastTracks time and announces its
+		** own completed cycle above. Standard CONTROL and the natural longest-LEN
+		** topology share the monotonically increasing master-cycle counter. */
+		if (!privateControl && masterRowAdvanced &&
+			masterCycleRow >= sharedBoundary)
+		{
+			return FAST_TRACKS_SHARED_BOUNDARY_TRANSITION;
+		}
+
+		if (physicalRow >= physicalRows)
+			return FAST_TRACKS_SHARED_BOUNDARY_WRAP_PHYSICAL;
+
+		return FAST_TRACKS_SHARED_BOUNDARY_CONTINUE;
+	}
+
+	return physicalRow >= physicalRows
+		? FAST_TRACKS_SHARED_BOUNDARY_TRANSITION
+		: FAST_TRACKS_SHARED_BOUNDARY_CONTINUE;
+}
+
+bool fastTracksSharedCycleUsesBlankRow(bool lengthTopologyBypassed,
+	uint16_t sharedBoundary, int32_t physicalRows, uint32_t masterCycleRow)
+{
+	if (lengthTopologyBypassed || physicalRows < 1 ||
+		sharedBoundary <= (uint16_t)physicalRows)
+	{
+		return false;
+	}
+
+	return masterCycleRow >= (uint32_t)physicalRows;
+}

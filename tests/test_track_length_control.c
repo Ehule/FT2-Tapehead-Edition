@@ -5,6 +5,7 @@
 #include "ft2_audio.h"
 #include "ft2_config.h"
 #include "ft2_fasttracks.h"
+#include "ft2_fasttracks_core.h"
 #include "ft2_replayer.h"
 #include "ft2_structs.h"
 
@@ -13,6 +14,9 @@ audio_t audio;
 song_t song;
 tapeheadConfig_t tapeheadConfig;
 int16_t patternNumRows[MAX_PATTERNS];
+
+void lockAudio(void) { audio.locked = true; }
+void unlockAudio(void) { audio.locked = false; }
 
 static void initializePatternRows(void)
 {
@@ -35,7 +39,10 @@ static void testDefaultsBoundsAndCopy(void)
 	assert(fastTracksPOCGetTrackLength(3, 3) == MAX_PATT_LEN);
 	assert(fastTracksPOCGetEffectiveTrackLength(3, 3) == MAX_PATT_LEN);
 	assert(fastTracksPOCGetExtendedPatternLength(3) == MAX_PATT_LEN);
-	assert(fastTracksPOCGetEffectiveTrackLength(3, 0) == MAX_PATT_LEN);
+	/* CONTROL LEN13 overrides the natural longest LEN256 shared domain. LEN OFF
+	** lanes inherit the authoritative shared boundary. */
+	assert(fastTracksPOCGetSharedBoundary(3) == 13);
+	assert(fastTracksPOCGetEffectiveTrackLength(3, 0) == 13);
 	assert(fastTracksPOCGetTrackLength(4, 2) == 13); /* song-wide lane */
 	assert(fastTracksPOCGetControlTrack(3) == 2);
 	assert(fastTracksPOCGetControlTrack(4) == 2); /* song-wide CONTROL */
@@ -49,6 +56,64 @@ static void testDefaultsBoundsAndCopy(void)
 	assert(fastTracksPOCGetControlTrack(3) == 2);
 	assert(fastTracksPOCGetControlTrack(4) == 2);
 	assert(fastTracksPOCGetTrackLength(4, 2) == 13);
+}
+
+static void testNaturalBoundaryAndRuntimeBypass(void)
+{
+	fastTracksPOCResetAllPatternMetadata();
+	patternNumRows[6] = 64;
+	fastTracksPOCSetTrackLength(6, 0, 3);
+	fastTracksPOCSetTrackLength(6, 1, 5);
+	fastTracksPOCSetTrackLength(6, 2, 7);
+	assert(fastTracksPOCHasExplicitTrackLengths());
+	assert(fastTracksPOCLengthTopologyIsActive(6));
+	assert(fastTracksPOCGetSharedBoundary(6) == 7);
+	assert(fastTracksPOCGetEffectiveTrackLength(6, 3) == 7);
+
+	fastTracksPOCSetControlTrack(6, 1);
+	assert(fastTracksPOCGetSharedBoundary(6) == 5);
+	assert(fastTracksPOCGetEffectiveTrackLength(6, 3) == 5);
+	fastTracksPOCSetTrackLength(6, 1, 0);
+	assert(fastTracksPOCGetSharedBoundary(6) == 64);
+	assert(fastTracksPOCGetEffectiveTrackLength(6, 3) == 64);
+	fastTracksPOCSetTrackLength(6, 1, 5);
+
+	fastTracksPOCSetLengthTopologyBypassed(true);
+	assert(fastTracksPOCLengthTopologyIsBypassed());
+	assert(!fastTracksPOCLengthTopologyIsActive(6));
+	assert(fastTracksPOCGetSharedBoundary(6) == 64);
+	assert(fastTracksPOCGetFastTrackLength(6, 0) == 64);
+	assert(fastTracksPOCResolveMasterSourceRow(6, 0, 42) == 42);
+	/* Stored preparation remains untouched while bypassed. */
+	assert(fastTracksPOCGetTrackLength(6, 0) == 3);
+	assert(fastTracksPOCGetControlTrack(6) == 1);
+
+	fastTracksPOCSetTrackLength(6, 1, 11);
+	fastTracksPOCSetLengthTopologyBypassed(false);
+	assert(fastTracksPOCGetSharedBoundary(6) == 11);
+	assert(fastTracksPOCGetTrackLength(6, 0) == 3);
+}
+
+static void testLogicalExtensionRowsNeverWrapToStoredData(void)
+{
+	fastTracksPOCResetAllPatternMetadata();
+	patternNumRows[9] = 16;
+	fastTracksPOCSetTrackLength(9, 0, 24);
+	assert(fastTracksPOCGetSharedBoundary(9) == 24);
+
+	for (uint32_t logicalRow = 16; logicalRow < 24; logicalRow++)
+	{
+		fastTracksPOCSetMasterCycleRow(logicalRow);
+		/* The explicit lane and a LEN-OFF companion both publish the logical
+		** extension row. The replayer's physical-range check therefore resolves
+		** both as blank instead of wrapping either one to source rows 0..7. */
+		assert(fastTracksPOCResolveMasterSourceRow(9, 0,
+			(int32_t)(logicalRow - 16)) == (int32_t)logicalRow);
+		assert(fastTracksPOCResolveMasterSourceRow(9, 1,
+			(int32_t)(logicalRow - 16)) == (int32_t)logicalRow);
+		assert(fastTracksSharedCycleUsesBlankRow(false, 24, 16,
+			logicalRow));
+	}
 }
 
 static void testMasterPhaseAndResizeSafety(void)
@@ -349,6 +414,8 @@ int main(void)
 	initializePatternRows();
 	fastTracksPOCSetUsesTrackLengths(true);
 	testDefaultsBoundsAndCopy();
+	testNaturalBoundaryAndRuntimeBypass();
+	testLogicalExtensionRowsNeverWrapToStoredData();
 	testMasterPhaseAndResizeSafety();
 	testXMRoundTrip();
 	testPatternLocalExtensionMigratesInSongOrder();

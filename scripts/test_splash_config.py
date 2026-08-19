@@ -39,11 +39,11 @@ def main() -> None:
         )
 
         cases = (
-            ("[Video]\nshowSplashScreen=true\n", "true", "true", "256"),
-            ("[Video]\nshowSplashScreen=false\n", "false", "true", "256"),
-            ("[Video]\nshowSplashScreen=off\n", "false", "true", "256"),
-            ("[Video]\nshowSplashScreen=yes\n", "true", "true", "256"),
-            ("[Video]\nHDMode=false\n", "true", "true", "256"),
+            ("[Video]\nshowSplashScreen=true\n", "true", "true", "256", "1", "8", "true"),
+            ("[Video]\nshowSplashScreen=false\n", "false", "true", "256", "1", "8", "true"),
+            ("[Video]\nshowSplashScreen=off\n", "false", "true", "256", "1", "8", "true"),
+            ("[Video]\nshowSplashScreen=yes\n", "true", "true", "256", "1", "8", "true"),
+            ("[Video]\nHDMode=false\n", "true", "true", "256", "1", "8", "true"),
             (
                 "[Video]\nshowSplashScreen=true\n"
                 "[Pattern]\nFastTracksUseTrackLengths=false\n"
@@ -51,11 +51,44 @@ def main() -> None:
                 "true",
                 "false",
                 "64",
+                "1",
+                "8",
+                "true",
             ),
-            ("[Pattern]\nTrackLengthControlMax=999\n", "true", "true", "256"),
-            ("[Pattern]\nTrackLengthControlMax=0\n", "true", "true", "256"),
+            ("[Pattern]\nTrackLengthControlMax=999\n", "true", "true", "256", "1", "8", "true"),
+            ("[Pattern]\nTrackLengthControlMax=0\n", "true", "true", "256", "1", "8", "true"),
+            (
+                "[MIDI]\nControlTrackLeftStart=3\n"
+                "ControlTrackRightStart=6\n"
+                "ControlTrackNavigationWrap=false\n",
+                "true",
+                "true",
+                "256",
+                "3",
+                "6",
+                "false",
+            ),
+            (
+                "[MIDI]\nControlTrackLeftStart=0\n"
+                "ControlTrackRightStart=9\n"
+                "ControlTrackNavigationWrap=maybe\n",
+                "true",
+                "true",
+                "256",
+                "1",
+                "8",
+                "true",
+            ),
         )
-        for contents, expected, expected_fasttracks_len, expected_max in cases:
+        for (
+            contents,
+            expected,
+            expected_fasttracks_len,
+            expected_max,
+            expected_left,
+            expected_right,
+            expected_wrap,
+        ) in cases:
             tapehead_ini.write_text(contents, encoding="utf-8")
             subprocess.run(
                 [
@@ -64,6 +97,9 @@ def main() -> None:
                     expected,
                     expected_fasttracks_len,
                     expected_max,
+                    expected_left,
+                    expected_right,
+                    expected_wrap,
                 ],
                 check=True,
                 cwd=ROOT,

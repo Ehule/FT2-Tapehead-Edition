@@ -21,6 +21,7 @@
 #include "ft2_audio.h"
 #include "ft2_pattern_ed.h"
 #include "ft2_fasttracks.h"
+#include "ft2_fasttracks_core.h"
 #include "ft2_sample_ed.h"
 #include "ft2_inst_ed.h"
 #include "ft2_diskop.h"
@@ -2718,7 +2719,16 @@ static void processMasterTransportEffect(channel_t *ch, const note_t *event)
 
 static void getNextPos(void)
 {
-	const bool privateBoundaryRequested = fastTracksControlBoundaryPending;
+	const bool topologyActive = fastTracksPOCLengthTopologyIsActive(song.pattNum);
+	const int32_t controlTrack = topologyActive
+		? fastTracksPOCGetControlTrack(song.pattNum) : -1;
+	const bool privateControl = topologyActive &&
+		controlUsesPrivateFastTrack(controlTrack);
+	if (!privateControl)
+		fastTracksControlBoundaryPending = false;
+
+	const bool privateBoundaryRequested = privateControl &&
+		fastTracksControlBoundaryPending;
 	const bool privateBoundaryWaitingForDelay = privateBoundaryRequested &&
 		(song.pattDelTime > 0 || song.pattDelTime2 > 0);
 	if (song.tick != 1 &&
@@ -2774,24 +2784,22 @@ static void getNextPos(void)
 		song.row = song.pBreakPos;
 	}
 
-	const int32_t controlTrack = fastTracksPOCGetControlTrack(song.pattNum);
-	const bool privateControl = controlUsesPrivateFastTrack(controlTrack);
-	const bool standardControlBoundary = controlTrack >= 0 && !privateControl &&
-		masterRowAdvanced && fastTracksPOCGetMasterCycleRow() >=
-		fastTracksPOCGetEffectiveTrackLength(song.pattNum, controlTrack);
-	const bool controlBoundary = privateControlBoundary || standardControlBoundary;
-	const bool ordinaryPatternEnd = song.row >= song.currNumRows;
-
-	/* CONTROL owns the real pattern boundary. The ordinary FT2 row domain can
-	** still wrap internally while a slow CONTROL head completes its cycle. */
-	if (controlTrack >= 0 && !song.posJumpFlag && !controlBoundary)
+	const fastTracksSharedBoundaryAction_t boundaryAction =
+		fastTracksResolveSharedBoundary(topologyActive, privateControl,
+			masterRowAdvanced, fastTracksPOCGetMasterCycleRow(),
+			fastTracksPOCGetSharedBoundary(song.pattNum), song.row,
+			song.currNumRows, song.posJumpFlag, privateControlBoundary);
+	if (boundaryAction == FAST_TRACKS_SHARED_BOUNDARY_WRAP_PHYSICAL)
 	{
-		if (ordinaryPatternEnd)
-			song.row = 0;
+		/* The physical pattern is only the data container. A longer logical cycle
+		** wraps its safe row index while the master-cycle phase keeps advancing. */
+		song.row = 0;
 		return;
 	}
+	if (boundaryAction == FAST_TRACKS_SHARED_BOUNDARY_CONTINUE)
+		return;
 
-	if (ordinaryPatternEnd || song.posJumpFlag || controlBoundary)
+	if (boundaryAction == FAST_TRACKS_SHARED_BOUNDARY_TRANSITION)
 	{
 		fastTracksControlBoundaryPending = false;
 		song.row = song.pBreakPos;
@@ -3030,7 +3038,13 @@ void tickReplayer(void) // periodically called from audio callback
 	}
 
 	const note_t *rowNotes = nilPatternLine;
-	if (readNewNote && pattern[song.pattNum] != NULL)
+	const uint16_t sharedBoundary =
+		fastTracksPOCGetSharedBoundary(song.pattNum);
+	const bool sharedBlankRow = fastTracksSharedCycleUsesBlankRow(
+		fastTracksPOCLengthTopologyIsBypassed(), sharedBoundary,
+		patternNumRows[song.pattNum], fastTracksPOCGetMasterCycleRow());
+	if (readNewNote && !sharedBlankRow && pattern[song.pattNum] != NULL &&
+		song.row >= 0 && song.row < patternNumRows[song.pattNum])
 		rowNotes = &pattern[song.pattNum][song.row * MAX_CHANNELS];
 
 	/* Use one TPL snapshot for every channel on this audio tick. An Fxx
@@ -3041,7 +3055,10 @@ void tickReplayer(void) // periodically called from audio callback
 	beginTapeheadGlobalCommandPass();
 
 	ch = channel;
-	const int32_t activeControlTrack = fastTracksPOCGetControlTrack(song.pattNum);
+	const bool lengthTopologyActive =
+		fastTracksPOCLengthTopologyIsActive(song.pattNum);
+	const int32_t activeControlTrack = lengthTopologyActive
+		? fastTracksPOCGetControlTrack(song.pattNum) : -1;
 	for (int32_t i = 0; i < song.numChannels; i++, ch++)
 	{
 		if (patternLauncherConsumeDestinationRelease(i) &&
@@ -3073,7 +3090,8 @@ void tickReplayer(void) // periodically called from audio callback
 		const bool fastTrackEnabled = fastTracksPOCIsEnabled(i);
 		const bool localLengthEnabled =
 			fastTracksPOCGetTrackLength(song.pattNum, sourceChannel) != 0;
-		const bool lengthOwnsCurrentPlayback = localLengthEnabled &&
+		const bool lengthOwnsCurrentPlayback = lengthTopologyActive &&
+			localLengthEnabled &&
 			(!fastTrackEnabled || fastTracksPOCUsesTrackLengths() ||
 			 fastTracksPOCIsClutched(i));
 		if (readNewNote && lengthOwnsCurrentPlayback)
@@ -3134,7 +3152,7 @@ void tickReplayer(void) // periodically called from audio callback
 					}
 
 					note_t localEvent = *sourceNote;
-					if (fastTracksPOCUsesTrackLengths() &&
+					if (lengthTopologyActive && fastTracksPOCUsesTrackLengths() &&
 						fastTracksPOCGetTrackLength((uint16_t)sourcePattern,
 						sourceChannel) != 0)
 					{
@@ -3157,7 +3175,7 @@ void tickReplayer(void) // periodically called from audio callback
 		else if (readNewNote)
 		{
 			const note_t *sourceNote = masterNote;
-			if (localLengthEnabled && pattern[song.pattNum] != NULL)
+			if (lengthOwnsCurrentPlayback && pattern[song.pattNum] != NULL)
 			{
 				const int32_t localRow = fastTracksPOCResolveMasterSourceRow(
 					song.pattNum, sourceChannel, song.row);
@@ -3172,7 +3190,7 @@ void tickReplayer(void) // periodically called from audio callback
 				}
 			}
 			note_t localEvent = *sourceNote;
-			if (localLengthEnabled)
+			if (lengthOwnsCurrentPlayback)
 				isolateLengthLocalEvent(&localEvent);
 			getNewNote(ch, &localEvent);
 		}
@@ -3790,6 +3808,7 @@ void startPlaying(int8_t mode, int16_t row)
 
 	lockMixerCallback();
 	transportPunchSkipResumeRow = false;
+	tapeheadActionTransportPunchClearForStop();
 
 	ASSERT(mode != PLAYMODE_IDLE && mode != PLAYMODE_EDIT);
 	if (mode == PLAYMODE_PATT || mode == PLAYMODE_RECPATT)
@@ -3869,6 +3888,7 @@ void stopPlayingKeepPoly(void)
 	playMode = PLAYMODE_IDLE;
 	songPlaying = false;
 	transportPunchSkipResumeRow = false;
+	tapeheadActionTransportPunchClearForStop();
 
 	for (uint8_t i = 0; i < MAX_CHANNELS; i++)
 	{
@@ -3900,6 +3920,7 @@ void stopPlaying(void)
 	playMode = PLAYMODE_IDLE;
 	songPlaying = false;
 	transportPunchSkipResumeRow = false;
+	tapeheadActionTransportPunchClearForStop();
 
 	if (config.killNotesOnStopPlay)
 	{
@@ -4030,17 +4051,24 @@ void tapeheadReplayerBeginTransportPunch(void)
 	** clock had already prepared the following row. */
 	if (songPlaying && song.songLength > 0)
 	{
-		int32_t pos = editor.songPos;
-		if (pos < 0) pos = 0;
-		if (pos >= song.songLength) pos = song.songLength - 1;
+		if (!fastTracksPOCLengthTopologyIsActive(song.pattNum))
+		{
+			int32_t pos = editor.songPos;
+			if (pos < 0) pos = 0;
+			if (pos >= song.songLength) pos = song.songLength - 1;
 
-		const uint8_t pattNum = song.orders[pos];
-		uint16_t row = editor.row;
-		const uint16_t rows = patternNumRows[pattNum];
-		if (rows > 0 && row >= rows)
-			row = rows - 1;
+			const uint8_t pattNum = song.orders[pos];
+			uint16_t row = editor.row;
+			const uint16_t rows = patternNumRows[pattNum];
+			if (rows > 0 && row >= rows)
+				row = rows - 1;
 
-		setSongPos((int16_t)pos, (int16_t)row, DONT_RESET_SONG_TICK);
+			setSongPos((int16_t)pos, (int16_t)row, DONT_RESET_SONG_TICK);
+		}
+		/* A LEN topology can be in a logical blank extension or a private
+		** CONTROL phase that has no safe one-to-one physical editor row. The
+		** Freeze flag is published before this call, so retain those authoritative
+		** counters exactly instead of clamping/rewinding them through setSongPos. */
 		syncEditorPatternContextToSong();
 	}
 	else

@@ -41,7 +41,7 @@ static const uint8_t FTC_EditOrder[TAPEHEAD_PALETTE_EDIT_COUNT] =
 	PAL_PATTERN_VOLUME, PAL_PATTERN_TUNING, PAL_PATTERN_EFFECT,
 	PAL_PATTERN_EMPTY, PAL_TRACK_LENGTH_PLAYHEAD, PAL_FASTTRACKS_PLAYHEAD,
 	PAL_CONTROL_PLAYHEAD, PAL_FASTTRACKS_SYNC, PAL_FASTTRACKS_PHASE,
-	PAL_FASTTRACKS_SONG
+	PAL_FASTTRACKS_SONG, PAL_FASTTRACKS_LENGTH_PLAYHEAD
 };
 static const uint8_t scaleOrder[3] = { 8, 4, 9 };
 static const char *paletteFileKeys[TAPEHEAD_PALETTE_EDIT_COUNT] =
@@ -50,14 +50,14 @@ static const char *paletteFileKeys[TAPEHEAD_PALETTE_EDIT_COUNT] =
 	"PatternNote", "PatternInstrument", "PatternVolume", "PatternTuning",
 	"PatternEffect", "PatternEmpty", "TrackLengthPlayhead",
 	"FastTracksPlayhead", "ControlPlayhead", "FastTracksSync",
-	"FastTracksPhase", "FastTracksSong"
+	"FastTracksPhase", "FastTracksSong", "FastTracksLengthPlayhead"
 };
 static const char *paletteEntryNames[TAPEHEAD_PALETTE_EDIT_COUNT] =
 {
 	"PAT Text", "Block Mark", "Block Text", "Mouse", "Desktop", "Buttons",
 	"PAT Note", "PAT Inst.", "PAT Volume", "PAT Tuning", "PAT Effect",
 	"PAT Empty", "LEN Head", "FT Head", "CONTROL Head", "FT Sync LED",
-	"FT Phase LED", "FT Song Badge"
+	"FT Phase LED", "FT Song Badge", "FT+LEN Head"
 };
 
 static uint8_t color8To6(uint8_t color);
@@ -80,7 +80,7 @@ static void initPatternColors(void)
 		static const uint32_t transportDefaults[TAPEHEAD_TRANSPORT_COLOR_COUNT] =
 		{
 			0x40D8FF, 0xFFB020, 0xFF3030,
-			0x00D040, 0xFF3030, 0xFFB020
+			0x00D040, 0xFF3030, 0xFFB020, 0xD060FF
 		};
 		for (int32_t field = 0; field < TAPEHEAD_TRANSPORT_COLOR_COUNT; field++)
 		{
