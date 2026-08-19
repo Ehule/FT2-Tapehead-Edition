@@ -53,6 +53,15 @@ for call in (length_toggle, freeze_toggle):
     assert "!keyWasRepeated" in keyboard[call - 120:call]
 assert "tapeheadActionTransportPunchKeyboard(" not in keyboard
 assert "tapeheadActionTransportPunchKeyboard" not in events
+assert "transportPunchPedalLatched" not in actions
+assert "transportPunchKeyboardLatched" not in actions
+assert "transportPunchToggleLatched" in actions
+assert "tapeheadActionTransportPunchClearForStop();" in replayer
+
+# APC Left/Right now move the song-wide CONTROL lane instead of the edit cursor.
+assert '"Right", "NoteOn.1.96", "TrackLengthControlNext"' in apc
+assert '"Left", "NoteOn.1.97", "TrackLengthControlPrevious"' in apc
+assert "tapeheadActionTrackLengthControlMove" in actions
 
 # APC Device Lock keeps one action path: Shift branches in the shared action,
 # and the physical LED preserves normal FastTracks feedback while reporting the

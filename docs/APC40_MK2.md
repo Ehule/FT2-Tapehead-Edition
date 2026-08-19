@@ -178,8 +178,8 @@ channels as well, while leaving their private transport assignments intact.
 | Master button | If any track is audible, Performance Mute all eight; if all are muted, unmute all | Solid = all, blink = some |
 | Master fader | FT2 master volume, 0–256 | Hardware position |
 | Crossfader | Absolute pattern strum: A = row 00, B = final row | Hardware position |
-| Bank Select Left / Right | Native Shift+Tab / Tab track navigation, landing on note field | — |
-| Bank Select Up / Down | Previous/next Song Order position, stopping at the boundaries | Jump backward/forward by the current edit-step length |
+| Left / Right | Move the song-wide LEN CONTROL track left/right | — |
+| Up / Down | Previous/next Song Order position, stopping at the boundaries | Jump backward/forward by the current edit-step length |
 | Footswitch | Transport Punch: freeze/unfreeze every automatic transport while leaving the mixer alive | Configurable Toggle or Hold behavior |
 
 Transport Punch makes the human the flywheel. While frozen, ordinary Song or
@@ -197,6 +197,19 @@ voices on entry, while `Cut` silences them. `TransportFreezePedalMode=Toggle`
 uses successive downstrokes; `Hold` freezes only while the pedal is depressed.
 `TransportFreezeResume=Next` treats the originally frozen row as already heard;
 `Retrigger` deliberately plays it again when transport punches back in.
+
+In the normal `Toggle` mode, the footswitch and Shift+Space operate one shared
+Freeze latch: either can freeze, and either can unfreeze what the other started.
+Plain Space stops ordinary playback and clears that latch, so the next playback
+always begins unfrozen. `Hold` remains available for a momentary pedal; a held
+pedal remains physically authoritative until released.
+
+Left/Right CONTROL selection does not require the chosen lane to have a LEN.
+With CONTROL off, Left initially chooses track 1 and Right chooses track 8.
+`ControlTrackLeftStart` and `ControlTrackRightStart` customize those entry
+tracks. `ControlTrackNavigationWrap=true` wraps 1 to 8 and 8 to 1; `false`
+stops at the active controller-track boundary. Modules with fewer than eight
+tracks clamp the configured entry points and boundary to their final track.
 
 Automatic playhead display sync is suspended while punched out. The pattern
 editor therefore follows Cue Level, crossfader, and Up/Down movements directly
@@ -273,6 +286,7 @@ FastTrackResetAll
 FastTrackRatioAllNext         FastTrackRatioAllPrevious
 FastTrackRatioAllOrMatrixBankNext
 FastTrackRatioAllOrMatrixBankPrevious
+TrackLengthControlPrevious  TrackLengthControlNext
 SampleMorphArmToggle          SampleMorphSelect:n
 SampleMorphAllNext            SampleMorphAllPrevious
 PerformanceMuteAll            PerformanceUnmuteAll

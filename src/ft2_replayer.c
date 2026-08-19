@@ -3808,6 +3808,7 @@ void startPlaying(int8_t mode, int16_t row)
 
 	lockMixerCallback();
 	transportPunchSkipResumeRow = false;
+	tapeheadActionTransportPunchClearForStop();
 
 	ASSERT(mode != PLAYMODE_IDLE && mode != PLAYMODE_EDIT);
 	if (mode == PLAYMODE_PATT || mode == PLAYMODE_RECPATT)
@@ -3887,6 +3888,7 @@ void stopPlayingKeepPoly(void)
 	playMode = PLAYMODE_IDLE;
 	songPlaying = false;
 	transportPunchSkipResumeRow = false;
+	tapeheadActionTransportPunchClearForStop();
 
 	for (uint8_t i = 0; i < MAX_CHANNELS; i++)
 	{
@@ -3918,6 +3920,7 @@ void stopPlaying(void)
 	playMode = PLAYMODE_IDLE;
 	songPlaying = false;
 	transportPunchSkipResumeRow = false;
+	tapeheadActionTransportPunchClearForStop();
 
 	if (config.killNotesOnStopPlay)
 	{

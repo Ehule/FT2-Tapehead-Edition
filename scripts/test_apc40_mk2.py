@@ -15,6 +15,11 @@ for key in ("GridTopPad01", "Activator08", "SceneLaunch1", "SceneLaunch5", "Play
     assert f"\n{key}=" in ini_text
 assert "PatternJogAudition=" in ini_text
 assert "PatternJogFastTracks=" in ini_text
+assert "ControlTrackLeftStart=1" in ini_text
+assert "ControlTrackRightStart=8" in ini_text
+assert "ControlTrackNavigationWrap=true" in ini_text
+assert "Right=TrackLengthControlNext" in ini_text
+assert "Left=TrackLengthControlPrevious" in ini_text
 
 # Shipped/generated defaults live in code; the runtime INI is intentionally
 # user-editable and must not make the regression suite fail when customized.
@@ -26,6 +31,7 @@ assert 'fputs("Shift=ShiftModifier\\nTapTempo=FastTrackGlobalModeToggle\\n", f);
 assert 'fputs("Crossfader=PatternJogAbsolute\\n", f);' in config_source
 assert 'fputs("CueLevel=PatternJogRelative\\n", f);' in config_source
 assert 'fputs("Footswitch=TransportPunch\\n\\n", f);' in config_source
+assert 'fputs("Right=TrackLengthControlNext\\nLeft=TrackLengthControlPrevious\\n", f);' in config_source
 assert 'fputs("PatternJogAudition=Latched\\n", f);' in config_source
 assert 'fputs("PatternJogFastTracks=Ignore\\n", f);' in config_source
 assert 'fputs("TransportFreezeAudio=Sustain\\n", f);' in config_source
@@ -37,6 +43,8 @@ assert "Footswitch=TransportPunch" in ini_text
 assert "tapeheadAPC40Mk2TrackLengthRingValue" in apc_source
 assert "lengthRingLit" in apc_source
 assert "trackLengthControlMax" in apc_source
+assert '"Right", "NoteOn.1.96", "TrackLengthControlNext"' in apc_source
+assert '"Left", "NoteOn.1.97", "TrackLengthControlPrevious"' in apc_source
 
 # Startup must gate all feedback on the one successful Mode 2 send. The clear
 # and authoritative refresh follow it, while ordinary refresh contains no

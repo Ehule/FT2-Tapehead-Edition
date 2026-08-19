@@ -214,6 +214,20 @@ change their FastTracks mode; their private heads resume on subsequent
 FastTracks events. The same setting governs what Live Bake records, so the
 Tapehead bake matches the strummed performance.
 
+The APC Left/Right buttons can replace edit-cursor movement with song-wide LEN
+CONTROL selection:
+
+```ini
+ControlTrackLeftStart=1
+ControlTrackRightStart=8
+ControlTrackNavigationWrap=true
+```
+
+The two start values accept tracks `1..8` and are used only when CONTROL is
+currently off (or outside the APC's eight strips). A shorter module clamps them
+to its final active track. CONTROL selection is valid even when that track's
+LEN is OFF. When wrapping is disabled, Left/Right stop at the active boundary.
+
 Mapping keys use `Message.MIDIChannel.Number`. MIDI channels, tracker tracks,
 Matrix banks, and Matrix slots are one-based in the file. Inputs are `NoteOn`
 (or the `Note` alias) and `CC`.
@@ -224,6 +238,7 @@ Matrix banks, and Matrix slots are one-based in the file. Inputs are `NoteOn`
 | `PerformanceUnmuteAll`, `PerformanceUnmuteNext`, `PerformanceMutePrevious`, `UnmuteAll` | None |
 | `FastTrackToggle`, `FastTrackRatioNext`, `FastTrackRatioPrevious`, `FastTrackRatioReset`, `FastTrackReverseToggle`, `FastTrackClutchToggle` | Tracker track `1..32` |
 | `FastTrackMasterToggle`, `FastTrackGlobalModeToggle`, `FastTrackResetAll` | None |
+| `TrackLengthControlPrevious`, `TrackLengthControlNext` | None |
 | `MatrixModePattern`, `MatrixModeSample`, `MatrixModeToggle` | None |
 | `MatrixBankSelect`, `MatrixLayerBankSelect` | Bank `1..8`; layered form uses Pattern normally and Sample while Shift is held |
 | `MatrixBankNext`, `MatrixBankPrevious` | None |
@@ -258,6 +273,10 @@ jumps sound row `00`. `Next` continues after the row that was already heard
 when the pedal froze time; `Retrigger` deliberately strikes that row again on
 resume. A later silent relocation always makes its destination pending, while
 an auditioned or strummed destination is consumed and resumes on the next row.
+In Toggle mode, the pedal and Shift+Space share one latch, so either control can
+unfreeze the other. Plain Space clears the latch as it stops playback, and a
+new playback starts unfrozen. Hold mode remains momentary while the pedal is
+physically depressed.
 
 Note On with velocity zero is treated as Note Off. Button actions run on the
 press edge only, so a release cannot toggle a track a second time. CC values

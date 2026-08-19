@@ -67,6 +67,7 @@ bool tapeheadActionFastTrackRatioAllOrMatrixBankPrevious(void);
 bool tapeheadActionFastTrackRatioSet(int32_t channelIndex, int32_t ratioIndex);
 uint16_t tapeheadActionTrackLengthFromController(uint8_t value);
 bool tapeheadActionTrackLengthSet(int32_t channelIndex, uint16_t length);
+bool tapeheadActionTrackLengthControlMove(int32_t direction);
 bool tapeheadActionFastTrackRatioNext(int32_t channelIndex);
 bool tapeheadActionFastTrackRatioPrevious(int32_t channelIndex);
 bool tapeheadActionFastTrackRatioReset(int32_t channelIndex);
@@ -118,6 +119,7 @@ bool tapeheadActionTransportStopAll(void);
 bool tapeheadActionTransportPunchPedal(bool pressed);
 bool tapeheadActionTransportPunchKeyboardToggle(void);
 bool tapeheadActionTransportPunchIsFrozen(void);
+void tapeheadActionTransportPunchClearForStop(void);
 
 bool tapeheadActionPatternJogRelative(int32_t delta);
 bool tapeheadActionPatternJogAbsolute(int32_t value);

@@ -827,7 +827,8 @@ static void writeDefaultAPC40Map(FILE *f)
 	fputs("Metronome=FastTrackGlobalReverseToggle\n", f);
 	fputs("Play=TransportPlaySongToggle\n", f);
 	fputs("Record=TransportPlayPatternToggle\n", f);
-	fputs("Up=SongOrderPrevious\nDown=SongOrderNext\nRight=CursorRight\nLeft=CursorLeft\n", f);
+	fputs("Up=SongOrderPrevious\nDown=SongOrderNext\n", f);
+	fputs("Right=TrackLengthControlNext\nLeft=TrackLengthControlPrevious\n", f);
 	fputs("Shift=ShiftModifier\nTapTempo=FastTrackGlobalModeToggle\n", f);
 	fputs("NudgeMinus=SpeedDown\nNudgePlus=SpeedUp\n", f);
 	fputs("Session=MatrixGridModeToggle\nBank=TransportStopSelectedDeck\n", f);
@@ -917,13 +918,20 @@ static void writeDefaultTapeheadConfig(const UNICHAR *filePathU)
 	fputs("TrackTrimMaxPercent=200\n", f);
 	fputs("; Scope trim-indicator width in logical pixels (accepted range: 0-8; 0 disables).\n", f);
 	fputs("TrackTrimDisplayWidth=2\n", f);
+	fputs("; APC Left/Right choose the LEN CONTROL track. With no current CONTROL,\n", f);
+	fputs("; LeftStart/RightStart select their first track (accepted range: 1-8).\n", f);
+	fputs("ControlTrackLeftStart=1\n", f);
+	fputs("ControlTrackRightStart=8\n", f);
+	fputs("; When false, navigation stops at tracks 1 and 8 instead of wrapping.\n", f);
+	fputs("ControlTrackNavigationWrap=true\n", f);
 	fputs("; Cue Level/Crossfader strum: Latched, Momentary, ManualPingPong or Off.\n", f);
 	fputs("PatternJogAudition=Latched\n", f);
 	fputs("; FastTracks channels during Cue Level/Crossfader strumming: Ignore or Include.\n", f);
 	fputs("PatternJogFastTracks=Ignore\n", f);
 	fputs("; APC footswitch Transport Punch: Sustain or Cut existing audio.\n", f);
 	fputs("TransportFreezeAudio=Sustain\n", f);
-	fputs("; Toggle punches on/off with successive presses; Hold freezes while depressed.\n", f);
+	fputs("; Toggle shares one latch with Shift+Space; Hold freezes while depressed.\n", f);
+	fputs("; Plain Space clears Freeze, and the next playback begins unfrozen.\n", f);
 	fputs("TransportFreezePedalMode=Toggle\n", f);
 	fputs("; Frozen Up/Down relocation: Silent or Audition the destination row.\n", f);
 	fputs("TransportFreezeNavigation=Silent\n", f);
@@ -970,6 +978,9 @@ void loadTapeheadConfig(void)
 	tapeheadConfig.apc40RGBBrightness = 100;
 	tapeheadConfig.trackTrimMaxPercent = 200;
 	tapeheadConfig.trackTrimDisplayWidth = 2;
+	tapeheadConfig.controlTrackLeftStart = 1;
+	tapeheadConfig.controlTrackRightStart = 8;
+	tapeheadConfig.controlTrackNavigationWrap = true;
 	tapeheadConfig.patternJogAudition = TAPEHEAD_PATTERN_JOG_AUDITION_LATCHED;
 	tapeheadConfig.patternJogIncludeFastTracks = false;
 	tapeheadConfig.transportFreezeAudioCut = false;
@@ -1287,6 +1298,25 @@ void loadTapeheadConfig(void)
 				tapeheadConfig.trackTrimDisplayWidth = (uint8_t)
 					(errno == ERANGE ? (*value == '-' ? 0 : 8) :
 					width < 0 ? 0 : width > 8 ? 8 : width);
+		}
+		else if (section == TAPEHEAD_SECTION_MIDI &&
+			!_stricmp(key, "ControlTrackLeftStart"))
+		{
+			uint32_t track;
+			if (parseUInt32Value(value, &track) && track >= 1 && track <= 8)
+				tapeheadConfig.controlTrackLeftStart = (uint8_t)track;
+		}
+		else if (section == TAPEHEAD_SECTION_MIDI &&
+			!_stricmp(key, "ControlTrackRightStart"))
+		{
+			uint32_t track;
+			if (parseUInt32Value(value, &track) && track >= 1 && track <= 8)
+				tapeheadConfig.controlTrackRightStart = (uint8_t)track;
+		}
+		else if (section == TAPEHEAD_SECTION_MIDI &&
+			!_stricmp(key, "ControlTrackNavigationWrap"))
+		{
+			parseBoolValue(value, &tapeheadConfig.controlTrackNavigationWrap);
 		}
 		else if (section == TAPEHEAD_SECTION_MIDI &&
 			!_stricmp(key, "PatternJogAudition"))
