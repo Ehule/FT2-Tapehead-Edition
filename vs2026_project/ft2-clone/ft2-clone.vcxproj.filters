@@ -350,6 +350,12 @@
     <ClInclude Include="..\..\src\ft2_video.h">
       <Filter>headers</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\src\ft2_video_damage.h">
+      <Filter>headers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\ft2_video_scaler.h">
+      <Filter>headers</Filter>
+    </ClInclude>
     <ClInclude Include="..\..\src\ft2_wav_renderer.h">
       <Filter>headers</Filter>
     </ClInclude>

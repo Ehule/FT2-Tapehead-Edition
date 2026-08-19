@@ -48,6 +48,7 @@ TEST_SCRIPTS = (
     "test_poly_matrix_native.py",
 	"test_midi_dub_config.py",
 	"test_splash_config.py",
+	"test_video_damage.py",
 )
 
 
