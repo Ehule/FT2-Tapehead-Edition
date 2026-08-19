@@ -59,6 +59,12 @@ HDStyle=crisp
 
 The logical FT2 layout and mouse coordinates remain 632×400.
 
+The presentation layer tracks changed 16×16 logical tiles. Static regions are
+kept in the streaming texture; only changed regions are rebuilt by the 2×/3×
+filter and uploaded. Large redraws automatically fall back to one full-frame
+update, and minimized windows suspend texture work until restored. This is
+automatic and does not require another INI setting.
+
 ## Pattern LEN and colors
 
 ```ini

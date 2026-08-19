@@ -480,6 +480,8 @@
     <ClInclude Include="..\..\src\ft2_undo.h" />
     <ClInclude Include="..\..\src\ft2_unicode.h" />
     <ClInclude Include="..\..\src\ft2_video.h" />
+    <ClInclude Include="..\..\src\ft2_video_damage.h" />
+    <ClInclude Include="..\..\src\ft2_video_scaler.h" />
     <ClInclude Include="..\..\src\ft2_splash.h" />
     <ClInclude Include="..\..\src\third_party\stb_image.h" />
     <ClInclude Include="..\..\src\ft2_wav_renderer.h" />

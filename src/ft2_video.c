@@ -36,6 +36,7 @@
 #include "ft2_bmp.h"
 #include "ft2_structs.h"
 #include "ft2_edit.h"
+#include "ft2_video_scaler.h"
 
 static const uint8_t textCursorData[12] =
 {
@@ -431,200 +432,110 @@ void endFPSCounter(void)
 ** This is intentionally a presentation layer. It does not change any FT2 UI
 ** coordinates, hitboxes, pattern rendering, replay code or editor behavior.
 */
-static void scale2xFrameBuffer(void)
+static void scale2xFrameBuffer(const tapeheadVideoDamageRect_t *rect)
 {
-	const int32_t dstW = SCREEN_W * 2;
-
-	for (int32_t y = 0; y < SCREEN_H; y++)
-	{
-		const uint32_t *srcPrev = &video.frameBuffer[((y > 0) ? y-1 : y) * SCREEN_W];
-		const uint32_t *srcCurr = &video.frameBuffer[y * SCREEN_W];
-		const uint32_t *srcNext = &video.frameBuffer[((y < SCREEN_H-1) ? y+1 : y) * SCREEN_W];
-		uint32_t *dst0 = &video.presentBuffer[(y * 2) * dstW];
-		uint32_t *dst1 = dst0 + dstW;
-
-		for (int32_t x = 0; x < SCREEN_W; x++)
-		{
-			const int32_t xPrev = (x > 0) ? x-1 : x;
-			const int32_t xNext = (x < SCREEN_W-1) ? x+1 : x;
-			const uint32_t b = srcPrev[x];
-			const uint32_t d = srcCurr[xPrev];
-			const uint32_t e = srcCurr[x];
-			const uint32_t f = srcCurr[xNext];
-			const uint32_t h = srcNext[x];
-			const int32_t dx = x * 2;
-
-			dst0[dx+0] = (d == b && b != f && d != h) ? d : e;
-			dst0[dx+1] = (b == f && b != d && f != h) ? f : e;
-			dst1[dx+0] = (d == h && d != b && h != f) ? d : e;
-			dst1[dx+1] = (h == f && d != h && b != f) ? f : e;
-		}
-	}
+	tapeheadScale2xRoundRegion(video.frameBuffer, SCREEN_W, SCREEN_H,
+		video.presentBuffer, rect);
 }
 
-static void scale3xFrameBuffer(void)
+static void scale3xFrameBuffer(const tapeheadVideoDamageRect_t *rect)
 {
-	const int32_t dstW = SCREEN_W * 3;
-
-	for (int32_t y = 0; y < SCREEN_H; y++)
-	{
-		const uint32_t *srcPrev = &video.frameBuffer[((y > 0) ? y-1 : y) * SCREEN_W];
-		const uint32_t *srcCurr = &video.frameBuffer[y * SCREEN_W];
-		const uint32_t *srcNext = &video.frameBuffer[((y < SCREEN_H-1) ? y+1 : y) * SCREEN_W];
-		uint32_t *dst0 = &video.presentBuffer[(y * 3) * dstW];
-		uint32_t *dst1 = dst0 + dstW;
-		uint32_t *dst2 = dst1 + dstW;
-
-		for (int32_t x = 0; x < SCREEN_W; x++)
-		{
-			const int32_t xPrev = (x > 0) ? x-1 : x;
-			const int32_t xNext = (x < SCREEN_W-1) ? x+1 : x;
-			const uint32_t a = srcPrev[xPrev];
-			const uint32_t b = srcPrev[x];
-			const uint32_t c = srcPrev[xNext];
-			const uint32_t d = srcCurr[xPrev];
-			const uint32_t e = srcCurr[x];
-			const uint32_t f = srcCurr[xNext];
-			const uint32_t g = srcNext[xPrev];
-			const uint32_t h = srcNext[x];
-			const uint32_t i = srcNext[xNext];
-			const int32_t dx = x * 3;
-
-			dst0[dx+0] = (d == b && d != h && b != f) ? d : e;
-			dst0[dx+1] = (((d == b && d != h && b != f && e != c) ||
-			                 (b == f && b != d && f != h && e != a))) ? b : e;
-			dst0[dx+2] = (b == f && b != d && f != h) ? f : e;
-
-			dst1[dx+0] = (((d == b && d != h && b != f && e != g) ||
-			                 (d == h && d != b && h != f && e != a))) ? d : e;
-			dst1[dx+1] = e;
-			dst1[dx+2] = (((b == f && b != d && f != h && e != i) ||
-			                 (h == f && d != h && b != f && e != c))) ? f : e;
-
-			dst2[dx+0] = (d == h && d != b && h != f) ? d : e;
-			dst2[dx+1] = (((d == h && d != b && h != f && e != i) ||
-			                 (h == f && d != h && b != f && e != g))) ? h : e;
-			dst2[dx+2] = (h == f && d != h && b != f) ? f : e;
-		}
-	}
+	tapeheadScale3xRoundRegion(video.frameBuffer, SCREEN_W, SCREEN_H,
+		video.presentBuffer, rect);
 }
 
-static void scale2xCrispFrameBuffer(void)
+static void scale2xCrispFrameBuffer(const tapeheadVideoDamageRect_t *rect)
 {
-	const int32_t dstW = SCREEN_W * 2;
-
-	for (int32_t y = 0; y < SCREEN_H; y++)
-	{
-		const uint32_t *srcPrev = &video.frameBuffer[((y > 0) ? y-1 : y) * SCREEN_W];
-		const uint32_t *srcCurr = &video.frameBuffer[y * SCREEN_W];
-		const uint32_t *srcNext = &video.frameBuffer[((y < SCREEN_H-1) ? y+1 : y) * SCREEN_W];
-		uint32_t *dst0 = &video.presentBuffer[(y * 2) * dstW];
-		uint32_t *dst1 = dst0 + dstW;
-
-		for (int32_t x = 0; x < SCREEN_W; x++)
-		{
-			const int32_t xPrev = (x > 0) ? x-1 : x;
-			const int32_t xNext = (x < SCREEN_W-1) ? x+1 : x;
-			const uint32_t up = srcPrev[x];
-			const uint32_t left = srcCurr[xPrev];
-			const uint32_t e = srcCurr[x];
-			const uint32_t right = srcCurr[xNext];
-			const uint32_t down = srcNext[x];
-			const int32_t dx = x * 2;
-
-			dst0[dx+0] = e;
-			dst0[dx+1] = e;
-			dst1[dx+0] = e;
-			dst1[dx+1] = e;
-
-			/* At 2x a one-pixel chamfer is already 25% of the expanded source
-			** pixel, so require the opposite sides to remain distinct as well.
-			*/
-			if (up != down && left != right)
-			{
-				if (up == left && up != e)
-					dst0[dx+0] = up;
-				if (up == right && up != e)
-					dst0[dx+1] = up;
-				if (down == left && down != e)
-					dst1[dx+0] = down;
-				if (down == right && down != e)
-					dst1[dx+1] = down;
-			}
-		}
-	}
+	tapeheadScale2xCrispRegion(video.frameBuffer, SCREEN_W, SCREEN_H,
+		video.presentBuffer, rect);
 }
 
-static void scale3xCrispFrameBuffer(void)
+static void scale3xCrispFrameBuffer(const tapeheadVideoDamageRect_t *rect)
 {
-	const int32_t dstW = SCREEN_W * 3;
-
-	for (int32_t y = 0; y < SCREEN_H; y++)
-	{
-		const uint32_t *srcPrev = &video.frameBuffer[((y > 0) ? y-1 : y) * SCREEN_W];
-		const uint32_t *srcCurr = &video.frameBuffer[y * SCREEN_W];
-		const uint32_t *srcNext = &video.frameBuffer[((y < SCREEN_H-1) ? y+1 : y) * SCREEN_W];
-		uint32_t *dst0 = &video.presentBuffer[(y * 3) * dstW];
-		uint32_t *dst1 = dst0 + dstW;
-		uint32_t *dst2 = dst1 + dstW;
-
-		for (int32_t x = 0; x < SCREEN_W; x++)
-		{
-			const int32_t xPrev = (x > 0) ? x-1 : x;
-			const int32_t xNext = (x < SCREEN_W-1) ? x+1 : x;
-			const uint32_t up = srcPrev[x];
-			const uint32_t left = srcCurr[xPrev];
-			const uint32_t e = srcCurr[x];
-			const uint32_t right = srcCurr[xNext];
-			const uint32_t down = srcNext[x];
-			const int32_t dx = x * 3;
-
-			for (int32_t i = 0; i < 3; i++)
-			{
-				dst0[dx+i] = e;
-				dst1[dx+i] = e;
-				dst2[dx+i] = e;
-			}
-
-			/* A proven L-shaped neighbor changes one outer corner only. Scale3x's
-			** additional edge propagation is what made the v1 letters too round.
-			*/
-			if (up != down && left != right)
-			{
-				if (up == left && up != e)
-					dst0[dx+0] = up;
-				if (up == right && up != e)
-					dst0[dx+2] = up;
-				if (down == left && down != e)
-					dst2[dx+0] = down;
-				if (down == right && down != e)
-					dst2[dx+2] = down;
-			}
-		}
-	}
+	tapeheadScale3xCrispRegion(video.frameBuffer, SCREEN_W, SCREEN_H,
+		video.presentBuffer, rect);
 }
 
-static const uint32_t *prepareFrameForPresentation(void)
+static void prepareFrameForPresentation(const tapeheadVideoDamageRect_t *rect)
 {
 	if (!video.hdRendererActive || video.presentBuffer == NULL)
-		return video.frameBuffer;
+		return;
 
 	if (video.hdStyle == TAPEHEAD_HD_STYLE_ROUND)
 	{
 		if (video.hdScale == 2)
-			scale2xFrameBuffer();
+			scale2xFrameBuffer(rect);
 		else
-			scale3xFrameBuffer();
+			scale3xFrameBuffer(rect);
 	}
 	else
 	{
 		if (video.hdScale == 2)
-			scale2xCrispFrameBuffer();
+			scale2xCrispFrameBuffer(rect);
 		else
-			scale3xCrispFrameBuffer();
+			scale3xCrispFrameBuffer(rect);
+	}
+}
+
+static void uploadChangedFrame(void)
+{
+	tapeheadVideoDamagePlan_t damage;
+	const uint32_t *previous = video.frameSnapshotValid
+		? video.frameSnapshot : NULL;
+	if (!tapeheadVideoDamagePlan(video.frameBuffer, previous,
+		SCREEN_W, SCREEN_H, &damage))
+	{
+		return;
 	}
 
-	return video.presentBuffer;
+	const int32_t scale = video.hdRendererActive ? video.hdScale : 1;
+	for (uint16_t i = 0; i < damage.count; i++)
+	{
+		const tapeheadVideoDamageRect_t *sourceRect = &damage.rects[i];
+		prepareFrameForPresentation(sourceRect);
+
+		SDL_Rect textureRect;
+		textureRect.x = sourceRect->x * scale;
+		textureRect.y = sourceRect->y * scale;
+		textureRect.w = sourceRect->w * scale;
+		textureRect.h = sourceRect->h * scale;
+
+		const uint32_t *pixels;
+		if (video.hdRendererActive)
+		{
+			pixels = &video.presentBuffer[
+				(textureRect.y * video.textureW) + textureRect.x];
+		}
+		else
+		{
+			pixels = &video.frameBuffer[
+				(sourceRect->y * SCREEN_W) + sourceRect->x];
+		}
+
+		if (SDL_UpdateTexture(video.texture, &textureRect, pixels,
+			video.textureW * sizeof (uint32_t)) < 0)
+		{
+			/* Retry the complete frame next time. A device reset or transient
+			** backend error must never leave the cached snapshot authoritative. */
+			video.frameSnapshotValid = false;
+			return;
+		}
+	}
+
+	/* Keep the comparison snapshot incremental too. Copying the complete
+	** 632x400 surface here would give back part of the memory-bandwidth saving,
+	** especially in the normal 1x renderer. */
+	for (uint16_t i = 0; i < damage.count; i++)
+	{
+		const tapeheadVideoDamageRect_t *rect = &damage.rects[i];
+		for (int32_t y = rect->y; y < rect->y + rect->h; y++)
+		{
+			const int32_t offset = (y * SCREEN_W) + rect->x;
+			memcpy(&video.frameSnapshot[offset], &video.frameBuffer[offset],
+				(size_t)rect->w * sizeof (uint32_t));
+		}
+	}
+	video.frameSnapshotValid = true;
 }
 
 void flipFrame(void)
@@ -639,19 +550,22 @@ void flipFrame(void)
 
 	drawRecPlusOverlay();
 
-	const uint32_t *presentFrame = prepareFrameForPresentation();
-	SDL_UpdateTexture(video.texture, NULL, presentFrame, video.textureW * sizeof (uint32_t));
-
-	// SDL 2.0.14 bug on Windows (?): This function consumes ever-increasing memory if the program is minimized
 	if (!minimized)
-		SDL_RenderClear(video.renderer);
+	{
+		uploadChangedFrame();
 
-	if (video.useCustomRenderRect)
-		SDL_RenderCopy(video.renderer, video.texture, NULL, &video.renderRect);
-	else
-		SDL_RenderCopy(video.renderer, video.texture, NULL, NULL);
+		/* A full-destination copy replaces every output pixel, so clearing it
+		** first is redundant. Centered fullscreen needs the clear for borders. */
+		if (video.useCustomRenderRect)
+			SDL_RenderClear(video.renderer);
 
-	SDL_RenderPresent(video.renderer);
+		if (video.useCustomRenderRect)
+			SDL_RenderCopy(video.renderer, video.texture, NULL, &video.renderRect);
+		else
+			SDL_RenderCopy(video.renderer, video.texture, NULL, NULL);
+
+		SDL_RenderPresent(video.renderer);
+	}
 
 	eraseSprites();
 
@@ -1241,6 +1155,13 @@ void closeVideo(void)
 		video.presentBuffer = NULL;
 	}
 
+	if (video.frameSnapshot != NULL)
+	{
+		free(video.frameSnapshot);
+		video.frameSnapshot = NULL;
+		video.frameSnapshotValid = false;
+	}
+
 	if (recPlusOverlayBackup != NULL)
 	{
 		free(recPlusOverlayBackup);
@@ -1379,6 +1300,7 @@ bool recreateTexture(void)
 
 	// disable alpha blending as we store the palette number in the MSB (0xXX000000)
 	SDL_SetTextureBlendMode(video.texture, SDL_BLENDMODE_NONE);
+	video.frameSnapshotValid = false;
 	return true;
 }
 
@@ -1484,6 +1406,15 @@ bool setupRenderer(void)
 		showErrorMsgBox("Not enough memory!");
 		return false;
 	}
+
+	video.frameSnapshot = (uint32_t *)malloc(
+		SCREEN_W * SCREEN_H * sizeof (uint32_t));
+	if (video.frameSnapshot == NULL)
+	{
+		showErrorMsgBox("Not enough memory for the video damage snapshot!");
+		return false;
+	}
+	video.frameSnapshotValid = false;
 
 	if (video.hdRendererActive)
 	{
