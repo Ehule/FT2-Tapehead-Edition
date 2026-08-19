@@ -469,7 +469,8 @@ void saveTapeheadPatternColorMode(void)
 		"PatternTuningColor", "PatternEffectColor", "PatternEmptyColor",
 		"TrackLengthPlayheadColor", "FastTracksPlayheadColor",
 		"ControlPlayheadColor", "FastTracksSyncColor",
-		"FastTracksPhaseColor", "FastTracksSongColor"
+		"FastTracksPhaseColor", "FastTracksSongColor",
+		"FastTracksLengthPlayheadColor"
 	};
 	uint32_t colors[TAPEHEAD_CUSTOM_COLOR_COUNT]; getUserPatternColors(colors);
 	bool inPattern = false;
@@ -1129,7 +1130,8 @@ void loadTapeheadConfig(void)
 					"PatternEffectColor", "PatternEmptyColor",
 					"TrackLengthPlayheadColor", "FastTracksPlayheadColor",
 					"ControlPlayheadColor", "FastTracksSyncColor",
-					"FastTracksPhaseColor", "FastTracksSongColor"
+					"FastTracksPhaseColor", "FastTracksSongColor",
+					"FastTracksLengthPlayheadColor"
 				};
 				for (uint8_t i = 0; i < TAPEHEAD_CUSTOM_COLOR_COUNT; i++)
 				{

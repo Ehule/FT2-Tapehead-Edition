@@ -33,6 +33,7 @@
 #include "ft2_structs.h"
 #include "ft2_pattern_draw.h"
 #include "ft2_pattern_launcher_ui.h"
+#include "ft2_tapehead_actions.h"
 
 keyb_t keyb; // globalized
 
@@ -116,6 +117,11 @@ void readKeyModifiers(void)
 
 void keyUpHandler(SDL_Scancode scancode, SDL_Keycode keycode)
 {
+	/* Release the momentary Freeze before any modal early-return. This prevents
+	** Shift+Space from remaining stuck after a dialog opens while it is held. */
+	if (scancode == SDL_SCANCODE_SPACE)
+		(void)tapeheadActionTransportPunchKeyboard(false);
+
 	if (editor.editTextFlag || ui.sysReqShown)
 		return; // kludge: don't handle key up! (XXX: Is this hack really needed anymore?)
 
@@ -228,10 +234,25 @@ void keyDownHandler(SDL_Scancode scancode, SDL_Keycode keycode, SDL_Keymod modif
 	if (interpolationHandlePreviewKey(scancode, keycode, keyWasRepeated))
 		return;
 
-	if (!keyWasRepeated && scancode == SDL_SCANCODE_SPACE && keyb.leftCtrlPressed &&
+	if (scancode == SDL_SCANCODE_SPACE && keyb.leftCtrlPressed &&
 		keyb.leftShiftPressed && !keyb.leftAltPressed)
 	{
-		openPatternNavPopup();
+		if (!keyWasRepeated)
+			openPatternNavPopup();
+		return;
+	}
+	if (scancode == SDL_SCANCODE_SPACE && keyb.leftCtrlPressed &&
+		!keyb.leftShiftPressed && !keyb.leftAltPressed)
+	{
+		if (!keyWasRepeated)
+			(void)tapeheadActionTrackLengthBypassToggle();
+		return;
+	}
+	if (scancode == SDL_SCANCODE_SPACE && keyb.leftShiftPressed &&
+		!keyb.leftCtrlPressed && !keyb.leftAltPressed)
+	{
+		if (!keyWasRepeated)
+			(void)tapeheadActionTransportPunchKeyboard(true);
 		return;
 	}
 

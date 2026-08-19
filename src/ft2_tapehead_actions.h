@@ -71,6 +71,7 @@ bool tapeheadActionFastTrackRatioNext(int32_t channelIndex);
 bool tapeheadActionFastTrackRatioPrevious(int32_t channelIndex);
 bool tapeheadActionFastTrackRatioReset(int32_t channelIndex);
 bool tapeheadActionFastTrackResetAll(void);
+bool tapeheadActionTrackLengthBypassToggle(void);
 bool tapeheadActionFastTrackReverseToggle(int32_t channelIndex);
 bool tapeheadActionFastTrackClutchToggle(int32_t channelIndex);
 
@@ -115,6 +116,7 @@ bool tapeheadActionTransportStopSelectedDeck(void);
 bool tapeheadActionTransportStopDeck(void);
 bool tapeheadActionTransportStopAll(void);
 bool tapeheadActionTransportPunchPedal(bool pressed);
+bool tapeheadActionTransportPunchKeyboard(bool pressed);
 bool tapeheadActionTransportPunchIsFrozen(void);
 
 bool tapeheadActionPatternJogRelative(int32_t delta);

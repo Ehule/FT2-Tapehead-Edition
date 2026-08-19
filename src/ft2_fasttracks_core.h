@@ -13,7 +13,6 @@
 int32_t fastTracksClockTick(bool *started, int32_t *accumulator, uint16_t *lastTPL,
 	uint8_t numerator, uint8_t denominator, uint16_t tpl);
 
-
 typedef enum fastTracksSharedBoundaryAction_t
 {
 	FAST_TRACKS_SHARED_BOUNDARY_CONTINUE = 0,

@@ -13,7 +13,8 @@ radios = (ROOT / "src/ft2_radiobuttons.c").read_text()
 for name in ("NOTE", "INSTRUMENT", "VOLUME", "TUNING", "EFFECT", "EMPTY"):
     assert f"PAL_PATTERN_{name}" in header
 for name in ("TRACK_LENGTH_PLAYHEAD", "FASTTRACKS_PLAYHEAD", "CONTROL_PLAYHEAD",
-             "FASTTRACKS_SYNC", "FASTTRACKS_PHASE", "FASTTRACKS_SONG"):
+             "FASTTRACKS_SYNC", "FASTTRACKS_PHASE", "FASTTRACKS_SONG",
+             "FASTTRACKS_LENGTH_PLAYHEAD"):
     assert f"PAL_{name}" in header
 
 helper = palette[palette.index("bool patternFieldColorsActive"):
@@ -65,7 +66,8 @@ for key in ("PatternNoteColor", "PatternInstrumentColor", "PatternVolumeColor",
     assert key in config
 for key in ("TrackLengthPlayheadColor", "FastTracksPlayheadColor",
             "ControlPlayheadColor", "FastTracksSyncColor",
-            "FastTracksPhaseColor", "FastTracksSongColor"):
+            "FastTracksPhaseColor", "FastTracksSongColor",
+            "FastTracksLengthPlayheadColor"):
     assert key in config
 assert 'UNICHAR_FOPEN(tempPathU, "w")' in config
 assert 'inPattern = !_stricmp(text, "[Pattern]")' in config

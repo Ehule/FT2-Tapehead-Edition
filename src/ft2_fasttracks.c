@@ -41,6 +41,9 @@ static uint16_t pendingFastTracksPatternLength[MAX_PATTERNS][FAST_TRACKS_MAX_CHA
 static uint8_t pendingFastTracksControlTrackPlusOne[MAX_PATTERNS];
 static bool pendingFastTracksMetadataValid;
 static volatile uint32_t fastTracksMasterCycleRow;
+/* Runtime-only performance clutch. Stored LEN/CONTROL metadata remains live
+** and editable while playback temporarily returns to physical FT2 timing. */
+static volatile bool fastTracksLengthTopologyBypassed;
 
 /*
 ** A track can remain selected while the master switch is suspended.
@@ -142,6 +145,7 @@ void fastTracksPOCGetRuntimeState(fastTracksRuntimeState_t *state)
 
 	state->masterEnabled = fastTracksPOCMasterEnabled;
 	state->transmissionClutchLatched = fastTracksPOCTransmissionClutchLatched;
+	state->lengthTopologyBypassed = fastTracksLengthTopologyBypassed;
 	state->masterCycleRow = fastTracksMasterCycleRow;
 	for (int32_t i = 0; i < FAST_TRACKS_MAX_CHANNELS; i++)
 	{
@@ -167,6 +171,7 @@ void fastTracksPOCSetRuntimeState(const fastTracksRuntimeState_t *state)
 
 	fastTracksPOCMasterEnabled = state->masterEnabled;
 	fastTracksPOCTransmissionClutchLatched = state->transmissionClutchLatched;
+	fastTracksLengthTopologyBypassed = state->lengthTopologyBypassed;
 	fastTracksMasterCycleRow = state->masterCycleRow;
 	for (int32_t i = 0; i < FAST_TRACKS_MAX_CHANNELS; i++)
 	{
@@ -231,6 +236,84 @@ uint16_t fastTracksPOCGetExtendedPatternLength(uint16_t patternNumber)
 	return length;
 }
 
+bool fastTracksPOCHasExplicitTrackLengths(void)
+{
+	for (int32_t channelIndex = 0; channelIndex < FAST_TRACKS_MAX_CHANNELS;
+		channelIndex++)
+	{
+		if (fastTracksTrackLength[channelIndex] != 0)
+			return true;
+	}
+
+	return false;
+}
+
+uint16_t fastTracksPOCGetSharedBoundary(uint16_t patternNumber)
+{
+	if (patternNumber >= MAX_PATTERNS)
+		return 1;
+
+	const uint16_t physicalLength = (uint16_t)CLAMP(
+		patternNumRows[patternNumber], 1, MAX_PATT_LEN);
+	if (fastTracksLengthTopologyBypassed)
+		return physicalLength;
+
+	const int32_t controlTrack = fastTracksPOCGetControlTrack(patternNumber);
+	if (controlTrack >= 0)
+	{
+		/* CONTROL always owns the shared boundary. Assigning CONTROL to a
+		** LEN-OFF lane deliberately selects the ordinary physical reel rather
+		** than silently falling through to another lane's longest LEN. */
+		const uint16_t controlLength = fastTracksTrackLength[controlTrack];
+		return controlLength != 0 ? controlLength : physicalLength;
+	}
+
+	uint16_t longestExplicitLength = 0;
+	for (int32_t channelIndex = 0; channelIndex < FAST_TRACKS_MAX_CHANNELS;
+		channelIndex++)
+	{
+		longestExplicitLength = MAX(longestExplicitLength,
+			fastTracksTrackLength[channelIndex]);
+	}
+
+	return longestExplicitLength != 0 ? longestExplicitLength : physicalLength;
+}
+
+bool fastTracksPOCLengthTopologyIsActive(uint16_t patternNumber)
+{
+	return patternNumber < MAX_PATTERNS && !fastTracksLengthTopologyBypassed &&
+		(fastTracksPOCGetControlTrack(patternNumber) >= 0 ||
+		 fastTracksPOCHasExplicitTrackLengths());
+}
+
+bool fastTracksPOCLengthTopologyIsBypassed(void)
+{
+	return fastTracksLengthTopologyBypassed;
+}
+
+void fastTracksPOCSetLengthTopologyBypassed(bool bypassed)
+{
+	if (fastTracksLengthTopologyBypassed == bypassed)
+		return;
+
+	const bool audioWasntLocked = !audio.locked;
+	if (audioWasntLocked)
+		lockAudio();
+
+	fastTracksLengthTopologyBypassed = bypassed;
+
+	if (audioWasntLocked)
+		unlockAudio();
+
+	ui.updatePosSections = true;
+	ui.updatePatternEditor = true;
+}
+
+void fastTracksPOCToggleLengthTopologyBypass(void)
+{
+	fastTracksPOCSetLengthTopologyBypassed(!fastTracksLengthTopologyBypassed);
+}
+
 uint16_t fastTracksPOCGetEffectiveTrackLength(uint16_t patternNumber, int32_t channelIndex)
 {
 	if (patternNumber >= MAX_PATTERNS || !fastTracksPOCChannelIsValid(channelIndex))
@@ -238,7 +321,7 @@ uint16_t fastTracksPOCGetEffectiveTrackLength(uint16_t patternNumber, int32_t ch
 
 	const uint16_t storedLength = fastTracksTrackLength[channelIndex];
 	if (storedLength == 0)
-		return fastTracksPOCGetExtendedPatternLength(patternNumber);
+		return fastTracksPOCGetSharedBoundary(patternNumber);
 
 	/* LEN deliberately outranks the source pattern's ordinary row count. Rows
 	** in the extension tail are resolved as blank by the replayer, allowing a
@@ -248,7 +331,8 @@ uint16_t fastTracksPOCGetEffectiveTrackLength(uint16_t patternNumber, int32_t ch
 
 uint16_t fastTracksPOCGetFastTrackLength(uint16_t patternNumber, int32_t channelIndex)
 {
-	if (tapeheadConfig.fastTracksUseTrackLengths)
+	if (!fastTracksLengthTopologyBypassed &&
+		tapeheadConfig.fastTracksUseTrackLengths)
 		return fastTracksPOCGetEffectiveTrackLength(patternNumber, channelIndex);
 
 	if (patternNumber >= MAX_PATTERNS || !fastTracksPOCChannelIsValid(channelIndex))
@@ -421,9 +505,22 @@ void fastTracksPOCResetCycleCounters(void)
 int32_t fastTracksPOCResolveMasterSourceRow(uint16_t patternNumber,
 	int32_t channelIndex, int32_t masterRow)
 {
+	if (fastTracksLengthTopologyBypassed)
+		return masterRow;
+
+	if (!fastTracksPOCLengthTopologyIsActive(patternNumber))
+		return masterRow;
+
 	const uint16_t storedLength = fastTracksPOCGetTrackLength(patternNumber, channelIndex);
 	if (storedLength == 0)
-		return masterRow;
+	{
+		/* LEN OFF follows the shared logical domain while another lane (or
+		** CONTROL) owns it. Returning the unwrapped logical row makes extension
+		** rows unambiguously out-of-range/blank to every caller. */
+		if (fastTracksMasterCycleRow > (uint32_t)INT32_MAX)
+			return INT32_MAX;
+		return (int32_t)fastTracksMasterCycleRow;
+	}
 
 	const uint16_t effectiveLength =
 		fastTracksPOCGetEffectiveTrackLength(patternNumber, channelIndex);
@@ -1184,6 +1281,7 @@ void fastTracksPOCToggleDirection(int32_t channelIndex)
 void fastTracksPOCResetForLoadedModule(void)
 {
 	fastTracksPOCTransmissionClutchLatched = false;
+	fastTracksLengthTopologyBypassed = false;
 	/*
 	** A newly loaded module has a different pattern map and row count.
 	** Keep the user's selected tracks and master state, but discard source

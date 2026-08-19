@@ -57,6 +57,57 @@ static void testTPLChangePreservesPhase(void)
 	assert(lastTPL == 3);
 }
 
+static void testNaturalSharedBoundaryShortensPhysicalPattern(void)
+{
+	assert(fastTracksResolveSharedBoundary(true, false, true, 6, 7,
+		6, 64, false, false) == FAST_TRACKS_SHARED_BOUNDARY_CONTINUE);
+	assert(fastTracksResolveSharedBoundary(true, false, true, 7, 7,
+		7, 64, false, false) == FAST_TRACKS_SHARED_BOUNDARY_TRANSITION);
+}
+
+static void testLongSharedBoundaryWrapsPhysicalContainer(void)
+{
+	assert(fastTracksResolveSharedBoundary(true, false, true, 16, 24,
+		16, 16, false, false) == FAST_TRACKS_SHARED_BOUNDARY_WRAP_PHYSICAL);
+	assert(fastTracksResolveSharedBoundary(true, false, true, 24, 24,
+		8, 16, false, false) == FAST_TRACKS_SHARED_BOUNDARY_TRANSITION);
+	assert(fastTracksSharedCycleUsesBlankRow(false, 24, 16, 16));
+	assert(fastTracksSharedCycleUsesBlankRow(false, 24, 16, 40));
+	assert(!fastTracksSharedCycleUsesBlankRow(true, 24, 16, 16));
+}
+
+static void testPrivateControlAndBypassAuthority(void)
+{
+	assert(fastTracksResolveSharedBoundary(true, true, true, 64, 13,
+		64, 64, false, false) == FAST_TRACKS_SHARED_BOUNDARY_WRAP_PHYSICAL);
+	assert(fastTracksResolveSharedBoundary(true, true, false, 64, 13,
+		0, 64, false, true) == FAST_TRACKS_SHARED_BOUNDARY_TRANSITION);
+	assert(fastTracksResolveSharedBoundary(false, false, true, 3, 3,
+		3, 64, false, false) == FAST_TRACKS_SHARED_BOUNDARY_CONTINUE);
+	assert(fastTracksResolveSharedBoundary(false, false, true, 64, 3,
+		64, 64, false, false) == FAST_TRACKS_SHARED_BOUNDARY_TRANSITION);
+}
+
+static void testExplicitJumpAlwaysWins(void)
+{
+	assert(fastTracksResolveSharedBoundary(true, true, false, 1, 96,
+		1, 16, true, false) == FAST_TRACKS_SHARED_BOUNDARY_TRANSITION);
+}
+
+static void testRuntimeBoundaryChangesResolveOnRowEvaluation(void)
+{
+	/* Shrinking behind the current logical position transitions at the next
+	** ordinary row evaluation, never by rewinding inside the current tick. */
+	assert(fastTracksResolveSharedBoundary(true, false, false, 38, 16,
+		38, 64, false, false) == FAST_TRACKS_SHARED_BOUNDARY_CONTINUE);
+	assert(fastTracksResolveSharedBoundary(true, false, true, 39, 16,
+		39, 64, false, false) == FAST_TRACKS_SHARED_BOUNDARY_TRANSITION);
+
+	/* Expanding before the old boundary removes that boundary immediately. */
+	assert(fastTracksResolveSharedBoundary(true, false, true, 16, 64,
+		16, 64, false, false) == FAST_TRACKS_SHARED_BOUNDARY_CONTINUE);
+}
+
 int main(void)
 {
 	testFirstTickPublishesWithoutCrossing();
@@ -64,6 +115,11 @@ int main(void)
 	testFiveToOneAtTPL2KeepsRemainder();
 	testSlowerRatioAccumulates();
 	testTPLChangePreservesPhase();
-	puts("5 native FasTracks core tests passed.");
+	testNaturalSharedBoundaryShortensPhysicalPattern();
+	testLongSharedBoundaryWrapsPhysicalContainer();
+	testPrivateControlAndBypassAuthority();
+	testExplicitJumpAlwaysWins();
+	testRuntimeBoundaryChangesResolveOnRowEvaluation();
+	puts("10 native FasTracks core tests passed.");
 	return 0;
 }

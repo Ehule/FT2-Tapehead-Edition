@@ -664,7 +664,11 @@ static void refreshGlobalButtons(void)
 	sendNote(0, 0x3C, fastTracksPOCAnyEnabled());
 	sendNote(0, 0x3D, fastTracksPOCAnyEnabled());
 	sendNote(0, 0x3E, sampleMorphIsArmed());
-	sendNote(0, 0x3F, fastTracksPOCAnyEnabled());
+	/* Preserve Device Lock's existing FastTracks indication. A brighter state
+	** makes the shifted LEN bypass visible without changing the unshifted
+	** reset-to-1:1 behavior or its normal feedback. */
+	sendNote(0, 0x3F, fastTracksPOCLengthTopologyIsBypassed()
+		? 2 : fastTracksPOCAnyEnabled());
 	sendNote(0, 0x40, fastTracksPOCTransmissionClutchIsLatched());
 	sendNote(0, 0x41, fastTracksPOCMasterIsEnabled());
 	sendNote(0, 0x50, allMute ? 1 : (anyMute ? 2 : 0));

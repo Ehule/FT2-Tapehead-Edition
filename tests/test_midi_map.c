@@ -27,8 +27,11 @@ audio_t audio;
 note_t *pattern[MAX_PATTERNS];
 int16_t patternNumRows[MAX_PATTERNS];
 
+uint32_t SDL_GetTicks(void) { return 0; }
+
 static bool fastSelected[MAX_CHANNELS], fastReversed[MAX_CHANNELS];
 static bool fastClutched[MAX_CHANNELS], fastMaster, transmissionClutch;
+static bool lengthTopologyBypassed;
 static fastTracksMode_t fastMode[MAX_CHANNELS];
 static uint8_t fastRatio[MAX_CHANNELS];
 static uint16_t fastTrackLength[MAX_CHANNELS];
@@ -131,6 +134,10 @@ void fastTracksPOCResetAllRatios(void)
 	for (int32_t i = 0; i < MAX_CHANNELS; i++)
 		if (fastSelected[i]) fastRatio[i] = FAST_TRACKS_ONE_TO_ONE_RATIO_INDEX;
 }
+bool fastTracksPOCLengthTopologyIsBypassed(void)
+{ return lengthTopologyBypassed; }
+void fastTracksPOCToggleLengthTopologyBypass(void)
+{ lengthTopologyBypassed ^= 1; }
 uint16_t fastTracksPOCGetTrackLength(uint16_t patternNumber, int32_t i)
 { (void)patternNumber; return fastTrackLength[i]; }
 void fastTracksPOCSetTrackLength(uint16_t patternNumber, int32_t i,
@@ -256,6 +263,7 @@ static void resetFixture(void)
 	for (int32_t i = 0; i < MAX_CHANNELS; i++)
 		channelVolumeTrim[i] = TAPEHEAD_TRACK_TRIM_UNITY;
 	sampleDeck = fastMaster = songPlaying = transmissionClutch = false;
+	lengthTopologyBypassed = false;
 	standaloneShown = sampleMorphArmed = false;
 	playMode = PLAYMODE_IDLE;
 	memset(&ui, 0, sizeof (ui));
@@ -722,6 +730,7 @@ static void testTransportPunchEdgesAndShiftedClutchSafety(void)
 	assert(tapeheadMidiMapAddBinding("NoteOn.1.41", "ShiftModifier"));
 	assert(tapeheadMidiMapAddBinding("NoteOn.1.71",
 		"FastTrackClutchToggle:3"));
+	assert(tapeheadMidiMapAddBinding("NoteOn.1.63", "FastTrackResetAll"));
 	tapeheadMidiMapSetEnabled(true);
 
 	/* A switch CC is not a fader: press and release must both survive the
@@ -745,6 +754,32 @@ static void testTransportPunchEdgesAndShiftedClutchSafety(void)
 	assert(tapeheadMidiMapHandleMessage(0x90, 71, 127));
 	tapeheadMidiMapProcessPending();
 	assert(fastClutched[2]);
+
+	/* APC Shift + Device Lock reaches the same runtime LEN bypass as the
+	** keyboard action. Releasing Shift restores Device Lock's original ratio
+	** reset without altering the bypass state. */
+	fastTracksPOCSetTrackEnabled(0, true);
+	fastRatio[0] = 16;
+	assert(tapeheadMidiMapHandleMessage(0x90, 41, 127));
+	assert(tapeheadMidiMapHandleMessage(0x90, 63, 127));
+	assert(tapeheadMidiMapHandleMessage(0x80, 63, 0));
+	tapeheadMidiMapProcessPending();
+	assert(lengthTopologyBypassed);
+	assert(fastRatio[0] == 16);
+
+	assert(tapeheadMidiMapHandleMessage(0x80, 41, 0));
+	assert(tapeheadMidiMapHandleMessage(0x90, 63, 127));
+	assert(tapeheadMidiMapHandleMessage(0x80, 63, 0));
+	tapeheadMidiMapProcessPending();
+	assert(lengthTopologyBypassed);
+	assert(fastRatio[0] == FAST_TRACKS_ONE_TO_ONE_RATIO_INDEX);
+
+	assert(tapeheadMidiMapHandleMessage(0x90, 41, 127));
+	assert(tapeheadMidiMapHandleMessage(0x90, 63, 127));
+	assert(tapeheadMidiMapHandleMessage(0x80, 63, 0));
+	assert(tapeheadMidiMapHandleMessage(0x80, 41, 0));
+	tapeheadMidiMapProcessPending();
+	assert(!lengthTopologyBypassed);
 }
 
 int main(void)

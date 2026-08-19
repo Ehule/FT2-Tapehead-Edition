@@ -26,8 +26,11 @@ audio_t audio;
 note_t *pattern[MAX_PATTERNS];
 int16_t patternNumRows[MAX_PATTERNS];
 
+uint32_t SDL_GetTicks(void) { return 0; }
+
 static bool fastSelected[MAX_CHANNELS], fastReversed[MAX_CHANNELS];
 static bool fastClutched[MAX_CHANNELS], fastMaster, transmissionClutch;
+static bool lengthTopologyBypassed;
 static fastTracksMode_t fastMode[MAX_CHANNELS];
 static uint8_t fastRatio[MAX_CHANNELS];
 static uint16_t fastTrackLength[MAX_CHANNELS];
@@ -161,6 +164,10 @@ void fastTracksPOCResetAllRatios(void)
 	for (int32_t i = 0; i < MAX_CHANNELS; i++)
 		if (fastSelected[i]) fastRatio[i] = FAST_TRACKS_ONE_TO_ONE_RATIO_INDEX;
 }
+bool fastTracksPOCLengthTopologyIsBypassed(void)
+{ return lengthTopologyBypassed; }
+void fastTracksPOCToggleLengthTopologyBypass(void)
+{ lengthTopologyBypassed ^= 1; }
 uint16_t fastTracksPOCGetTrackLength(uint16_t patternNumber, int32_t i)
 { (void)patternNumber; return fastTrackLength[i]; }
 void fastTracksPOCSetTrackLength(uint16_t patternNumber, int32_t i,
@@ -275,6 +282,7 @@ static void resetFixture(int32_t numChannels)
 	memset(&song, 0, sizeof (song));
 	song.numChannels = numChannels;
 	sampleDeck = fastMaster = songPlaying = transmissionClutch = false;
+	lengthTopologyBypassed = false;
 	standaloneShown = false;
 	playMode = PLAYMODE_IDLE;
 	memset(&ui, 0, sizeof (ui));
@@ -477,6 +485,42 @@ static void testTrackLengthControllerUsesConfigurableCeiling(void)
 	assert(!tapeheadActionTrackLengthSet(8, 12));
 	assert(tapeheadActionTrackLengthSet(2, 0));
 	assert(fastTrackLength[2] == 0);
+}
+
+static void testShiftResetAndKeyboardUseSharedPerformanceActions(void)
+{
+	resetFixture(8);
+	fastSelected[0] = true;
+	fastRatio[0] = 16;
+	assert(tapeheadActionFastTrackResetAll());
+	assert(fastRatio[0] == FAST_TRACKS_ONE_TO_ONE_RATIO_INDEX);
+	assert(!lengthTopologyBypassed);
+
+	tapeheadActionSetShiftModifier(true);
+	assert(tapeheadActionFastTrackResetAll());
+	assert(lengthTopologyBypassed);
+	assert(tapeheadActionTrackLengthBypassToggle());
+	assert(!lengthTopologyBypassed);
+	tapeheadActionSetShiftModifier(false);
+
+	/* Keyboard Freeze is momentary and composes with the pedal-owned toggle. */
+	assert(tapeheadActionTransportPunchKeyboard(true));
+	assert(tapeheadActionTransportPunchIsFrozen());
+	assert(!tapeheadActionTransportPunchPedal(true));
+	assert(!tapeheadActionTransportPunchPedal(false));
+	assert(!tapeheadActionTransportPunchPedal(true)); /* pedal latch returns off */
+	assert(!tapeheadActionTransportPunchPedal(false));
+	assert(tapeheadActionTransportPunchKeyboard(false));
+	assert(!tapeheadActionTransportPunchIsFrozen());
+
+	/* In Hold mode, releasing Space cannot cancel a pedal that remains down. */
+	tapeheadConfig.transportFreezePedalHold = true;
+	assert(tapeheadActionTransportPunchPedal(true));
+	assert(!tapeheadActionTransportPunchKeyboard(true));
+	assert(!tapeheadActionTransportPunchKeyboard(false));
+	assert(tapeheadActionTransportPunchIsFrozen());
+	assert(tapeheadActionTransportPunchPedal(false));
+	assert(!tapeheadActionTransportPunchIsFrozen());
 }
 
 static void testMatrixFocusBanksAndSlotsAreIndependent(void)
@@ -996,6 +1040,7 @@ int main(void)
 	testOrdinaryMuteAndUnmuteAllRemainExplicit();
 	testTrackSelectionAndFastTracksActions();
 	testTrackLengthControllerUsesConfigurableCeiling();
+	testShiftResetAndKeyboardUseSharedPerformanceActions();
 	testMatrixFocusBanksAndSlotsAreIndependent();
 	testTransportActionsRemainDistinct();
 	testModuleLoadClearsPerformanceRuntime();
@@ -1014,6 +1059,6 @@ int main(void)
 	testSongOrderActionsStopAtBoundaries();
 	testOneShotAndManualPingPongStrumDirections();
 	testTransportPunchToggleHoldCutAndNavigationConsumption();
-	puts("24 native Tapehead action groups passed.");
+	puts("25 native Tapehead action groups passed.");
 	return 0;
 }

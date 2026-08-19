@@ -30,7 +30,8 @@ static bool jogVisualActive;
 static uint32_t jogVisualLastTick;
 static uint16_t jogVisualPattern, jogVisualRow;
 static volatile bool transportPunchFrozen;
-static bool transportPunchPedalDown;
+static bool transportPunchPedalDown, transportPunchPedalLatched;
+static bool transportPunchKeyboardDown;
 static bool transportPunchConsumedRow;
 
 typedef struct matrixSequence_t
@@ -599,6 +600,11 @@ bool tapeheadActionFastTrackRatioReset(int32_t channelIndex)
 
 bool tapeheadActionFastTrackResetAll(void)
 {
+	/* APC40 mkII Device Lock keeps its ordinary reset on the unshifted press;
+	** Shift turns the same physical control into the global LEN clutch. */
+	if (shiftModifierHeld)
+		return tapeheadActionTrackLengthBypassToggle();
+
 	bool hasSelectedTrack = false;
 	for (int32_t i = 0; i < song.numChannels && i < MAX_CHANNELS; i++)
 		hasSelectedTrack |= fastTracksPOCIsSelected(i);
@@ -608,6 +614,13 @@ bool tapeheadActionFastTrackResetAll(void)
 
 	fastTracksPOCResetAllRatios();
 	return true;
+}
+
+bool tapeheadActionTrackLengthBypassToggle(void)
+{
+	const bool oldState = fastTracksPOCLengthTopologyIsBypassed();
+	fastTracksPOCToggleLengthTopologyBypass();
+	return fastTracksPOCLengthTopologyIsBypassed() != oldState;
 }
 
 bool tapeheadActionFastTrackReverseToggle(int32_t channelIndex)
@@ -1572,10 +1585,26 @@ bool tapeheadActionTransportPunchPedal(bool pressed)
 	transportPunchPedalDown = pressed;
 
 	if (tapeheadConfig.transportFreezePedalHold)
-		return setTransportPunchFrozen(pressed);
+		return setTransportPunchFrozen(transportPunchKeyboardDown || pressed);
 
-	/* Toggle mode acts only on the pedal's downstroke. */
-	return pressed && setTransportPunchFrozen(!transportPunchFrozen);
+	/* Toggle mode changes only the pedal-owned latch. A held keyboard Freeze
+	** remains authoritative until Space is released. */
+	if (!pressed)
+		return false;
+	transportPunchPedalLatched = !transportPunchPedalLatched;
+	return setTransportPunchFrozen(transportPunchKeyboardDown ||
+		transportPunchPedalLatched);
+}
+
+bool tapeheadActionTransportPunchKeyboard(bool pressed)
+{
+	if (transportPunchKeyboardDown == pressed)
+		return false;
+	transportPunchKeyboardDown = pressed;
+
+	const bool pedalOwnsFreeze = tapeheadConfig.transportFreezePedalHold
+		? transportPunchPedalDown : transportPunchPedalLatched;
+	return setTransportPunchFrozen(pressed || pedalOwnsFreeze);
 }
 
 void tapeheadActionsResetForLoadedModule(void)
@@ -1589,6 +1618,7 @@ void tapeheadActionsResetForLoadedModule(void)
 	jogVisualLastTick = 0;
 	jogVisualPattern = jogVisualRow = 0;
 	transportPunchFrozen = transportPunchPedalDown = false;
+	transportPunchPedalLatched = transportPunchKeyboardDown = false;
 	transportPunchConsumedRow = false;
 	memset(&matrixSequence, 0, sizeof (matrixSequence));
 	matrixMasterGain = matrixQGain = matrixPolyGain = 256;

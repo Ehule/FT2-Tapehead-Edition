@@ -13,6 +13,7 @@
 #include <unistd.h> // chdir()
 #endif
 #include <stdio.h>
+#include <string.h>
 #include <sys/stat.h>
 #include "ft2_header.h"
 #include "ft2_config.h"
@@ -35,6 +36,7 @@
 #include "ft2_sample_ed_features.h"
 #include "ft2_structs.h"
 #include "ft2_splash.h"
+#include "ft2_tapehead_actions.h"
 
 #define CRASH_TEXT "Oh no! The Fasttracker II clone has crashed...\nA backup of the song was hopefully " \
                    "saved to the current module directory.\n\nPlease report this bug if you can.\n" \
@@ -385,7 +387,12 @@ void handleWaitVblQuirk(SDL_Event *event)
 
 		// reset vblank end time if we minimize window
 		if (event->window.event == SDL_WINDOWEVENT_MINIMIZED || event->window.event == SDL_WINDOWEVENT_FOCUS_LOST)
+		{
 			hpc_ResetCounters(&video.vblankHpc);
+			/* SDL cannot promise a matching key-up after focus moves away. Release
+			** the keyboard-owned momentary Freeze without disturbing a pedal latch. */
+			(void)tapeheadActionTransportPunchKeyboard(false);
+		}
 	}
 }
 
