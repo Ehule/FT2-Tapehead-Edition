@@ -34,6 +34,7 @@ TEST_SCRIPTS = (
 	"test_sample_matrix_browser.py",
 	"test_fasttracks_native.py",
 	"test_track_length_control.py",
+	"test_hybrid_transport_visuals.py",
 	"test_microtonal.py",
 	"test_pattern_layout.py",
 	"test_pattern_colors.py",

@@ -1,5 +1,6 @@
 #include "ft2_tapehead_actions.h"
 #include <string.h>
+#include "ft2_header.h"
 #include "ft2_audio.h"
 #include "ft2_baker.h"
 #include "ft2_config.h"
@@ -15,6 +16,8 @@
 #include "ft2_undo.h"
 #include "scopes/ft2_scopes.h"
 
+#define PATTERN_JOG_VISUAL_HOLD_MS 120
+
 static uint8_t revealHistory[MAX_CHANNELS];
 static uint8_t revealHistoryCount;
 static bool shiftModifierHeld, matrixGridPoly, transportPatternMode;
@@ -23,6 +26,9 @@ static int8_t performanceSoloTrack = -1;
 static int8_t recordArmTrack = -1;
 static bool jogAuditionHeld[MAX_CHANNELS];
 static uint8_t jogAuditionInstrument[MAX_CHANNELS];
+static bool jogVisualActive;
+static uint32_t jogVisualLastTick;
+static uint16_t jogVisualPattern, jogVisualRow;
 static volatile bool transportPunchFrozen;
 static bool transportPunchPedalDown;
 static bool transportPunchConsumedRow;
@@ -1014,6 +1020,11 @@ uint16_t tapeheadActionMatrixGetPolyGain(void) { return matrixPolyGain; }
 bool tapeheadActionPatternJogStopAudition(void)
 {
 	bool changed = false;
+	if (jogVisualActive)
+	{
+		jogVisualActive = false;
+		ui.updatePatternEditor = true;
+	}
 	for (int32_t i = 0; i < MAX_CHANNELS; i++)
 	{
 		if (!jogAuditionHeld[i])
@@ -1061,6 +1072,42 @@ static bool channelAcceptsPatternJog(int32_t channelIndex)
 	** ordinary head. This mode check deliberately does not depend on the
 	** FastTracks master switch; assignment is the ownership boundary. */
 	return fastTracksPOCGetMode(channelIndex) == FAST_TRACKS_MODE_STANDARD;
+}
+
+bool tapeheadActionPatternJogTrackParticipates(int32_t channelIndex)
+{
+	return channelIndexIsActive(channelIndex) &&
+		channelAcceptsPatternJog(channelIndex);
+}
+
+static void notePatternJogVisualActivity(uint16_t patternNum, uint16_t row)
+{
+	jogVisualPattern = patternNum;
+	jogVisualRow = row;
+	jogVisualLastTick = SDL_GetTicks();
+	jogVisualActive = true;
+	ui.updatePatternEditor = true;
+}
+
+bool tapeheadActionPatternJogGetVisualPosition(uint16_t *patternNum,
+	uint16_t *row)
+{
+	if (!jogVisualActive)
+		return false;
+
+	if ((uint32_t)(SDL_GetTicks() - jogVisualLastTick) >
+		PATTERN_JOG_VISUAL_HOLD_MS)
+	{
+		jogVisualActive = false;
+		ui.updatePatternEditor = true;
+		return false;
+	}
+
+	if (patternNum != NULL)
+		*patternNum = jogVisualPattern;
+	if (row != NULL)
+		*row = jogVisualRow;
+	return true;
 }
 
 static bool jogEventCutsVoice(const note_t *event)
@@ -1194,6 +1241,7 @@ bool tapeheadActionPatternJogRelative(int32_t delta)
 		** selected row, giving the encoder its deliberate scratch/retrigger. */
 		song.tick = 1;
 		editor.row = song.row;
+		notePatternJogVisualActivity(song.pattNum, song.row);
 		if (audioWasntLocked)
 			unlockAudio();
 		ui.updatePosSections = true;
@@ -1213,6 +1261,7 @@ bool tapeheadActionPatternJogRelative(int32_t delta)
 		emitJogRow(patternNum, editor.row, delta, false);
 		delta += delta < 0 ? 1 : -1;
 	}
+	notePatternJogVisualActivity(patternNum, editor.row);
 	ui.updatePatternEditor = true;
 	return true;
 }
@@ -1230,6 +1279,7 @@ bool tapeheadActionPatternJogAbsolute(int32_t value)
 
 		const uint16_t target =
 			(uint16_t)((value * (rows - 1) + 63) / 127);
+		notePatternJogVisualActivity(song.pattNum, target);
 		if (song.row == target)
 			return false;
 
@@ -1262,6 +1312,7 @@ bool tapeheadActionPatternJogAbsolute(int32_t value)
 
 	const uint16_t target =
 		(uint16_t)((value * (rows - 1) + 63) / 127);
+	notePatternJogVisualActivity(patternNum, target);
 	if (editor.row == target)
 		return false;
 
@@ -1534,6 +1585,9 @@ void tapeheadActionsResetForLoadedModule(void)
 	performanceSoloTrack = recordArmTrack = -1;
 	memset(jogAuditionHeld, 0, sizeof (jogAuditionHeld));
 	memset(jogAuditionInstrument, 0, sizeof (jogAuditionInstrument));
+	jogVisualActive = false;
+	jogVisualLastTick = 0;
+	jogVisualPattern = jogVisualRow = 0;
 	transportPunchFrozen = transportPunchPedalDown = false;
 	transportPunchConsumedRow = false;
 	memset(&matrixSequence, 0, sizeof (matrixSequence));
