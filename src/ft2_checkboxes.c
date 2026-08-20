@@ -137,6 +137,7 @@ checkBox_t checkBoxes[NUM_CHECKBOXES] =
 	// DISK OP. CHECKBOXES
 	//x,  y,   w,  h,  funcOnUp
 	{ 70, 106, 58, 12, cbDiskOpAllFiles },
+	{ 70, 120, 58, 12, cbDiskOpAudition },
 
 	// WAV RENDERER BPM MODE
 	//x,   y,   w,   h,  funcOnUp

@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <string.h>
 
 // hide miniflac compiler warnings
 #ifdef _MSC_VER
@@ -36,6 +37,11 @@
 #include "../ft2_sample_ed.h"
 #include "../ft2_sysreqs.h"
 #include "../ft2_sample_loader.h"
+
+/* Disk Op previews reuse the normal decoder but suppress errors and choose a
+** deterministic stereo mix instead of opening modal import dialogs. */
+#define loaderMsgBox sampleLoaderShowError
+#define loaderSysReq sampleLoaderAskStereo
 
 #define MAX_FLAC_BLOCK_SIZE 65535
 
@@ -178,7 +184,8 @@ bool loadFLAC(FILE *f, uint32_t filesize)
 	if (numChannels == 2)
 	{
 		stereoAction = loaderSysReq(4, "System request", "This is a stereo sample. Which channel do you want to read?", NULL);
-		setMouseBusy(true);
+		if (!sampleLoaderIsPreviewDecode())
+			setMouseBusy(true);
 	}
 
 	bool sample16Bit = (bitDepth >= 16);

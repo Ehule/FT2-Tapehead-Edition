@@ -18,6 +18,13 @@ void normalize32BitFloatToSigned16Bit(float *fSampleData, uint32_t sampleLength)
 void normalize64BitFloatToSigned16Bit(double *dSampleData, uint32_t sampleLength);
 
 bool loadSample(UNICHAR *filenameU, uint8_t sampleSlot, bool loadAsInstrFlag);
+bool previewSample(UNICHAR *filenameU, uint8_t targetInstrument,
+	uint8_t targetSample, bool asInstrument);
+void cancelSamplePreview(void);
+bool sampleLoaderIsPreviewDecode(void);
+void sampleLoaderShowError(const char *fmt, ...);
+int16_t sampleLoaderAskStereo(int16_t type, const char *headline,
+	const char *text, void (*checkBoxCallback)(void));
 enum
 {
 	SAMPLE_FOLDER_IMPORT_INSTRUMENTS = 0,

@@ -87,6 +87,31 @@ void stopVoice(int32_t i)
 	v->panning = 128;
 }
 
+bool audioVoiceUsesSample(int32_t i, const sample_t *sample)
+{
+	if (i < 0 || i >= MAX_CHANNELS || sample == NULL || sample->dataPtr == NULL)
+		return false;
+
+	const bool sample16Bit = !!(sample->flags & SAMPLE_16BIT);
+	for (int32_t offset = 0; offset <= MAX_CHANNELS; offset += MAX_CHANNELS)
+	{
+		const voice_t *v = &voice[offset + i];
+		if (!v->active)
+			continue;
+		if (sample16Bit)
+		{
+			if (v->base16 == (const int16_t *)sample->dataPtr)
+				return true;
+		}
+		else if (v->base8 == sample->dataPtr)
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
 void audioSampleLauncherStop(uint8_t voiceIndex)
 {
 	if (voiceIndex >= SAMPLE_LAUNCHER_AUDIO_VOICES)

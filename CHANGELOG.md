@@ -9,6 +9,25 @@ milestones and may contain limitations or planned work that later entries
 supersede. See [`docs/README.md`](docs/README.md) for the current documentation
 map.
 
+## Disk Op browse-by-ear sample audition — 2026-08-20
+
+- Sample and Instrument Disk Op modes now keep a persistent highlighted row.
+  Single-clicking a recognized sample auditions it without modifying the song;
+  double-clicking loads it into the current sample or instrument destination.
+- Unmodified Up/Down moves the browser selection, scrolls it into view, and
+  auditions compatible files. Enter opens the selected directory or commits
+  the selected file using the current Disk Op mode.
+- Preview decoding is asynchronous, mixes stereo files to mono without opening
+  import dialogs, and discards superseded work when browsing quickly. Raw or
+  otherwise ambiguous files remain loadable but are not auto-auditioned.
+- While the transport is running, previews temporarily substitute the selected
+  instrument or sample slot so patterns audition candidates in musical context.
+  When stopped, selection plays the familiar immediate C-4 preview instead.
+- A Disk Op Preview checkbox enables or silences auditioning without changing
+  row selection, keyboard navigation, or explicit file loading.
+- Preview sample memory lives in a private runtime instrument and is stopped on
+  folder/mode changes, scrolling, real imports, or leaving Disk Op.
+
 ## Dedicated Tuning/Drift column — 2026-08-10
 
 - Added a restricted `Mxx`/`Nxx` lane to internal pattern cells, independently

@@ -15,6 +15,11 @@
 #include "../ft2_sample_ed.h"
 #include "../ft2_sysreqs.h"
 #include "../ft2_sample_loader.h"
+
+/* Disk Op previews reuse the normal decoder but suppress errors and choose a
+** deterministic stereo mix instead of opening modal import dialogs. */
+#define loaderMsgBox sampleLoaderShowError
+#define loaderSysReq sampleLoaderAskStereo
 #include "../ft2_wav_metadata.h"
 
 enum
@@ -192,7 +197,8 @@ bool loadWAV(FILE *f, uint32_t filesize)
 	if (wavIsStereo(f))
 	{
 		stereoAction = loaderSysReq(4, "System request", "This is a stereo sample. Which channel do you want to read?", NULL);
-		setMouseBusy(true);
+		if (!sampleLoaderIsPreviewDecode())
+			setMouseBusy(true);
 	}
 
 	if (bitsPerSample == 8) // 8-BIT INTEGER SAMPLE

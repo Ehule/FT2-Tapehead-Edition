@@ -229,6 +229,9 @@ void keyDownHandler(SDL_Scancode scancode, SDL_Keycode keycode, SDL_Keymod modif
 	if (interpolationHandlePreviewKey(scancode, keycode, keyWasRepeated))
 		return;
 
+	if (diskOpHandleKey(keycode, keyWasRepeated))
+		return;
+
 	if (scancode == SDL_SCANCODE_SPACE && keyb.leftCtrlPressed &&
 		keyb.leftShiftPressed && !keyb.leftAltPressed)
 	{
