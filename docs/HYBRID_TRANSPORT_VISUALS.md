@@ -25,4 +25,8 @@ A normal track being strummed keeps the FT2 metaphor: the Pattern Jog row moves 
 
 ## Editing safety
 
-Hybrid playback rendering never rewrites pattern, song-order, block, or undo data. Recording modes and an active block selection deliberately fall back to the established editor coordinate model so a visual transport transform cannot redirect pattern edits or block operations.
+Hybrid playback rendering never rewrites pattern, song-order, block, or undo
+data. Recording modes and an actively dragged block deliberately use the
+established editor coordinate model. A stored block mark does not change the
+transport view; releasing the mouse restores stationary private lanes while
+preserving the selection.

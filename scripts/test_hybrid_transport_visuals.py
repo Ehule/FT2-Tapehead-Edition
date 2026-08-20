@@ -23,6 +23,10 @@ choice = draw.index("tapeheadTrackUsesIndependentTransportVisual", loop)
 assert choice > loop
 assert "const bool hybridVisuals = songPlaying" in draw
 assert "tapeheadPerTrackTransportVisualsEnabled" not in draw
+assert "const bool blockMarkGestureActive = mouse.leftButtonPressed" in draw
+assert "mouse.lastUsedObjectType == OBJECT_PATTERNMARK" in draw
+assert "!blockMarkGestureActive" in draw
+assert "pattMark.markY1 == pattMark.markY2" not in draw
 assert "const int32_t visualMasterRow = hybridVisuals ? song.row : currRow;" in draw
 assert "const bool trackLengthVisualActive = lengthTopologyActive" in draw
 assert "hybridVisuals,\n\t\t\t\t\tfastTrackVisible, trackLengthVisualActive" in draw

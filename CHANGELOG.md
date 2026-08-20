@@ -43,6 +43,10 @@ map.
   retain the conventional coordinate view for write safety.
 - Removed the machine-local `PerTrackTransportVisuals` override that could make
   Linux and Windows render the same transport state differently.
+- Pattern left-click/drag and right-click retain their normal block-selection
+  duties without latching the renderer into a different transport view. Only
+  the active drag uses the conventional coordinate view; release restores the
+  per-lane display while preserving the mark.
 
 ## Dedicated Tuning/Drift column — 2026-08-10
 

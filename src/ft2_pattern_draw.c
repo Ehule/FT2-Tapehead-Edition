@@ -11,6 +11,7 @@
 #include "ft2_config.h"
 #include "ft2_palette.h"
 #include "ft2_gui.h"
+#include "ft2_mouse.h"
 #include "ft2_video.h"
 #include "ft2_tables.h"
 #include "ft2_bmp.h"
@@ -1296,12 +1297,13 @@ void writePattern(int32_t currRow, int32_t currPattern)
 	const bool lengthTopologyBypassed =
 		fastTracksPOCLengthTopologyIsBypassed();
 
-	/* Editing and block transforms retain the original FT2 coordinate model.
-	** The performance-only hybrid renderer drops back to the legacy view as
-	** soon as recording or a block mark is active, so displayed rows can never
-	** cause a write to a different logical row. */
+	/* Editing and an actively dragged block retain the original FT2 coordinate
+	** model. A stored mark must not become a hidden transport-view switch:
+	** releasing the mouse restores per-lane playback without clearing the mark. */
+	const bool blockMarkGestureActive = mouse.leftButtonPressed &&
+		mouse.lastUsedObjectType == OBJECT_PATTERNMARK;
 	const bool hybridVisuals = songPlaying && playMode != PLAYMODE_RECPATT &&
-		playMode != PLAYMODE_RECSONG && pattMark.markY1 == pattMark.markY2;
+		playMode != PLAYMODE_RECSONG && !blockMarkGestureActive;
 	const int32_t visualMasterRow = hybridVisuals ? song.row : currRow;
 	int32_t row = visualMasterRow - pattCoord->numUpperRows;
 	int32_t textY = pattCoord->upperRowsTextY;
