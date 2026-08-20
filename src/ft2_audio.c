@@ -10,6 +10,7 @@
 #include <string.h>
 #include "ft2_header.h"
 #include "ft2_config.h"
+#include "ft2_audio.h"
 #include "scopes/ft2_scopes.h"
 #include "ft2_video.h"
 #include "ft2_gui.h"
@@ -39,6 +40,8 @@ static float fPrngState[TAPEHEAD_MAX_OUTPUT_BUSES * 2];
 static voice_t voice[MAX_CHANNELS * 2];
 #define SAMPLE_LAUNCHER_AUDIO_VOICES 5
 static voice_t sampleLauncherVoice[SAMPLE_LAUNCHER_AUDIO_VOICES];
+static voice_t diskOpPreviewVoice;
+static int16_t diskOpPreviewNote = -1;
 static uint8_t sampleLauncherOutputBus[SAMPLE_LAUNCHER_AUDIO_VOICES];
 static float sampleLauncherBaseVolume[SAMPLE_LAUNCHER_AUDIO_VOICES];
 static uint16_t sampleLauncherAppliedGain[SAMPLE_LAUNCHER_AUDIO_VOICES];
@@ -87,29 +90,26 @@ void stopVoice(int32_t i)
 	v->panning = 128;
 }
 
-bool audioVoiceUsesSample(int32_t i, const sample_t *sample)
+static void resetDiskOpPreviewVoice(void)
 {
-	if (i < 0 || i >= MAX_CHANNELS || sample == NULL || sample->dataPtr == NULL)
-		return false;
+	memset(&diskOpPreviewVoice, 0, sizeof (diskOpPreviewVoice));
+	diskOpPreviewVoice.panning = 128;
+	diskOpPreviewNote = -1;
+}
 
-	const bool sample16Bit = !!(sample->flags & SAMPLE_16BIT);
-	for (int32_t offset = 0; offset <= MAX_CHANNELS; offset += MAX_CHANNELS)
-	{
-		const voice_t *v = &voice[offset + i];
-		if (!v->active)
-			continue;
-		if (sample16Bit)
-		{
-			if (v->base16 == (const int16_t *)sample->dataPtr)
-				return true;
-		}
-		else if (v->base8 == sample->dataPtr)
-		{
-			return true;
-		}
-	}
+void audioDiskOpPreviewStop(void)
+{
+	resetDiskOpPreviewVoice();
+}
 
-	return false;
+void audioDiskOpPreviewNoteOff(uint8_t note)
+{
+	lockAudio();
+
+	if (diskOpPreviewNote == note)
+		resetDiskOpPreviewVoice();
+
+	unlockAudio();
 }
 
 void audioSampleLauncherStop(uint8_t voiceIndex)
@@ -437,10 +437,8 @@ static void voiceUpdateVolumes(int32_t i, uint8_t status)
 	}
 }
 
-static void voiceTrigger(int32_t ch, sample_t *s, int32_t position)
+static void voiceTriggerData(voice_t *v, sample_t *s, int32_t position)
 {
-	voice_t *v = &voice[ch];
-
 	int32_t length = s->length;
 	int32_t loopStart = s->loopStart;
 	int32_t loopLength = s->loopLength;
@@ -490,6 +488,62 @@ static void voiceTrigger(int32_t ch, sample_t *s, int32_t position)
 
 	v->mixFuncOffset = ((int32_t)sample16Bit * 15) + (audio.interpolationType * 3) + loopType;
 	v->active = true;
+}
+
+static void voiceTrigger(int32_t ch, sample_t *s, int32_t position)
+{
+	voiceTriggerData(&voice[ch], s, position);
+}
+
+void audioDiskOpPreviewTrigger(const sample_t *sample, uint8_t note,
+	int8_t volume)
+{
+	if (sample == NULL || sample->dataPtr == NULL || sample->length < 1 ||
+		audio.freq == 0 || note < 1 || note > 96)
+	{
+		lockAudio();
+		resetDiskOpPreviewVoice();
+		unlockAudio();
+		return;
+	}
+
+	lockAudio();
+
+	voice_t *v = &diskOpPreviewVoice;
+	memset(v, 0, sizeof (*v));
+	voiceTriggerData(v, (sample_t *)sample, 0);
+	if (!v->active)
+	{
+		diskOpPreviewNote = -1;
+		unlockAudio();
+		return;
+	}
+
+	v->panning = sample->panning;
+	const uint8_t noteVolume = volume < 0 ? sample->volume : (uint8_t)volume;
+	v->fVolume = (noteVolume > 64 ? 64 : noteVolume) * (1.0f / 64.0f);
+	if (audio.monoOutputMode)
+	{
+		v->fCurrVolumeL = v->fTargetVolumeL = v->fVolume;
+		v->fCurrVolumeR = v->fTargetVolumeR = 0.0f;
+	}
+	else
+	{
+		v->fCurrVolumeL = v->fTargetVolumeL =
+			v->fVolume * fSqrtPanningTable[256-v->panning];
+		v->fCurrVolumeR = v->fTargetVolumeR =
+			v->fVolume * fSqrtPanningTable[v->panning];
+	}
+	v->fCurrVolumeMono = v->fTargetVolumeMono = v->fVolume;
+
+	const double pitch = exp2(((int32_t)note - NOTE_C4) / 12.0);
+	const double rate = getSampleC4Hz((sample_t *)sample) * pitch;
+	v->delta = (uint64_t)((rate * (1ULL << MIXER_FRAC_BITS)) / audio.freq);
+	if (v->delta == 0)
+		v->delta = 1;
+	diskOpPreviewNote = note;
+
+	unlockAudio();
 }
 
 static void voiceApplyTapeheadOneShot(voice_t *v, const sample_t *s,
@@ -779,6 +833,18 @@ static void doSampleLauncherMixing(int32_t bufferPosition,
 	}
 }
 
+static void doDiskOpPreviewMixing(int32_t bufferPosition,
+	int32_t samplesToMix)
+{
+	if (!diskOpPreviewVoice.active)
+		return;
+
+	audio.fMixBufferL = audio.fBusMixBufferL[0];
+	audio.fMixBufferR = audio.monoOutputMode
+		? audio.fBusMixBufferL[0] : audio.fBusMixBufferR[0];
+	mixSampleLauncherVoice(&diskOpPreviewVoice, bufferPosition, samplesToMix);
+}
+
 static void doChannelMixing(int32_t bufferPosition, int32_t samplesToMix,
 	uint8_t outputBusCount)
 {
@@ -893,6 +959,7 @@ static void doChannelMixing(int32_t bufferPosition, int32_t samplesToMix,
 	** XM/Q/Poly channel has advanced, so neither deck can steal the other's
 	** physical tracker voice or transport ownership. */
 	doSampleLauncherMixing(bufferPosition, samplesToMix, outputBusCount);
+	doDiskOpPreviewMixing(bufferPosition, samplesToMix);
 
 	audio.fMixBufferL = audio.fBusMixBufferL[0];
 	audio.fMixBufferR = audio.fBusMixBufferR[0];

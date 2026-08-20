@@ -22,6 +22,7 @@
 #include "ft2_sample_ed.h"
 #include "ft2_mouse.h"
 #include "ft2_diskop.h"
+#include "ft2_diskop_preview.h"
 #include "ft2_sample_loader.h"
 #include "ft2_sample_launcher.h"
 #include "ft2_structs.h"
@@ -80,11 +81,14 @@ static SDL_Thread *thread;
 ** interface, while the preview request serial makes rapid browsing
 ** newest-selection-wins. */
 static SDL_mutex *sampleDecodeMutex, *previewRequestMutex;
+static SDL_cond *previewRequestCond;
 static SDL_Thread *previewThread;
 static bool previewThreadRunning, previewCancelRequested;
+static bool previewShutdownRequested;
 static volatile bool previewDecodeActive;
 static bool previewAsInstrument;
 static uint8_t previewTargetInstrument, previewTargetSample;
+static diskOpPreviewRoute_t previewRoute;
 static uint32_t previewRequestSerial;
 static UNICHAR previewFilenameU[PATH_MAX + 1];
 
@@ -97,8 +101,11 @@ static bool ensureSampleLoaderMutexes(void)
 		sampleDecodeMutex = SDL_CreateMutex();
 	if (previewRequestMutex == NULL)
 		previewRequestMutex = SDL_CreateMutex();
+	if (previewRequestCond == NULL)
+		previewRequestCond = SDL_CreateCond();
 
-	return sampleDecodeMutex != NULL && previewRequestMutex != NULL;
+	return sampleDecodeMutex != NULL && previewRequestMutex != NULL &&
+		previewRequestCond != NULL;
 }
 
 void sampleLoaderShowError(const char *fmt, ...)
@@ -432,7 +439,12 @@ static int32_t previewSampleThread(void *ptr)
 	{
 		UNICHAR filenameU[PATH_MAX + 1];
 		SDL_LockMutex(previewRequestMutex);
-		if (previewCancelRequested || previewRequestSerial == handledSerial)
+		while (!previewShutdownRequested &&
+			(previewCancelRequested || previewRequestSerial == handledSerial))
+		{
+			SDL_CondWait(previewRequestCond, previewRequestMutex);
+		}
+		if (previewShutdownRequested)
 		{
 			previewThreadRunning = false;
 			SDL_UnlockMutex(previewRequestMutex);
@@ -443,6 +455,7 @@ static int32_t previewSampleThread(void *ptr)
 		const uint8_t targetInstrument = previewTargetInstrument;
 		const uint8_t targetSample = previewTargetSample;
 		const bool asInstrument = previewAsInstrument;
+		const diskOpPreviewRoute_t route = previewRoute;
 		UNICHAR_STRNCPY(filenameU, previewFilenameU, PATH_MAX);
 		filenameU[PATH_MAX] = 0;
 		SDL_UnlockMutex(previewRequestMutex);
@@ -452,11 +465,72 @@ static int32_t previewSampleThread(void *ptr)
 		const bool decoded = decodePreviewSample(filenameU, &decodedSample);
 
 		SDL_LockMutex(previewRequestMutex);
-		const bool requestIsCurrent = !previewCancelRequested &&
-			requestSerial == previewRequestSerial;
+		const bool requestIsCurrent = diskOpPreviewRequestIsCurrent(
+			requestSerial, previewRequestSerial, previewCancelRequested,
+			previewShutdownRequested);
 		if (decoded && requestIsCurrent)
-			playDiskOpSamplePreview(&decodedSample, cursor.ch,
-				targetInstrument, targetSample, asInstrument);
+		{
+			if (route == DISKOP_PREVIEW_ROUTE_PRIVATE)
+				installDiskOpSamplePreview(&decodedSample);
+			else if (route == DISKOP_PREVIEW_ROUTE_LIVE_LOAD &&
+				targetInstrument > 0 && targetInstrument <= MAX_INST &&
+				targetInstrument == editor.curInstr &&
+				(asInstrument || targetSample == editor.curSmp))
+			{
+				const uint8_t destinationSample = asInstrument ? 0 : targetSample;
+				const bool adoptInstrumentName = !asInstrument &&
+					song.instrName[targetInstrument][0] == '\0';
+				const bool undoStarted = asInstrument || adoptInstrumentName
+					? undoInstrumentBegin(targetInstrument, "Live-load sample")
+					: undoSampleBegin(targetInstrument, destinationSample,
+						"Live-load sample");
+
+				if (undoStarted)
+				{
+					lockMixerCallback();
+					if (sampleLauncherInstrumentIsMapped(targetInstrument))
+						sampleLauncherReset();
+					if (asInstrument)
+					{
+						freeInstr(targetInstrument);
+						memset(song.instrName[targetInstrument], 0, 23);
+					}
+					if (instr[targetInstrument] == NULL)
+						allocateInstr(targetInstrument);
+
+					if (instr[targetInstrument] != NULL)
+					{
+						freeSample(targetInstrument, destinationSample);
+						diskOpPreviewMoveSample(
+							&instr[targetInstrument]->smp[destinationSample],
+							&decodedSample);
+						sample_t *destination =
+							&instr[targetInstrument]->smp[destinationSample];
+						if (adoptInstrumentName)
+						{
+							memcpy(song.instrName[targetInstrument],
+								destination->name, 22);
+							song.instrName[targetInstrument][22] = '\0';
+						}
+						sanitizeSample(destination);
+						fixSample(destination);
+						fixInstrAndSampleNames(targetInstrument);
+						unlockMixerCallback();
+						setSongModifiedFlag();
+						if (asInstrument || adoptInstrumentName)
+							undoInstrumentCommit();
+						else
+							undoSampleCommit();
+						editor.updateCurSmp = true;
+					}
+					else
+					{
+						unlockMixerCallback();
+						undoCancelTransaction();
+					}
+				}
+			}
+		}
 		SDL_UnlockMutex(previewRequestMutex);
 
 		freeTmpSample(&decodedSample);
@@ -466,18 +540,23 @@ static int32_t previewSampleThread(void *ptr)
 	return 0;
 }
 
-bool previewSample(UNICHAR *filenameU, uint8_t targetInstrument,
+static bool queueDiskOpSample(UNICHAR *filenameU,
+	diskOpPreviewRoute_t route, uint8_t targetInstrument,
 	uint8_t targetSample, bool asInstrument)
 {
 	if (filenameU == NULL || sampleIsLoading || !ensureSampleLoaderMutexes())
 		return false;
 
 	SDL_LockMutex(previewRequestMutex);
-	/* Serialize stopping the old voice with the worker's final current-request
-	** check. Otherwise a tiny file could decode and start between unlocking
-	** this mutex and stopping the previous selection. */
-	stopDiskOpSamplePreview();
+	if (previewShutdownRequested)
+	{
+		SDL_UnlockMutex(previewRequestMutex);
+		return false;
+	}
+	if (route == DISKOP_PREVIEW_ROUTE_PRIVATE)
+		stopDiskOpSamplePreview();
 	previewCancelRequested = false;
+	previewRoute = route;
 	previewTargetInstrument = targetInstrument;
 	previewTargetSample = targetSample;
 	previewAsInstrument = asInstrument;
@@ -499,12 +578,25 @@ bool previewSample(UNICHAR *filenameU, uint8_t targetInstrument,
 			started = false;
 		}
 		else
-		{
-			SDL_DetachThread(previewThread);
-		}
+			SDL_CondSignal(previewRequestCond);
 	}
+	else
+		SDL_CondSignal(previewRequestCond);
 	SDL_UnlockMutex(previewRequestMutex);
 	return started;
+}
+
+bool previewSample(UNICHAR *filenameU)
+{
+	return queueDiskOpSample(filenameU, DISKOP_PREVIEW_ROUTE_PRIVATE,
+		0, 0, false);
+}
+
+bool liveLoadSample(UNICHAR *filenameU, uint8_t targetInstrument,
+	uint8_t targetSample, bool asInstrument)
+{
+	return queueDiskOpSample(filenameU, DISKOP_PREVIEW_ROUTE_LIVE_LOAD,
+		targetInstrument, targetSample, asInstrument);
 }
 
 void cancelSamplePreview(void)
@@ -514,9 +606,32 @@ void cancelSamplePreview(void)
 		SDL_LockMutex(previewRequestMutex);
 		previewCancelRequested = true;
 		previewRequestSerial++;
+		SDL_CondSignal(previewRequestCond);
 		SDL_UnlockMutex(previewRequestMutex);
 	}
 
+	stopDiskOpSamplePreview();
+}
+
+void shutdownSamplePreview(void)
+{
+	if (previewRequestMutex == NULL)
+		return;
+
+	SDL_LockMutex(previewRequestMutex);
+	previewShutdownRequested = true;
+	previewCancelRequested = true;
+	previewRequestSerial++;
+	if (previewRequestCond != NULL)
+		SDL_CondSignal(previewRequestCond);
+	SDL_Thread *threadToJoin = previewThread;
+	SDL_UnlockMutex(previewRequestMutex);
+
+	if (threadToJoin != NULL)
+		SDL_WaitThread(threadToJoin, NULL);
+
+	previewThread = NULL;
+	previewThreadRunning = false;
 	stopDiskOpSamplePreview();
 }
 

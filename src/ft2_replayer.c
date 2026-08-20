@@ -48,11 +48,6 @@ static uint64_t songTickDuration52fp[(MAX_BPM-MIN_BPM)+1];
 static double dDeltaMul, dScopeDeltaMul, dScopeDrawDeltaMul;
 static bool bxxOverflow;
 
-/* Runtime-only Disk Op audition routing. These fields are only changed while
-** the audio lock is held, and triggerNote() reads them from the audio thread. */
-static bool diskOpPreviewOverrideActive, diskOpPreviewAsInstrument;
-static uint8_t diskOpPreviewTargetInstrument, diskOpPreviewTargetSample;
-
 /*
 ** Runtime-only REC+ state. It deliberately is not saved to config,
 ** so GAME OVER becomes available again after restarting FT2.
@@ -667,11 +662,7 @@ void triggerNote(uint8_t note, uint8_t efx, uint8_t efxData, channel_t *ch)
 	ch->noteNum = note;
 
 	ASSERT(ch->instrNum <= 130);
-	const bool previewMatchesInstrument = diskOpPreviewOverrideActive &&
-		ch->instrNum == diskOpPreviewTargetInstrument;
-	const bool previewReplacesInstrument = previewMatchesInstrument &&
-		diskOpPreviewAsInstrument;
-	instr_t *ins = previewReplacesInstrument ? instr[129] : instr[ch->instrNum];
+	instr_t *ins = instr[ch->instrNum];
 	if (ins == NULL)
 		ins = instr[0]; // empty instruments use this placeholder instrument
 
@@ -681,18 +672,11 @@ void triggerNote(uint8_t note, uint8_t efx, uint8_t efxData, channel_t *ch)
 	if (note > 96) // non-FT2 sanity check
 		note = 96;
 
-	const uint8_t defaultSample = previewReplacesInstrument ? 0 :
-		(ins->note2SampleLUT[note-1] & 0xF);
+	const uint8_t defaultSample = ins->note2SampleLUT[note-1] & 0xF;
 	const uint8_t channelIndex = ch >= channel && ch < channel + MAX_CHANNELS
 		? (uint8_t)(ch - channel) : UINT8_MAX;
-	ch->smpNum = previewReplacesInstrument ? 0 :
-		sampleMorphResolve(channelIndex, ch->instrNum, defaultSample);
+	ch->smpNum = sampleMorphResolve(channelIndex, ch->instrNum, defaultSample);
 	sample_t *s = &ins->smp[ch->smpNum];
-	if (previewMatchesInstrument && !diskOpPreviewAsInstrument &&
-		ch->smpNum == diskOpPreviewTargetSample)
-	{
-		s = &instr[129]->smp[0];
-	}
 
 	ch->smpPtr = s;
 	ch->relativeNote = s->relativeNote;
@@ -3731,7 +3715,6 @@ void conv16BitSample(int8_t *p, int32_t length, bool stereo) // changes sample s
 
 void closeReplayer(void)
 {
-	stopDiskOpSamplePreview();
 	freeAllInstr();
 	freeAllPatterns();
 
@@ -4243,68 +4226,33 @@ void playRange(uint8_t chNum, uint8_t insNum, uint8_t smpNum, uint8_t note, uint
 	editor.curPlaySmp = editor.curSmp;
 }
 
-static void stopDiskOpPreviewChannels(void)
-{
-	const sample_t *preview = &instr[129]->smp[0];
-	for (int32_t i = 0; i < MAX_CHANNELS; i++)
-	{
-		channel_t *ch = &channel[i];
-		const bool channelOwnsPreview = ch->instrNum == 129;
-		const bool voiceUsesPreview = audioVoiceUsesSample(i, preview);
-		if (!channelOwnsPreview && !voiceUsesPreview)
-			continue;
-
-		stopVoice(i);
-		if (channelOwnsPreview)
-		{
-			lastChInstr[i].smpNum = 255;
-			lastChInstr[i].instrNum = 255;
-			ch->copyOfInstrAndNote = 0;
-			ch->smpPtr = NULL;
-			ch->instrNum = 0;
-			ch->instrPtr = instr[0];
-			ch->status = 0;
-			ch->realVol = ch->outVol = ch->oldVol = 0;
-			ch->fFinalVol = 0.0f;
-		}
-	}
-}
-
 void stopDiskOpSamplePreview(void)
 {
 	if (instr[129] == NULL)
 		return;
 
-	const bool audioWasntLocked = !audio.locked;
-	if (audioWasntLocked)
-		lockAudio();
+	lockAudio();
 
-	diskOpPreviewOverrideActive = false;
-	stopDiskOpPreviewChannels();
+	audioDiskOpPreviewStop();
 	freeSmpData(&instr[129]->smp[0]);
 	memset(&instr[129]->smp[0], 0, sizeof (sample_t));
 	instr[129]->smp[0].panning = 128;
 	instr[129]->smp[0].volume = 64;
 
-	if (audioWasntLocked)
-		unlockAudio();
+	unlockAudio();
 }
 
-bool playDiskOpSamplePreview(sample_t *sample, uint8_t chNum,
-	uint8_t targetInstrument, uint8_t targetSample, bool asInstrument)
+bool installDiskOpSamplePreview(sample_t *sample)
 {
 	if (sample == NULL || sample->dataPtr == NULL || sample->length <= 0 ||
-		instr[129] == NULL || chNum >= MAX_CHANNELS ||
-		targetInstrument > MAX_INST || targetSample >= MAX_SMP_PER_INST)
+		instr[129] == NULL)
 	{
 		return false;
 	}
 
-	const bool audioWasntLocked = !audio.locked;
-	if (audioWasntLocked)
-		lockAudio();
+	lockAudio();
 
-	stopDiskOpPreviewChannels();
+	audioDiskOpPreviewStop();
 
 	sample_t *preview = &instr[129]->smp[0];
 	freeSmpData(preview);
@@ -4312,43 +4260,20 @@ bool playDiskOpSamplePreview(sample_t *sample, uint8_t chNum,
 	memset(sample, 0, sizeof (sample_t)); // ownership moved to reserved instrument 129
 	sanitizeSample(preview);
 	fixSample(preview);
-	diskOpPreviewTargetInstrument = targetInstrument;
-	diskOpPreviewTargetSample = targetSample;
-	diskOpPreviewAsInstrument = asInstrument;
-	diskOpPreviewOverrideActive = targetInstrument > 0;
-
-	/* During transport playback the normal pattern triggers audition the
-	** candidate in context. A separate C-4 voice would obscure that comparison. */
-	if (songPlaying)
-	{
-		if (audioWasntLocked)
-			unlockAudio();
-		return true;
-	}
-
-	lastChInstr[chNum].instrNum = 255;
-	lastChInstr[chNum].smpNum = 255;
-	editor.curPlayInstr = 255;
-	editor.curPlaySmp = 255;
-
-	channel_t *ch = &channel[chNum];
-	ch->instrNum = 129;
-	ch->copyOfInstrAndNote = (129 << 8) | NOTE_C4;
-	ch->efx = 0;
-	ch->efxData = 0;
-	ch->smpStartPos = 0;
-	ch->midiVibDepth = 0;
-	ch->midiPitch = 0;
-	microtonalReset(&ch->microtonal, chNum);
-	triggerNote(NOTE_C4, 0, 0, ch);
-	resetVolumes(ch);
-	triggerInstrument(ch);
-	updateVolPanAutoVib(ch);
-
-	if (audioWasntLocked)
-		unlockAudio();
+	unlockAudio();
 
 	return true;
+}
+
+void playDiskOpSamplePreviewNote(uint8_t note, int8_t volume)
+{
+	if (instr[129] != NULL)
+		audioDiskOpPreviewTrigger(&instr[129]->smp[0], note, volume);
+}
+
+void releaseDiskOpSamplePreviewNote(uint8_t note)
+{
+	audioDiskOpPreviewNoteOff(note);
 }
 
 void stopVoices(void)

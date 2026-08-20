@@ -143,7 +143,11 @@ void setMixerBPM(int32_t bpm);
 void audioSetVolRamp(bool volRamp);
 void audioSetInterpolationType(uint8_t interpolationType);
 void stopVoice(int32_t i);
-bool audioVoiceUsesSample(int32_t i, const sample_t *sample);
+void audioDiskOpPreviewTrigger(const sample_t *sample, uint8_t note,
+	int8_t volume);
+void audioDiskOpPreviewNoteOff(uint8_t note);
+/* Caller must hold the audio lock. */
+void audioDiskOpPreviewStop(void);
 void audioSampleLauncherTrigger(uint8_t voiceIndex, const sample_t *sample,
 	uint8_t outputBus);
 void audioSampleLauncherStop(uint8_t voiceIndex);
