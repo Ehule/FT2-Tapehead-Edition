@@ -3357,10 +3357,28 @@ void toggleDiskOpScreen(void)
 bool diskOpHandleKey(int32_t keycode, bool keyWasRepeated)
 {
 	if (!ui.diskOpShown || !diskOpSampleBrowseMode() ||
-		keyb.keyModifierDown || mouse.mode != MOUSE_MODE_NORMAL)
+		mouse.mode != MOUSE_MODE_NORMAL)
 	{
 		return false;
 	}
+
+	/* Shift+Up/Down keeps the existing global instrument selection behavior.
+	** Ctrl+Up/Down is its Disk Op companion for choosing the destination sample
+	** slot without disturbing the highlighted browser candidate. */
+	const int32_t sampleSlotDelta = diskOpBrowserSampleSlotDelta(
+		keyb.leftCtrlPressed, keyb.leftShiftPressed, keyb.leftAltPressed,
+		keycode == SDLK_UP ? -1 : keycode == SDLK_DOWN ? 1 : 0);
+	if (sampleSlotDelta != 0)
+	{
+		if (sampleSlotDelta < 0)
+			decCurSmp();
+		else
+			incCurSmp();
+		return true;
+	}
+
+	if (keyb.keyModifierDown)
+		return false;
 
 	if (keycode == SDLK_RETURN || keycode == SDLK_KP_ENTER)
 	{

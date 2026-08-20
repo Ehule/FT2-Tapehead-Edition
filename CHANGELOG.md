@@ -26,10 +26,23 @@ map.
 - Preview sample memory and its dedicated mixer voice are private runtime state;
   preview notes never reach Edit, Pattern Record, or Song Record and never steal
   a pattern channel. Closing Disk Op restores ordinary keyboard and MIDI routing.
+- Ctrl+Up/Down changes the destination sample slot while leaving the highlighted
+  browser candidate in place; Shift+Up/Down retains instrument selection.
+- Dedicated preview notes now select their sinc interpolation kernel before the
+  first mixer callback, fixing the original QWERTY/MIDI audition crash.
 - The asynchronous decoder is newest-selection-wins and joinable at shutdown,
   so no preview worker can outlive audio/replayer teardown.
 - On Windows, drive buttons begin below Preview and remain compact enough to
   expose all eight supported drive entries.
+
+## Per-track transport visual consistency — 2026-08-20
+
+- FastTracks, LEN and Freeze lanes now always use stationary pattern data with
+  their moving private playhead during ordinary playback on every platform.
+  Standard lanes retain classic FT2 scrolling. Record modes and block editing
+  retain the conventional coordinate view for write safety.
+- Removed the machine-local `PerTrackTransportVisuals` override that could make
+  Linux and Windows render the same transport state differently.
 
 ## Dedicated Tuning/Drift column — 2026-08-10
 

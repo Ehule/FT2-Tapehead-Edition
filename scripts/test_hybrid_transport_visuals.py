@@ -6,25 +6,26 @@ draw = (ROOT / "src/ft2_pattern_draw.c").read_text()
 actions = (ROOT / "src/ft2_tapehead_actions.c").read_text()
 policy = (ROOT / "src/ft2_transport_visuals.h").read_text()
 
-def independent(feature: bool, running: bool, fast: bool, length: bool, frozen: bool) -> bool:
-    return feature and running and (fast or length or frozen)
+def independent(running: bool, fast: bool, length: bool, frozen: bool) -> bool:
+    return running and (fast or length or frozen)
 
 # Core per-track policy combinations.
-assert not independent(True, True, False, False, False)  # normal FT2
-assert independent(True, True, True, False, False)       # FastTracks
-assert independent(True, True, False, True, False)       # LEN
-assert independent(True, True, True, True, False)        # FastTracks + LEN
-assert independent(True, True, False, False, True)       # Freeze
-assert not independent(False, True, True, True, True)    # compatibility switch
-assert not independent(True, False, True, True, True)    # stopped editor
+assert not independent(True, False, False, False)  # normal FT2
+assert independent(True, True, False, False)       # FastTracks
+assert independent(True, False, True, False)       # LEN
+assert independent(True, True, True, False)        # FastTracks + LEN
+assert independent(True, False, False, True)       # Freeze
+assert not independent(False, True, True, True)    # stopped editor
 
 # The renderer must make the choice inside the channel loop, not globally.
 loop = draw.index("for (int32_t j = 0; j < numChannels")
 choice = draw.index("tapeheadTrackUsesIndependentTransportVisual", loop)
 assert choice > loop
+assert "const bool hybridVisuals = songPlaying" in draw
+assert "tapeheadPerTrackTransportVisualsEnabled" not in draw
 assert "const int32_t visualMasterRow = hybridVisuals ? song.row : currRow;" in draw
 assert "const bool trackLengthVisualActive = lengthTopologyActive" in draw
-assert "songPlaying, fastTrackVisible, trackLengthVisualActive" in draw
+assert "hybridVisuals,\n\t\t\t\t\tfastTrackVisible, trackLengthVisualActive" in draw
 assert "songPlaying, fastTrackVisible, lengthTopologyActive" not in draw
 assert "fastTrack->sourceRow" in draw
 assert "fastTracksPOCResolveMasterSourceRow" in draw
@@ -57,19 +58,9 @@ assert "channelAcceptsPatternJog" in actions
 assert "tapeheadActionPatternJogGetVisualPosition" in draw
 assert "jogOverridesPrivateHead" in draw
 
-# The option defaults enabled when absent and can be disabled explicitly.
-assert '"PerTrackTransportVisuals"' in policy
-assert "cached = 1" in policy
-assert '"false"' in policy and '"off"' in policy and '"0"' in policy
-
-# Repeated tapehead.ini sections/keys intentionally use the repository's
-# last-value-wins convention. The parser must therefore keep scanning after a
-# recognized PerTrackTransportVisuals assignment instead of breaking early.
-key_check = policy.index('if (_stricmp(key, "PerTrackTransportVisuals"))')
-fclose = policy.index("fclose(f);", key_check)
-assignment_scan = policy[key_check:fclose]
-assert "last-value-wins" in assignment_scan
-assert "break;" not in assignment_scan
+# Active private lanes are an invariant, not a machine-local INI preference.
+assert "tapeheadPerTrackTransportVisualsEnabled" not in policy
+assert "return transportRunning &&" in policy
 
 # Long independent patterns use deterministic viewport pages derived from the
 # authoritative playback row rather than accumulating a duplicate visual row.

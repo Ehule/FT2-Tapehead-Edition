@@ -38,10 +38,21 @@ static void testDoubleClick(void)
 	assert(diskOpBrowserIsDoubleClick(2, UINT32_MAX - 50, 2, 25, 100));
 }
 
+static void testSampleSlotShortcut(void)
+{
+	assert(diskOpBrowserSampleSlotDelta(true, false, false, -1) == -1);
+	assert(diskOpBrowserSampleSlotDelta(true, false, false, 1) == 1);
+	assert(diskOpBrowserSampleSlotDelta(false, false, false, 1) == 0);
+	assert(diskOpBrowserSampleSlotDelta(true, true, false, 1) == 0);
+	assert(diskOpBrowserSampleSlotDelta(true, false, true, -1) == 0);
+	assert(diskOpBrowserSampleSlotDelta(true, false, false, 0) == 0);
+}
+
 int main(void)
 {
 	testSelectionMovement();
 	testDoubleClick();
+	testSampleSlotShortcut();
 	puts("Disk Op browser selection tests passed.");
 	return 0;
 }

@@ -2,16 +2,12 @@
 
 PR42 makes the Pattern Editor choose its transport visualization independently for every visible tracker channel.
 
-## Configuration
+## Rendering invariant
 
-Add this key under `[Pattern]` in `tapehead.ini`:
-
-```ini
-[Pattern]
-PerTrackTransportVisuals=true
-```
-
-The default is `true`, including for older `tapehead.ini` files where the key is absent. Set it to `false` to retain the pre-PR42 TapeHead transport rendering as closely as possible.
+The mode is selected per track and is not controlled by a machine-local INI
+switch. This keeps Linux and Windows behavior identical: an active
+FastTracks/LEN/Freeze lane always owns stationary data and a moving playhead,
+while a standard lane keeps ordinary FT2 scrolling.
 
 ## Rendering rules
 

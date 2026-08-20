@@ -1300,8 +1300,7 @@ void writePattern(int32_t currRow, int32_t currPattern)
 	** The performance-only hybrid renderer drops back to the legacy view as
 	** soon as recording or a block mark is active, so displayed rows can never
 	** cause a write to a different logical row. */
-	const bool hybridVisuals = tapeheadPerTrackTransportVisualsEnabled() &&
-		songPlaying && playMode != PLAYMODE_RECPATT &&
+	const bool hybridVisuals = songPlaying && playMode != PLAYMODE_RECPATT &&
 		playMode != PLAYMODE_RECSONG && pattMark.markY1 == pattMark.markY2;
 	const int32_t visualMasterRow = hybridVisuals ? song.row : currRow;
 	int32_t row = visualMasterRow - pattCoord->numUpperRows;
@@ -1358,7 +1357,7 @@ void writePattern(int32_t currRow, int32_t currPattern)
 				storedLength != 0;
 			const bool independentVisual =
 				tapeheadTrackUsesIndependentTransportVisual(hybridVisuals,
-					songPlaying, fastTrackVisible, trackLengthVisualActive,
+					fastTrackVisible, trackLengthVisualActive,
 					tapeheadActionTransportPunchIsFrozen());
 
 			if (!masterRowValid && !independentVisual)

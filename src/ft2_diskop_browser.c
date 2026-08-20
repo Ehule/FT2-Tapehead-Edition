@@ -44,6 +44,18 @@ bool diskOpBrowserMoveSelection(int32_t fileCount, int32_t visibleCount,
 	return true;
 }
 
+int32_t diskOpBrowserSampleSlotDelta(bool ctrlPressed, bool shiftPressed,
+	bool altPressed, int32_t arrowDelta)
+{
+	if (!ctrlPressed || shiftPressed || altPressed ||
+		(arrowDelta != -1 && arrowDelta != 1))
+	{
+		return 0;
+	}
+
+	return arrowDelta;
+}
+
 bool diskOpBrowserIsDoubleClick(int32_t previousEntry,
 	uint32_t previousTime, int32_t entry, uint32_t now, uint32_t threshold)
 {
