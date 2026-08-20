@@ -5,6 +5,8 @@ ROOT = Path(__file__).resolve().parents[1]
 draw = (ROOT / "src/ft2_pattern_draw.c").read_text()
 actions = (ROOT / "src/ft2_tapehead_actions.c").read_text()
 policy = (ROOT / "src/ft2_transport_visuals.h").read_text()
+mouse = (ROOT / "src/ft2_mouse.c").read_text()
+pattern_ed = (ROOT / "src/ft2_pattern_ed.c").read_text()
 
 def independent(running: bool, fast: bool, length: bool, frozen: bool) -> bool:
     return running and (fast or length or frozen)
@@ -23,9 +25,7 @@ choice = draw.index("tapeheadTrackUsesIndependentTransportVisual", loop)
 assert choice > loop
 assert "const bool hybridVisuals = songPlaying" in draw
 assert "tapeheadPerTrackTransportVisualsEnabled" not in draw
-assert "const bool blockMarkGestureActive = mouse.leftButtonPressed" in draw
-assert "mouse.lastUsedObjectType == OBJECT_PATTERNMARK" in draw
-assert "!blockMarkGestureActive" in draw
+assert "blockMarkGestureActive" not in draw
 assert "pattMark.markY1 == pattMark.markY2" not in draw
 assert "const int32_t visualMasterRow = hybridVisuals ? song.row : currRow;" in draw
 assert "const bool trackLengthVisualActive = lengthTopologyActive" in draw
@@ -35,6 +35,27 @@ assert "fastTrack->sourceRow" in draw
 assert "fastTracksPOCResolveMasterSourceRow" in draw
 assert "fastTracksPOCGetFastTrackLength" in draw
 assert "tapeheadActionTransportPunchIsFrozen" in draw
+
+# The tracker body is display-only while playback runs. Header gestures are
+# dispatched first and therefore remain usable for LEN/control/FasTrack work.
+mark_handler = pattern_ed[pattern_ed.index("void handlePatternDataMouseDown"):
+    pattern_ed.index("static uint8_t middleAuditionChannels")]
+playback_guard = mark_handler.index("if (songPlaying)\n\t\treturn;")
+right_click = mark_handler.index("if (mouse.rightButtonPressed)")
+initial_mark = mark_handler.index("mouse.lastUsedObjectType = OBJECT_PATTERNMARK;")
+assert playback_guard < right_click < initial_mark
+assert "bool forceMarking = false;" in mark_handler
+
+button_handler = mouse[mouse.index("void mouseButtonDownHandler"):
+    mouse.index("static void sendMouseButtonUpEvent")]
+control_header = button_handler.index("handleControlTrackHeaderClick(mouseButton)")
+fast_header = button_handler.index("handleFastTracksHeaderRightClick(mouseButton)")
+middle_body = button_handler.index("if (!songPlaying && ui.patternEditorShown)")
+pattern_body = button_handler.index("testPatternDataMouseDown()")
+assert control_header < middle_body
+assert fast_header < middle_body
+assert control_header < pattern_body
+assert fast_header < pattern_body
 
 # UI-derived channel state must be validated before the fixed FastTracks
 # snapshot (and the later pattern/LEN accessors) are indexed.

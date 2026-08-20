@@ -43,10 +43,10 @@ map.
   retain the conventional coordinate view for write safety.
 - Removed the machine-local `PerTrackTransportVisuals` override that could make
   Linux and Windows render the same transport state differently.
-- Pattern left-click/drag and right-click retain their normal block-selection
-  duties without latching the renderer into a different transport view. Only
-  the active drag uses the conventional coordinate view; release restores the
-  per-lane display while preserving the mark.
+- During playback the pattern-data body is display-only: mouse buttons cannot
+  move the cursor, create or clear highlights, audition rows, or switch the
+  transport view. LEN/control and FasTrack channel-header controls remain live.
+  When stopped, the original mouse editing and audition gestures are unchanged.
 
 ## Dedicated Tuning/Drift column — 2026-08-10
 

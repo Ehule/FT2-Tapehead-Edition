@@ -694,9 +694,6 @@ static bool testPatternDataMouseDown(void)
 
 void mouseButtonUpHandler(uint8_t mouseButton)
 {
-	const bool releasingPatternMark = mouseButton == SDL_BUTTON_LEFT &&
-		mouse.lastUsedObjectType == OBJECT_PATTERNMARK;
-
 	if (mouseButton == SDL_BUTTON_MIDDLE)
 	{
 		mouse.middleButtonPressed = false;
@@ -776,12 +773,6 @@ void mouseButtonUpHandler(uint8_t mouseButton)
 
 	mouse.lastUsedObjectID = OBJECT_ID_NONE;
 	mouse.lastUsedObjectType = OBJECT_NONE;
-
-	/* Pattern drawing uses the held gesture—not the persistent mark—as its
-	** conventional-coordinate safety gate. Repaint immediately on release so
-	** private FasTrack/LEN heads cannot remain in the fallback view for a frame. */
-	if (releasingPatternMark && songPlaying)
-		ui.updatePatternEditor = true;
 }
 
 
@@ -950,7 +941,7 @@ void mouseButtonDownHandler(uint8_t mouseButton)
 		if (patternLauncherHandlePanelMiddleClick(mouse.x, mouse.y, keyb.leftShiftPressed))
 			return;
 
-		if (ui.patternEditorShown)
+		if (!songPlaying && ui.patternEditorShown)
 		{
 			const int32_t y1 = ui.patternEditorOnly ? 3 : (ui.extendedPatternEditor ? 71 : 176);
 			const int32_t y2 = ui.pattChanScrollShown ? 382 : 396;

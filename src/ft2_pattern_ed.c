@@ -1000,6 +1000,13 @@ void handlePatternDataMouseDown(bool mouseButtonHeld)
 {
 	int16_t y1, y2;
 
+	/* During playback the tracker body is display-only. Tapehead's LEN and
+	** FasTrack header gestures are dispatched before this handler, so they
+	** remain available without allowing cursor/block edits to change the
+	** transport view underneath a performance. */
+	if (songPlaying)
+		return;
+
 	// non-FT2 feature: Use right mouse button to remove pattern marking
 	if (mouse.rightButtonPressed)
 	{
@@ -1040,7 +1047,7 @@ void handlePatternDataMouseDown(bool mouseButtonHeld)
 
 	// we're holding down the mouse button inside the pattern data area
 
-	bool forceMarking = songPlaying;
+	bool forceMarking = false;
 
 	// scroll left/right with mouse
 	if (ui.pattChanScrollShown)

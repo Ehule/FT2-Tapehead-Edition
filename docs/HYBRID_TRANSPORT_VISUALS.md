@@ -26,7 +26,10 @@ A normal track being strummed keeps the FT2 metaphor: the Pattern Jog row moves 
 ## Editing safety
 
 Hybrid playback rendering never rewrites pattern, song-order, block, or undo
-data. Recording modes and an actively dragged block deliberately use the
-established editor coordinate model. A stored block mark does not change the
-transport view; releasing the mouse restores stationary private lanes while
-preserving the selection.
+data. While playback is running, the pattern-data body is display-only: mouse
+buttons cannot place the cursor, create or clear a block mark, or audition a
+row. LEN/control and FasTrack gestures in the channel headers remain active.
+When playback is stopped, ordinary cursor placement, block marking, and middle
+click auditioning work normally. Recording modes retain the established editor
+coordinate model for write safety, and a stored block mark never changes the
+transport view.
