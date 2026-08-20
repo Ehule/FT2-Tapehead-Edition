@@ -2,14 +2,22 @@
 #include <math.h>
 #include <stdio.h>
 #include "../src/ft2_audio.h"
+#include "../src/mixer/ft2_windowed_sinc.h"
 
 song_t song;
+float *fSinc[SINC_KERNELS], *fSinc8[SINC_KERNELS], *fSinc16[SINC_KERNELS];
+uint64_t sincRatio1, sincRatio2;
 
 int main(void)
 {
 	float peakA, peakB;
 	float monoPeaks[4];
 	float oneShot[4];
+
+	/* Disk Op preview bypasses the tracker update pass, so it must select its
+	** sinc kernel itself before its first audio callback. A NULL LUT here was
+	** the QWERTY/MIDI audition crash with the default Sinc8 setting. */
+	assert(tapeheadTestDiskOpPreviewSincSelection(100, 200, 300));
 
 	/* Looped source metadata is overridden for strum one-shots. Forward and
 	** hand-reversed playback each stop at exactly one natural boundary. */

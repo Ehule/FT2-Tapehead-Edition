@@ -155,6 +155,8 @@ void audioSampleLauncherStopAll(void);
 void audioSampleLauncherSetOutputBus(uint8_t voiceIndex, uint8_t outputBus);
 bool setupAudio(bool showErrorMsg);
 #ifdef TAPEHEAD_AUDIO_ROUTING_TEST
+bool tapeheadTestDiskOpPreviewSincSelection(uint64_t lowDelta,
+	uint64_t middleDelta, uint64_t highDelta);
 bool tapeheadTestRouteSyntheticVoice(uint16_t outputMask,
 	uint8_t renderBusCount, uint8_t staleGlobalBusCount, float *peakBusA,
 	float *peakBusB);

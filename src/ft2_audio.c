@@ -495,19 +495,37 @@ static void voiceTrigger(int32_t ch, sample_t *s, int32_t position)
 	voiceTriggerData(&voice[ch], s, position);
 }
 
+static void voiceUpdateSincLUT(voice_t *v)
+{
+	if (!audio.sincInterpolation)
+	{
+		v->fSincLUT = NULL;
+		return;
+	}
+
+	if (v->delta <= sincRatio1)
+		v->fSincLUT = fSinc[0];
+	else if (v->delta <= sincRatio2)
+		v->fSincLUT = fSinc[1];
+	else
+		v->fSincLUT = fSinc[2];
+}
+
 void audioDiskOpPreviewTrigger(const sample_t *sample, uint8_t note,
 	int8_t volume)
 {
+	/* The preview worker replaces this private sample under the same audio
+	** lock. Validate and read all sample fields only after acquiring it so a
+	** key press cannot race a newly decoded selection being installed. */
+	lockAudio();
+
 	if (sample == NULL || sample->dataPtr == NULL || sample->length < 1 ||
 		audio.freq == 0 || note < 1 || note > 96)
 	{
-		lockAudio();
 		resetDiskOpPreviewVoice();
 		unlockAudio();
 		return;
 	}
-
-	lockAudio();
 
 	voice_t *v = &diskOpPreviewVoice;
 	memset(v, 0, sizeof (*v));
@@ -541,6 +559,7 @@ void audioDiskOpPreviewTrigger(const sample_t *sample, uint8_t note,
 	v->delta = (uint64_t)((rate * (1ULL << MIXER_FRAC_BITS)) / audio.freq);
 	if (v->delta == 0)
 		v->delta = 1;
+	voiceUpdateSincLUT(v);
 	diskOpPreviewNote = note;
 
 	unlockAudio();
@@ -626,15 +645,7 @@ void updateVoices(void)
 			v->delta = microtonalScaleDelta(baseDelta,
 				microtonalCurrentCents16(&ch->microtonal));
 
-			if (audio.sincInterpolation)
-			{
-				if (v->delta <= sincRatio1)
-					v->fSincLUT = fSinc[0];
-				else if (v->delta <= sincRatio2)
-					v->fSincLUT = fSinc[1];
-				else
-					v->fSincLUT = fSinc[2];
-			}
+			voiceUpdateSincLUT(v);
 		}
 
 		if (status & CS_TRIGGER_VOICE)
@@ -966,6 +977,50 @@ static void doChannelMixing(int32_t bufferPosition, int32_t samplesToMix,
 }
 
 #ifdef TAPEHEAD_AUDIO_ROUTING_TEST
+bool tapeheadTestDiskOpPreviewSincSelection(uint64_t lowDelta,
+	uint64_t middleDelta, uint64_t highDelta)
+{
+	float lowLUT, middleLUT, highLUT;
+	float *oldSinc[SINC_KERNELS];
+	for (uint8_t i = 0; i < SINC_KERNELS; i++)
+		oldSinc[i] = fSinc[i];
+
+	const bool oldSincInterpolation = audio.sincInterpolation;
+	const uint64_t oldSincRatio1 = sincRatio1;
+	const uint64_t oldSincRatio2 = sincRatio2;
+	voice_t oldPreviewVoice = diskOpPreviewVoice;
+
+	audio.sincInterpolation = true;
+	sincRatio1 = lowDelta;
+	sincRatio2 = middleDelta;
+	fSinc[0] = &lowLUT;
+	fSinc[1] = &middleLUT;
+	fSinc[2] = &highLUT;
+
+	diskOpPreviewVoice.delta = lowDelta;
+	voiceUpdateSincLUT(&diskOpPreviewVoice);
+	const bool lowSelected = diskOpPreviewVoice.fSincLUT == &lowLUT;
+	diskOpPreviewVoice.delta = middleDelta;
+	voiceUpdateSincLUT(&diskOpPreviewVoice);
+	const bool middleSelected = diskOpPreviewVoice.fSincLUT == &middleLUT;
+	diskOpPreviewVoice.delta = highDelta;
+	voiceUpdateSincLUT(&diskOpPreviewVoice);
+	const bool highSelected = diskOpPreviewVoice.fSincLUT == &highLUT;
+
+	audio.sincInterpolation = false;
+	voiceUpdateSincLUT(&diskOpPreviewVoice);
+	const bool disabledClearsLUT = diskOpPreviewVoice.fSincLUT == NULL;
+
+	diskOpPreviewVoice = oldPreviewVoice;
+	audio.sincInterpolation = oldSincInterpolation;
+	sincRatio1 = oldSincRatio1;
+	sincRatio2 = oldSincRatio2;
+	for (uint8_t i = 0; i < SINC_KERNELS; i++)
+		fSinc[i] = oldSinc[i];
+
+	return lowSelected && middleSelected && highSelected && disabledClearsLUT;
+}
+
 bool tapeheadTestRenderOneShot(bool reverse, float *samples,
 	uint8_t sampleCount)
 {

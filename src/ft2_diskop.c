@@ -3401,6 +3401,9 @@ static bool diskOpPreviewInputActive(void)
 
 bool diskOpHandlePreviewKeyDown(SDL_Scancode scancode, bool keyWasRepeated)
 {
+	if (scancode < 0 || scancode >= SDL_NUM_SCANCODES)
+		return false;
+
 	const int8_t note = scancodeKeyToNote(scancode);
 	if (note <= 0 || note > 96)
 		return false;
