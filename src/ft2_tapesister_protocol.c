@@ -34,9 +34,37 @@ const char *tapeheadExchangeLayoutName(tapeheadExchangeLayout_t layout)
 			return "instrument_samples";
 		case TAPEHEAD_EXCHANGE_LAYOUT_SEPARATE_INSTRUMENTS:
 			return "separate_instruments";
+		case TAPEHEAD_EXCHANGE_LAYOUT_PAGE_INSTRUMENTS:
+			return "page_instruments";
 		default:
 			return "invalid";
 	}
+}
+
+void tapeheadExchangeOfferFree(tapeheadExchangeOffer_t *offer)
+{
+	if (offer == NULL)
+		return;
+	free(offer->items);
+	tapeheadExchangeOfferInit(offer);
+}
+
+bool tapeheadExchangeOfferReserve(tapeheadExchangeOffer_t *offer,
+	uint16_t capacity)
+{
+	if (offer == NULL || capacity == 0 || capacity > TAPEHEAD_EXCHANGE_MAX_ITEMS)
+		return false;
+	if (capacity <= offer->itemCapacity)
+		return true;
+	tapeheadExchangeItem_t *items = realloc(offer->items,
+		(size_t)capacity * sizeof (*items));
+	if (items == NULL)
+		return false;
+	memset(items + offer->itemCapacity, 0,
+		(size_t)(capacity - offer->itemCapacity) * sizeof (*items));
+	offer->items = items;
+	offer->itemCapacity = capacity;
+	return true;
 }
 
 bool tapeheadExchangeFilenameIsSafe(const char *filename)
@@ -98,8 +126,9 @@ static bool parseItem(char *value, tapeheadExchangeItem_t *item)
 	}
 
 	unsigned int tile, instrument, sample;
-	if (!parseNumber(fields[0], TAPEHEAD_EXCHANGE_MAX_ITEMS, &tile) || tile == 0 ||
-		!parseNumber(fields[1], FT2_EXCHANGE_MAX_INSTRUMENTS, &instrument) ||
+	if (!parseNumber(fields[0], TAPEHEAD_EXCHANGE_MAX_V1_ITEMS, &tile) || tile == 0 ||
+		!parseNumber(fields[1], TAPEHEAD_EXCHANGE_MAX_PAGE_INSTRUMENTS,
+			&instrument) ||
 		!parseNumber(fields[2], FT2_EXCHANGE_MAX_SAMPLES, &sample) || sample == 0 ||
 		!tapeheadExchangeFilenameIsSafe(fields[3]))
 	{
@@ -133,24 +162,67 @@ static bool validateOffer(const tapeheadExchangeOffer_t *offer,
 		setError(error, errorSize, "Unsupported exchange layout");
 		return false;
 	}
-	if (offer->count == 0 || offer->count > TAPEHEAD_EXCHANGE_MAX_ITEMS)
+	if (offer->version == 1)
 	{
-		setError(error, errorSize, "Exchange count must be 1 through 16");
+		if (offer->layout == TAPEHEAD_EXCHANGE_LAYOUT_PAGE_INSTRUMENTS)
+		{
+			setError(error, errorSize, "page_instruments requires exchange version 2");
+			return false;
+		}
+		if (offer->count == 0 || offer->count > TAPEHEAD_EXCHANGE_MAX_V1_ITEMS)
+		{
+			setError(error, errorSize, "Version-1 exchange count must be 1 through 16");
+			return false;
+		}
+	}
+	else if (offer->version == 2)
+	{
+		if (offer->layout != TAPEHEAD_EXCHANGE_LAYOUT_PAGE_INSTRUMENTS)
+		{
+			setError(error, errorSize, "Exchange version 2 requires page_instruments");
+			return false;
+		}
+		if (strcmp(offer->sender, "tapesister") != 0 ||
+			strcmp(offer->recipient, "tapehead") != 0)
+		{
+			setError(error, errorSize, "page_instruments is only valid from TapeSister to Tapehead");
+			return false;
+		}
+		if (offer->count == 0 || offer->count > TAPEHEAD_EXCHANGE_MAX_ITEMS)
+		{
+			setError(error, errorSize, "Version-2 exchange item count is out of range");
+			return false;
+		}
+	}
+	else
+	{
+		setError(error, errorSize, "Unsupported exchange version");
 		return false;
 	}
 
-	bool usedTiles[TAPEHEAD_EXCHANGE_MAX_ITEMS + 1] = { false };
+	bool usedTiles[TAPEHEAD_EXCHANGE_MAX_V1_ITEMS + 1] = { false };
 	bool usedSamples[FT2_EXCHANGE_MAX_SAMPLES + 1] = { false };
-	bool usedInstruments[FT2_EXCHANGE_MAX_INSTRUMENTS + 1] = { false };
-	for (uint8_t i = 0; i < offer->count; i++)
+	bool usedInstruments[TAPEHEAD_EXCHANGE_MAX_PAGE_INSTRUMENTS + 1] = { false };
+	bool usedPageSamples[TAPEHEAD_EXCHANGE_MAX_PAGE_INSTRUMENTS + 1]
+		[FT2_EXCHANGE_MAX_SAMPLES + 1] = { { false } };
+	for (uint16_t i = 0; i < offer->count; i++)
 	{
 		const tapeheadExchangeItem_t *item = &offer->items[i];
-		if (usedTiles[item->tapeSisterTile])
+		if (item->tapeSisterTile == 0 ||
+			item->tapeSisterTile > TAPEHEAD_EXCHANGE_MAX_V1_ITEMS ||
+			item->ft2Sample == 0 || item->ft2Sample > FT2_EXCHANGE_MAX_SAMPLES ||
+			!tapeheadExchangeFilenameIsSafe(item->filename))
+		{
+			setError(error, errorSize, "Invalid exchange item value");
+			return false;
+		}
+		if (offer->version == 1 && usedTiles[item->tapeSisterTile])
 		{
 			setError(error, errorSize, "Duplicate TapeSister tile target");
 			return false;
 		}
-		usedTiles[item->tapeSisterTile] = true;
+		if (offer->version == 1)
+			usedTiles[item->tapeSisterTile] = true;
 
 		if (offer->layout == TAPEHEAD_EXCHANGE_LAYOUT_INSTRUMENT_SAMPLES)
 		{
@@ -167,11 +239,11 @@ static bool validateOffer(const tapeheadExchangeOffer_t *offer,
 				return false;
 			}
 		}
-		else
+		else if (offer->layout == TAPEHEAD_EXCHANGE_LAYOUT_SEPARATE_INSTRUMENTS)
 		{
 			if (item->ft2Instrument == 0 ||
 				(strcmp(offer->sender, "tapesister") == 0 &&
-				 item->ft2Instrument > TAPEHEAD_EXCHANGE_MAX_ITEMS))
+				 item->ft2Instrument > TAPEHEAD_EXCHANGE_MAX_V1_ITEMS))
 			{
 				setError(error, errorSize, "Invalid separate-instruments position");
 				return false;
@@ -182,6 +254,23 @@ static bool validateOffer(const tapeheadExchangeOffer_t *offer,
 				return false;
 			}
 			usedInstruments[item->ft2Instrument] = true;
+		}
+		else
+		{
+			if (item->ft2Instrument == 0 ||
+				item->ft2Sample != item->tapeSisterTile)
+			{
+				setError(error, errorSize,
+					"Invalid page_instruments tile/instrument/sample mapping");
+				return false;
+			}
+			if (usedPageSamples[item->ft2Instrument][item->ft2Sample])
+			{
+				setError(error, errorSize,
+					"Duplicate page_instruments instrument/sample destination");
+				return false;
+			}
+			usedPageSamples[item->ft2Instrument][item->ft2Sample] = true;
 		}
 	}
 
@@ -210,7 +299,7 @@ bool tapeheadExchangeParseManifest(FILE *file, tapeheadExchangeOffer_t *offer,
 		if (length == sizeof (line) - 1 && line[length - 1] != '\n' && !feof(file))
 		{
 			setError(error, errorSize, "Manifest line is too long");
-			return false;
+			goto failed;
 		}
 		while (line[0] != '\0')
 		{
@@ -224,10 +313,14 @@ bool tapeheadExchangeParseManifest(FILE *file, tapeheadExchangeOffer_t *offer,
 
 		if (!headerSeen)
 		{
-			if (strcmp(line, "TAPESISTER_EXCHANGE 1") != 0)
+			if (strcmp(line, "TAPESISTER_EXCHANGE 1") == 0)
+				parsed.version = 1;
+			else if (strcmp(line, "TAPESISTER_EXCHANGE 2") == 0)
+				parsed.version = 2;
+			else
 			{
 				setError(error, errorSize, "Unsupported exchange version");
-				return false;
+				goto failed;
 			}
 			headerSeen = true;
 			continue;
@@ -237,7 +330,7 @@ bool tapeheadExchangeParseManifest(FILE *file, tapeheadExchangeOffer_t *offer,
 		if (equals == NULL)
 		{
 			setError(error, errorSize, "Malformed manifest field");
-			return false;
+			goto failed;
 		}
 		*equals = '\0';
 		char *value = equals + 1;
@@ -263,10 +356,12 @@ bool tapeheadExchangeParseManifest(FILE *file, tapeheadExchangeOffer_t *offer,
 				parsed.layout = TAPEHEAD_EXCHANGE_LAYOUT_INSTRUMENT_SAMPLES;
 			else if (strcmp(value, "separate_instruments") == 0)
 				parsed.layout = TAPEHEAD_EXCHANGE_LAYOUT_SEPARATE_INSTRUMENTS;
+			else if (strcmp(value, "page_instruments") == 0)
+				parsed.layout = TAPEHEAD_EXCHANGE_LAYOUT_PAGE_INSTRUMENTS;
 			else
 			{
 				setError(error, errorSize, "Unsupported exchange layout");
-				return false;
+				goto failed;
 			}
 			layoutSeen = true;
 		}
@@ -281,40 +376,54 @@ bool tapeheadExchangeParseManifest(FILE *file, tapeheadExchangeOffer_t *offer,
 		}
 		else if (strcmp(line, "item") == 0)
 		{
+			uint16_t capacity = parsed.itemCapacity;
+			if (capacity == 0)
+				capacity = TAPEHEAD_EXCHANGE_MAX_V1_ITEMS;
+			else if (capacity < TAPEHEAD_EXCHANGE_MAX_ITEMS)
+			{
+				const uint32_t doubled = (uint32_t)capacity * 2;
+				capacity = (uint16_t)(doubled > TAPEHEAD_EXCHANGE_MAX_ITEMS ?
+					TAPEHEAD_EXCHANGE_MAX_ITEMS : doubled);
+			}
 			if (parsed.count >= TAPEHEAD_EXCHANGE_MAX_ITEMS ||
+				(parsed.count >= parsed.itemCapacity &&
+				 !tapeheadExchangeOfferReserve(&parsed, capacity)) ||
 				!parseItem(value, &parsed.items[parsed.count]))
 			{
 				setError(error, errorSize, "Malformed exchange item");
-				return false;
+				goto failed;
 			}
 			parsed.count++;
 		}
 		else
 		{
 			setError(error, errorSize, "Unsupported manifest field");
-			return false;
+			goto failed;
 		}
 	}
 
 	if (ferror(file))
 	{
 		setError(error, errorSize, "Could not read exchange manifest");
-		return false;
+		goto failed;
 	}
 	if (!headerSeen || !senderSeen || !recipientSeen || !layoutSeen || !countSeen ||
 		declaredCount != parsed.count)
 	{
 		setError(error, errorSize, "Incomplete manifest or malformed count");
-		return false;
+		goto failed;
 	}
 	if (!validateOffer(&parsed, error, errorSize))
-		return false;
+		goto failed;
 
 	*offer = parsed;
 	return true;
 
 malformed:
 	setError(error, errorSize, "Duplicate or malformed manifest field");
+
+failed:
+	tapeheadExchangeOfferFree(&parsed);
 	return false;
 }
 
@@ -341,7 +450,8 @@ bool tapeheadExchangeResolveDestinations(const tapeheadExchangeOffer_t *offer,
 	uint8_t startingInstrument, tapeheadExchangeDestination_t *destinations,
 	char *error, size_t errorSize)
 {
-	if (offer == NULL || destinations == NULL || startingInstrument == 0 ||
+	if (offer == NULL || offer->items == NULL || destinations == NULL ||
+		startingInstrument == 0 ||
 		startingInstrument > FT2_EXCHANGE_MAX_INSTRUMENTS ||
 		strcmp(offer->sender, "tapesister") != 0 ||
 		strcmp(offer->recipient, "tapehead") != 0)
@@ -349,14 +459,17 @@ bool tapeheadExchangeResolveDestinations(const tapeheadExchangeOffer_t *offer,
 		setError(error, errorSize, "Transfer is not addressed to Tapehead");
 		return false;
 	}
+	if (!validateOffer(offer, error, errorSize))
+		return false;
 
 	bool used[FT2_EXCHANGE_MAX_INSTRUMENTS + 1][FT2_EXCHANGE_MAX_SAMPLES + 1] =
 		{ { false } };
-	for (uint8_t i = 0; i < offer->count; i++)
+	for (uint16_t i = 0; i < offer->count; i++)
 	{
 		const tapeheadExchangeItem_t *item = &offer->items[i];
 		unsigned int instrument = startingInstrument;
-		if (offer->layout == TAPEHEAD_EXCHANGE_LAYOUT_SEPARATE_INSTRUMENTS)
+		if (offer->layout == TAPEHEAD_EXCHANGE_LAYOUT_SEPARATE_INSTRUMENTS ||
+			offer->layout == TAPEHEAD_EXCHANGE_LAYOUT_PAGE_INSTRUMENTS)
 			instrument += item->ft2Instrument - 1;
 		if (instrument == 0 || instrument > FT2_EXCHANGE_MAX_INSTRUMENTS)
 		{
@@ -375,4 +488,18 @@ bool tapeheadExchangeResolveDestinations(const tapeheadExchangeOffer_t *offer,
 
 	setError(error, errorSize, "");
 	return true;
+}
+
+uint16_t tapeheadExchangeRelativeInstrumentSpan(
+	const tapeheadExchangeOffer_t *offer)
+{
+	if (offer == NULL || offer->count == 0 || offer->items == NULL)
+		return 0;
+	if (offer->layout == TAPEHEAD_EXCHANGE_LAYOUT_INSTRUMENT_SAMPLES)
+		return 1;
+	uint16_t span = 0;
+	for (uint16_t i = 0; i < offer->count; i++)
+		if (offer->items[i].ft2Instrument > span)
+			span = offer->items[i].ft2Instrument;
+	return span;
 }

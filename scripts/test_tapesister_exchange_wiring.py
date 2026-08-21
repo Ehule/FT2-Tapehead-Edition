@@ -18,6 +18,7 @@ def ordered(text: str, *needles: str) -> None:
 
 def main() -> None:
     exchange = (ROOT / "src/ft2_tapesister_exchange.c").read_text()
+    acknowledgement = (ROOT / "src/ft2_tapesister_ack.c").read_text()
     loader = (ROOT / "src/ft2_sample_loader.c").read_text()
     main_c = (ROOT / "src/ft2_main.c").read_text()
     mouse = (ROOT / "src/ft2_mouse.c").read_text()
@@ -36,7 +37,11 @@ def main() -> None:
     assert 'strcmp(offer.recipient, "tapehead")' in exchange
     assert "acknowledgementName" in exchange and "pathExists(path)" in exchange
     assert "(!manual && folderIsDeferred(folder))" in exchange
-    assert "findPendingOffer(manualRequest" in exchange
+    assert "scanInboxThread" in exchange
+    assert 'SDL_CreateThread(scanInboxThread' in exchange
+    assert "findPendingOffer(job->root, job->manual" in exchange
+    assert "SDL_AtomicSet(&job->finished, true)" in exchange
+    assert "SDL_WaitThread(inboxScanThread, NULL)" in exchange
     assert "ui.sysReqShown" in exchange and "sampleLoaderIsBusy()" in exchange
     assert "EXCHANGE_POLL_INTERVAL_MS 1000" in exchange
     assert 'tapeheadPresenceName[]' in exchange
@@ -46,6 +51,10 @@ def main() -> None:
     assert 'forceNewInstance' in exchange
     assert 'openTapeSisterExchangeFolder()' in exchange
     assert "OCCUPIED" in exchange and "clears all other sample slots" in exchange
+    assert "Multi-page TapeSister bank" in exchange
+    assert "empty TapeSister tiles do not erase samples" in exchange
+    assert "TAPEHEAD_EXCHANGE_LAYOUT_PAGE_INSTRUMENTS" in exchange
+    assert "referenced WAV" in exchange and "missing or unreadable" in exchange
 
     # Both send layouts and deterministic source mappings are explicit.
     assert "collectCurrentInstrument" in exchange
@@ -69,23 +78,49 @@ def main() -> None:
     assert "system(" not in exchange and "ShellExecute" not in exchange
     assert "UNC" in exchange and "driveAbsolute" in exchange and "uncAbsolute" in exchange
 
-    # The asynchronous importer decodes the whole batch before allocating Undo,
-    # commits all replacement instruments under one mixer lock, then acks.
+    # The asynchronous importer requires actual WAV content, decodes the whole
+    # batch before allocating Undo, commits under one mixer lock, then acks.
     thread_body = loader[loader.index("static int32_t loadSampleFolderThread"):loader.index("static uint32_t assignFolderInstrumentDestinations")]
     ordered(thread_body, "for (uint32_t i = 0; i < job->fileCount; i++)",
             "decodeFolderSample(", "commitTapeSisterExchange(")
+    decode = loader[loader.index("static bool decodeFolderSample"):loader.index("static void freeDecodedFolderSamples")]
+    assert "requireWav && format != FORMAT_WAV" in decode
     commit = loader[loader.index("static bool commitTapeSisterExchange"):loader.index("static instr_t *makeLauncherBankInstrument")]
     ordered(commit, "findOrCreateExchangeInstrument(",
             'undoTransactionBegin("Import TapeSister Transfer")',
-            "undoTransactionAddInstrument(", "lockMixerCallback();",
+            "undoTransactionAddInstrument(",
+            "undoTransactionPrepareInstrumentAfter(",
+            "undoTransactionPreparedInstrumentsFitMemoryLimit()",
+            "lockMixerCallback();",
             "freeInstr(destination);", "unlockMixerCallback();",
-            "undoTransactionCommit();", "writeExchangeAcknowledgement(")
+            "undoTransactionCommit();", "tapeheadExchangeWriteAcknowledgement(")
     assert sum(line.strip() == "lockMixerCallback();" for line in commit.splitlines()) == 1
     assert "undoCancelTransaction();" in commit
+    assert "instr_t *newInstruments[MAX_INST]" in commit
+
+    # Version 2 is a sparse patch: it deep-clones each destination before Undo
+    # and frees/replaces only listed slots. Version 1 does not enable this flag.
+    clone = loader[loader.index("static instr_t *cloneExchangeDestinationInstrument"):loader.index("static instr_t *findOrCreateExchangeInstrument")]
+    ordered(clone, "memcpy(instrument, instr[destination]",
+            "memset(instrument->smp", "cloneSample(")
+    assert "freeFolderInstrument(instrument);" in clone
+    assert "freeTmpSample(&instrument->smp[sample]);" in commit
+    exchange_load = loader[loader.index("bool loadTapeSisterExchange"):]
+    assert "exchangePreserveUnlistedSamples = offer->layout ==" in exchange_load
+    assert "TAPEHEAD_EXCHANGE_LAYOUT_PAGE_INSTRUMENTS" in exchange_load
+    assert "job->exchangePreserveUnlistedSamples" in commit
+    failure = commit[commit.index("allocationError:"):]
+    assert "freeInstr(" not in failure
+    assert "tapeheadExchangeWriteAcknowledgement(" not in failure
+
+    ordered(acknowledgement, 'UNICHAR_STRCAT(temporaryU, ".tmp")',
+            'UNICHAR_FOPEN(temporaryU, "wb")',
+            "UNICHAR_RENAME(temporaryU, pathU)")
 
     # Integration extends, rather than replaces, the established paths.
     assert "tapeSisterExchangeInit();" in main_c
     assert "tapeSisterExchangePoll(false);" in main_c
+    assert "tapeSisterExchangeShutdown();" in main_c
     assert "tapeSisterExchangeOpenMenu();" in mouse
     assert "saveWAVSampleDirect" in saver
     assert "SAMPLE_REVERSE_LOOP" in saver
