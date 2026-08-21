@@ -941,7 +941,7 @@ void mouseButtonDownHandler(uint8_t mouseButton)
 		if (patternLauncherHandlePanelMiddleClick(mouse.x, mouse.y, keyb.leftShiftPressed))
 			return;
 
-		if (ui.patternEditorShown)
+		if (!songPlaying && ui.patternEditorShown)
 		{
 			const int32_t y1 = ui.patternEditorOnly ? 3 : (ui.extendedPatternEditor ? 71 : 176);
 			const int32_t y2 = ui.pattChanScrollShown ? 382 : 396;

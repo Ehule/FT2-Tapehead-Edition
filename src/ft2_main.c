@@ -42,6 +42,7 @@
 #include "ft2_hpc.h"
 #include "ft2_smpfx.h"
 #include "ft2_sample_launcher.h"
+#include "ft2_sample_loader.h"
 #include "ft2_pattern_launcher_ui.h"
 #include "ft2_splash.h"
 #include "ft2_tapesister_exchange.h"
@@ -400,6 +401,7 @@ static void cleanUpAndExit(void) // never call this inside the main loop!
 	}
 #endif
 
+	shutdownSamplePreview();
 	sampleLauncherFree();
 	closeAudio();
 	closeReplayer();

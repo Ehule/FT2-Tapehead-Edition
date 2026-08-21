@@ -38,6 +38,11 @@
 #include "../ft2_sysreqs.h"
 #include "../ft2_sample_loader.h"
 
+/* Disk Op previews reuse the normal decoder but suppress errors and choose a
+** deterministic stereo mix instead of opening modal import dialogs. */
+#define loaderMsgBox sampleLoaderShowError
+#define loaderSysReq sampleLoaderAskStereo
+
 static bool mp3IsStereo = true;
 
 bool detectMP3(FILE *f)
@@ -91,7 +96,8 @@ bool loadMP3(FILE *f, uint32_t filesize)
 	if (mp3IsStereo)
 	{
 		stereoAction = loaderSysReq(4, "System request", "This is a stereo sample. Which channel do you want to read?", NULL);
-		setMouseBusy(true);
+		if (!sampleLoaderIsPreviewDecode())
+			setMouseBusy(true);
 	}
 
 	if (fread(buf, 1, filesize, f) != filesize)

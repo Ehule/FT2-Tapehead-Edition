@@ -10,6 +10,7 @@
 #include <string.h>
 #include "ft2_header.h"
 #include "ft2_config.h"
+#include "ft2_audio.h"
 #include "scopes/ft2_scopes.h"
 #include "ft2_video.h"
 #include "ft2_gui.h"
@@ -39,6 +40,8 @@ static float fPrngState[TAPEHEAD_MAX_OUTPUT_BUSES * 2];
 static voice_t voice[MAX_CHANNELS * 2];
 #define SAMPLE_LAUNCHER_AUDIO_VOICES 5
 static voice_t sampleLauncherVoice[SAMPLE_LAUNCHER_AUDIO_VOICES];
+static voice_t diskOpPreviewVoice;
+static int16_t diskOpPreviewNote = -1;
 static uint8_t sampleLauncherOutputBus[SAMPLE_LAUNCHER_AUDIO_VOICES];
 static float sampleLauncherBaseVolume[SAMPLE_LAUNCHER_AUDIO_VOICES];
 static uint16_t sampleLauncherAppliedGain[SAMPLE_LAUNCHER_AUDIO_VOICES];
@@ -85,6 +88,28 @@ void stopVoice(int32_t i)
 	v = &voice[MAX_CHANNELS + i];
 	memset(v, 0, sizeof (voice_t));
 	v->panning = 128;
+}
+
+static void resetDiskOpPreviewVoice(void)
+{
+	memset(&diskOpPreviewVoice, 0, sizeof (diskOpPreviewVoice));
+	diskOpPreviewVoice.panning = 128;
+	diskOpPreviewNote = -1;
+}
+
+void audioDiskOpPreviewStop(void)
+{
+	resetDiskOpPreviewVoice();
+}
+
+void audioDiskOpPreviewNoteOff(uint8_t note)
+{
+	lockAudio();
+
+	if (diskOpPreviewNote == note)
+		resetDiskOpPreviewVoice();
+
+	unlockAudio();
 }
 
 void audioSampleLauncherStop(uint8_t voiceIndex)
@@ -412,10 +437,8 @@ static void voiceUpdateVolumes(int32_t i, uint8_t status)
 	}
 }
 
-static void voiceTrigger(int32_t ch, sample_t *s, int32_t position)
+static void voiceTriggerData(voice_t *v, sample_t *s, int32_t position)
 {
-	voice_t *v = &voice[ch];
-
 	int32_t length = s->length;
 	int32_t loopStart = s->loopStart;
 	int32_t loopLength = s->loopLength;
@@ -465,6 +488,81 @@ static void voiceTrigger(int32_t ch, sample_t *s, int32_t position)
 
 	v->mixFuncOffset = ((int32_t)sample16Bit * 15) + (audio.interpolationType * 3) + loopType;
 	v->active = true;
+}
+
+static void voiceTrigger(int32_t ch, sample_t *s, int32_t position)
+{
+	voiceTriggerData(&voice[ch], s, position);
+}
+
+static void voiceUpdateSincLUT(voice_t *v)
+{
+	if (!audio.sincInterpolation)
+	{
+		v->fSincLUT = NULL;
+		return;
+	}
+
+	if (v->delta <= sincRatio1)
+		v->fSincLUT = fSinc[0];
+	else if (v->delta <= sincRatio2)
+		v->fSincLUT = fSinc[1];
+	else
+		v->fSincLUT = fSinc[2];
+}
+
+void audioDiskOpPreviewTrigger(const sample_t *sample, uint8_t note,
+	int8_t volume)
+{
+	/* The preview worker replaces this private sample under the same audio
+	** lock. Validate and read all sample fields only after acquiring it so a
+	** key press cannot race a newly decoded selection being installed. */
+	lockAudio();
+
+	if (sample == NULL || sample->dataPtr == NULL || sample->length < 1 ||
+		audio.freq == 0 || note < 1 || note > 96)
+	{
+		resetDiskOpPreviewVoice();
+		unlockAudio();
+		return;
+	}
+
+	voice_t *v = &diskOpPreviewVoice;
+	memset(v, 0, sizeof (*v));
+	voiceTriggerData(v, (sample_t *)sample, 0);
+	if (!v->active)
+	{
+		diskOpPreviewNote = -1;
+		unlockAudio();
+		return;
+	}
+
+	v->panning = sample->panning;
+	const uint8_t noteVolume = volume < 0 ? sample->volume : (uint8_t)volume;
+	v->fVolume = (noteVolume > 64 ? 64 : noteVolume) * (1.0f / 64.0f);
+	if (audio.monoOutputMode)
+	{
+		v->fCurrVolumeL = v->fTargetVolumeL = v->fVolume;
+		v->fCurrVolumeR = v->fTargetVolumeR = 0.0f;
+	}
+	else
+	{
+		v->fCurrVolumeL = v->fTargetVolumeL =
+			v->fVolume * fSqrtPanningTable[256-v->panning];
+		v->fCurrVolumeR = v->fTargetVolumeR =
+			v->fVolume * fSqrtPanningTable[v->panning];
+	}
+	v->fCurrVolumeMono = v->fTargetVolumeMono = v->fVolume;
+
+	const double pitch = exp2(((int32_t)note - NOTE_C4) / 12.0);
+	const double rate = getSampleC4Hz((sample_t *)sample) * pitch;
+	v->delta = (uint64_t)((rate * (1ULL << MIXER_FRAC_BITS)) / audio.freq);
+	if (v->delta == 0)
+		v->delta = 1;
+	voiceUpdateSincLUT(v);
+	diskOpPreviewNote = note;
+
+	unlockAudio();
 }
 
 static void voiceApplyTapeheadOneShot(voice_t *v, const sample_t *s,
@@ -547,15 +645,7 @@ void updateVoices(void)
 			v->delta = microtonalScaleDelta(baseDelta,
 				microtonalCurrentCents16(&ch->microtonal));
 
-			if (audio.sincInterpolation)
-			{
-				if (v->delta <= sincRatio1)
-					v->fSincLUT = fSinc[0];
-				else if (v->delta <= sincRatio2)
-					v->fSincLUT = fSinc[1];
-				else
-					v->fSincLUT = fSinc[2];
-			}
+			voiceUpdateSincLUT(v);
 		}
 
 		if (status & CS_TRIGGER_VOICE)
@@ -754,6 +844,18 @@ static void doSampleLauncherMixing(int32_t bufferPosition,
 	}
 }
 
+static void doDiskOpPreviewMixing(int32_t bufferPosition,
+	int32_t samplesToMix)
+{
+	if (!diskOpPreviewVoice.active)
+		return;
+
+	audio.fMixBufferL = audio.fBusMixBufferL[0];
+	audio.fMixBufferR = audio.monoOutputMode
+		? audio.fBusMixBufferL[0] : audio.fBusMixBufferR[0];
+	mixSampleLauncherVoice(&diskOpPreviewVoice, bufferPosition, samplesToMix);
+}
+
 static void doChannelMixing(int32_t bufferPosition, int32_t samplesToMix,
 	uint8_t outputBusCount)
 {
@@ -868,12 +970,57 @@ static void doChannelMixing(int32_t bufferPosition, int32_t samplesToMix,
 	** XM/Q/Poly channel has advanced, so neither deck can steal the other's
 	** physical tracker voice or transport ownership. */
 	doSampleLauncherMixing(bufferPosition, samplesToMix, outputBusCount);
+	doDiskOpPreviewMixing(bufferPosition, samplesToMix);
 
 	audio.fMixBufferL = audio.fBusMixBufferL[0];
 	audio.fMixBufferR = audio.fBusMixBufferR[0];
 }
 
 #ifdef TAPEHEAD_AUDIO_ROUTING_TEST
+bool tapeheadTestDiskOpPreviewSincSelection(uint64_t lowDelta,
+	uint64_t middleDelta, uint64_t highDelta)
+{
+	float lowLUT, middleLUT, highLUT;
+	float *oldSinc[SINC_KERNELS];
+	for (uint8_t i = 0; i < SINC_KERNELS; i++)
+		oldSinc[i] = fSinc[i];
+
+	const bool oldSincInterpolation = audio.sincInterpolation;
+	const uint64_t oldSincRatio1 = sincRatio1;
+	const uint64_t oldSincRatio2 = sincRatio2;
+	voice_t oldPreviewVoice = diskOpPreviewVoice;
+
+	audio.sincInterpolation = true;
+	sincRatio1 = lowDelta;
+	sincRatio2 = middleDelta;
+	fSinc[0] = &lowLUT;
+	fSinc[1] = &middleLUT;
+	fSinc[2] = &highLUT;
+
+	diskOpPreviewVoice.delta = lowDelta;
+	voiceUpdateSincLUT(&diskOpPreviewVoice);
+	const bool lowSelected = diskOpPreviewVoice.fSincLUT == &lowLUT;
+	diskOpPreviewVoice.delta = middleDelta;
+	voiceUpdateSincLUT(&diskOpPreviewVoice);
+	const bool middleSelected = diskOpPreviewVoice.fSincLUT == &middleLUT;
+	diskOpPreviewVoice.delta = highDelta;
+	voiceUpdateSincLUT(&diskOpPreviewVoice);
+	const bool highSelected = diskOpPreviewVoice.fSincLUT == &highLUT;
+
+	audio.sincInterpolation = false;
+	voiceUpdateSincLUT(&diskOpPreviewVoice);
+	const bool disabledClearsLUT = diskOpPreviewVoice.fSincLUT == NULL;
+
+	diskOpPreviewVoice = oldPreviewVoice;
+	audio.sincInterpolation = oldSincInterpolation;
+	sincRatio1 = oldSincRatio1;
+	sincRatio2 = oldSincRatio2;
+	for (uint8_t i = 0; i < SINC_KERNELS; i++)
+		fSinc[i] = oldSinc[i];
+
+	return lowSelected && middleSelected && highSelected && disabledClearsLUT;
+}
+
 bool tapeheadTestRenderOneShot(bool reverse, float *samples,
 	uint8_t sampleCount)
 {

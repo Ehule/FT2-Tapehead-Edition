@@ -10,6 +10,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <stdarg.h>
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -21,6 +22,7 @@
 #include "ft2_sample_ed.h"
 #include "ft2_mouse.h"
 #include "ft2_diskop.h"
+#include "ft2_diskop_preview.h"
 #include "ft2_sample_loader.h"
 #include "ft2_sample_launcher.h"
 #include "ft2_structs.h"
@@ -74,7 +76,64 @@ sample_t tmpSmp;
 static volatile bool sampleIsLoading;
 static SDL_Thread *thread;
 
+/* Sample decoders historically write through tmpSmp and global dialog
+** callbacks. Serialize real imports and Disk Op previews around that legacy
+** interface, while the preview request serial makes rapid browsing
+** newest-selection-wins. */
+static SDL_mutex *sampleDecodeMutex, *previewRequestMutex;
+static SDL_cond *previewRequestCond;
+static SDL_Thread *previewThread;
+static bool previewThreadRunning, previewCancelRequested;
+static bool previewShutdownRequested;
+static volatile bool previewDecodeActive;
+static bool previewAsInstrument;
+static uint8_t previewTargetInstrument, previewTargetSample;
+static diskOpPreviewRoute_t previewRoute;
+static uint32_t previewRequestSerial;
+static UNICHAR previewFilenameU[PATH_MAX + 1];
+
 static void freeTmpSample(sample_t *s);
+static void setImportedSampleName(sample_t *sample, const UNICHAR *filenameU);
+
+static bool ensureSampleLoaderMutexes(void)
+{
+	if (sampleDecodeMutex == NULL)
+		sampleDecodeMutex = SDL_CreateMutex();
+	if (previewRequestMutex == NULL)
+		previewRequestMutex = SDL_CreateMutex();
+	if (previewRequestCond == NULL)
+		previewRequestCond = SDL_CreateCond();
+
+	return sampleDecodeMutex != NULL && previewRequestMutex != NULL &&
+		previewRequestCond != NULL;
+}
+
+void sampleLoaderShowError(const char *fmt, ...)
+{
+	if (previewDecodeActive)
+		return;
+
+	char message[1024];
+	va_list args;
+	va_start(args, fmt);
+	vsnprintf(message, sizeof (message), fmt, args);
+	va_end(args);
+	loaderMsgBox("%s", message);
+}
+
+int16_t sampleLoaderAskStereo(int16_t type, const char *headline,
+	const char *text, void (*checkBoxCallback)(void))
+{
+	if (previewDecodeActive)
+		return STEREO_SAMPLE_MIX_TO_MONO;
+
+	return loaderSysReq(type, headline, text, checkBoxCallback);
+}
+
+bool sampleLoaderIsPreviewDecode(void)
+{
+	return previewDecodeActive;
+}
 
 // Crude sample detection routine. These aren't always accurate detections!
 static int8_t detectSample(FILE *f)
@@ -114,6 +173,14 @@ static int8_t detectSample(FILE *f)
 static int32_t loadSampleThread(void *ptr)
 {
 	bool undoStarted = false;
+	SDL_LockMutex(sampleDecodeMutex);
+	loaderMsgBox = myLoaderMsgBoxThreadSafe;
+	loaderSysReq = okBoxThreadSafe;
+	/* The real import may have waited for an in-flight preview. Reinitialize
+	** decoder globals here, after acquiring serialization, so preview metadata
+	** cannot leak into the committed sample name. */
+	smpFilenameSet = false;
+	memset(&tmpSmp, 0, sizeof (tmpSmp));
 	if (editor.tmpFilenameU == NULL)
 	{
 		loaderMsgBox("General I/O error during loading!");
@@ -248,6 +315,7 @@ static int32_t loadSampleThread(void *ptr)
 
 	// when caught in main/video thread, it disables busy mouse and sets sampleIsLoading to true
 	editor.updateCurSmp = true;
+	SDL_UnlockMutex(sampleDecodeMutex);
 
 	return true;
 
@@ -257,6 +325,7 @@ loadError:
 	setMouseBusy(false);
 	freeTmpSample(&tmpSmp);
 	sampleIsLoading = false;
+	SDL_UnlockMutex(sampleDecodeMutex);
 	return false;
 
 	(void)ptr;
@@ -276,6 +345,10 @@ bool loadSample(UNICHAR *filenameU, uint8_t smpNr, bool instrFlag)
 {
 	if (sampleIsLoading || filenameU == NULL)
 		return false;
+	if (!ensureSampleLoaderMutexes())
+		return false;
+
+	cancelSamplePreview();
 
 	// setup message box functions
 	loaderMsgBox = myLoaderMsgBoxThreadSafe;
@@ -290,9 +363,6 @@ bool loadSample(UNICHAR *filenameU, uint8_t smpNr, bool instrFlag)
 	sampleSlot = smpNr;
 	loadAsInstrFlag = instrFlag;
 	sampleIsLoading = true;
-	smpFilenameSet = false;
-
-	memset(&tmpSmp, 0, sizeof (tmpSmp));
 	UNICHAR_STRCPY(editor.tmpFilenameU, filenameU);
 
 	mouseAnimOn();
@@ -306,6 +376,263 @@ bool loadSample(UNICHAR *filenameU, uint8_t smpNr, bool instrFlag)
 
 	SDL_DetachThread(thread);
 	return true;
+}
+
+static bool decodePreviewSample(const UNICHAR *filenameU, sample_t *sample)
+{
+	bool sampleLoaded = false;
+	SDL_LockMutex(sampleDecodeMutex);
+
+	previewDecodeActive = true;
+	smpFilenameSet = false;
+	memset(&tmpSmp, 0, sizeof (tmpSmp));
+
+	FILE *f = UNICHAR_FOPEN(filenameU, "rb");
+	if (f != NULL)
+	{
+		const int8_t format = detectSample(f);
+		fseek(f, 0, SEEK_END);
+		const long fileSizeLong = ftell(f);
+		if (format != FORMAT_UNKNOWN && fileSizeLong > 0 &&
+			(uint64_t)fileSizeLong <= UINT32_MAX)
+		{
+			const uint32_t filesize = (uint32_t)fileSizeLong;
+			rewind(f);
+			switch (format)
+			{
+				case FORMAT_IFF: sampleLoaded = loadIFF(f, filesize); break;
+				case FORMAT_WAV: sampleLoaded = loadWAV(f, filesize); break;
+				case FORMAT_AIFF: sampleLoaded = loadAIFF(f, filesize); break;
+				case FORMAT_FLAC: sampleLoaded = loadFLAC(f, filesize); break;
+				case FORMAT_OGG: sampleLoaded = loadOGG(f, filesize); break;
+				case FORMAT_MP3: sampleLoaded = loadMP3(f, filesize); break;
+				case FORMAT_BRR: sampleLoaded = loadBRR(f, filesize); break;
+				default: break;
+			}
+		}
+		fclose(f);
+	}
+
+	if (sampleLoaded)
+	{
+		setImportedSampleName(&tmpSmp, filenameU);
+		memcpy(sample, &tmpSmp, sizeof (sample_t));
+		memset(&tmpSmp, 0, sizeof (tmpSmp));
+	}
+	else
+	{
+		freeTmpSample(&tmpSmp);
+		memset(&tmpSmp, 0, sizeof (tmpSmp));
+	}
+
+	previewDecodeActive = false;
+	SDL_UnlockMutex(sampleDecodeMutex);
+	return sampleLoaded;
+}
+
+static int32_t previewSampleThread(void *ptr)
+{
+	(void)ptr;
+	uint32_t handledSerial = 0;
+
+	while (true)
+	{
+		UNICHAR filenameU[PATH_MAX + 1];
+		SDL_LockMutex(previewRequestMutex);
+		while (!previewShutdownRequested &&
+			(previewCancelRequested || previewRequestSerial == handledSerial))
+		{
+			SDL_CondWait(previewRequestCond, previewRequestMutex);
+		}
+		if (previewShutdownRequested)
+		{
+			previewThreadRunning = false;
+			SDL_UnlockMutex(previewRequestMutex);
+			break;
+		}
+
+		const uint32_t requestSerial = previewRequestSerial;
+		const uint8_t targetInstrument = previewTargetInstrument;
+		const uint8_t targetSample = previewTargetSample;
+		const bool asInstrument = previewAsInstrument;
+		const diskOpPreviewRoute_t route = previewRoute;
+		UNICHAR_STRNCPY(filenameU, previewFilenameU, PATH_MAX);
+		filenameU[PATH_MAX] = 0;
+		SDL_UnlockMutex(previewRequestMutex);
+
+		sample_t decodedSample;
+		memset(&decodedSample, 0, sizeof (decodedSample));
+		const bool decoded = decodePreviewSample(filenameU, &decodedSample);
+
+		SDL_LockMutex(previewRequestMutex);
+		const bool requestIsCurrent = diskOpPreviewRequestIsCurrent(
+			requestSerial, previewRequestSerial, previewCancelRequested,
+			previewShutdownRequested);
+		if (decoded && requestIsCurrent)
+		{
+			if (route == DISKOP_PREVIEW_ROUTE_PRIVATE)
+				installDiskOpSamplePreview(&decodedSample);
+			else if (route == DISKOP_PREVIEW_ROUTE_LIVE_LOAD &&
+				targetInstrument > 0 && targetInstrument <= MAX_INST &&
+				targetInstrument == editor.curInstr &&
+				(asInstrument || targetSample == editor.curSmp))
+			{
+				const uint8_t destinationSample = asInstrument ? 0 : targetSample;
+				const bool adoptInstrumentName = !asInstrument &&
+					song.instrName[targetInstrument][0] == '\0';
+				const bool undoStarted = asInstrument || adoptInstrumentName
+					? undoInstrumentBegin(targetInstrument, "Live-load sample")
+					: undoSampleBegin(targetInstrument, destinationSample,
+						"Live-load sample");
+
+				if (undoStarted)
+				{
+					lockMixerCallback();
+					if (sampleLauncherInstrumentIsMapped(targetInstrument))
+						sampleLauncherReset();
+					if (asInstrument)
+					{
+						freeInstr(targetInstrument);
+						memset(song.instrName[targetInstrument], 0, 23);
+					}
+					if (instr[targetInstrument] == NULL)
+						allocateInstr(targetInstrument);
+
+					if (instr[targetInstrument] != NULL)
+					{
+						freeSample(targetInstrument, destinationSample);
+						diskOpPreviewMoveSample(
+							&instr[targetInstrument]->smp[destinationSample],
+							&decodedSample);
+						sample_t *destination =
+							&instr[targetInstrument]->smp[destinationSample];
+						if (adoptInstrumentName)
+						{
+							memcpy(song.instrName[targetInstrument],
+								destination->name, 22);
+							song.instrName[targetInstrument][22] = '\0';
+						}
+						sanitizeSample(destination);
+						fixSample(destination);
+						fixInstrAndSampleNames(targetInstrument);
+						unlockMixerCallback();
+						setSongModifiedFlag();
+						if (asInstrument || adoptInstrumentName)
+							undoInstrumentCommit();
+						else
+							undoSampleCommit();
+						editor.updateCurSmp = true;
+					}
+					else
+					{
+						unlockMixerCallback();
+						undoCancelTransaction();
+					}
+				}
+			}
+		}
+		SDL_UnlockMutex(previewRequestMutex);
+
+		freeTmpSample(&decodedSample);
+		handledSerial = requestSerial;
+	}
+
+	return 0;
+}
+
+static bool queueDiskOpSample(UNICHAR *filenameU,
+	diskOpPreviewRoute_t route, uint8_t targetInstrument,
+	uint8_t targetSample, bool asInstrument)
+{
+	if (filenameU == NULL || sampleIsLoading || !ensureSampleLoaderMutexes())
+		return false;
+
+	SDL_LockMutex(previewRequestMutex);
+	if (previewShutdownRequested)
+	{
+		SDL_UnlockMutex(previewRequestMutex);
+		return false;
+	}
+	if (route == DISKOP_PREVIEW_ROUTE_PRIVATE)
+		stopDiskOpSamplePreview();
+	previewCancelRequested = false;
+	previewRoute = route;
+	previewTargetInstrument = targetInstrument;
+	previewTargetSample = targetSample;
+	previewAsInstrument = asInstrument;
+	UNICHAR_STRNCPY(previewFilenameU, filenameU, PATH_MAX);
+	previewFilenameU[PATH_MAX] = 0;
+	previewRequestSerial++;
+	if (previewRequestSerial == 0)
+		previewRequestSerial = 1;
+
+	bool started = true;
+	if (!previewThreadRunning)
+	{
+		previewThreadRunning = true;
+		previewThread = SDL_CreateThread(previewSampleThread,
+			"sample preview thread", NULL);
+		if (previewThread == NULL)
+		{
+			previewThreadRunning = false;
+			started = false;
+		}
+		else
+			SDL_CondSignal(previewRequestCond);
+	}
+	else
+		SDL_CondSignal(previewRequestCond);
+	SDL_UnlockMutex(previewRequestMutex);
+	return started;
+}
+
+bool previewSample(UNICHAR *filenameU)
+{
+	return queueDiskOpSample(filenameU, DISKOP_PREVIEW_ROUTE_PRIVATE,
+		0, 0, false);
+}
+
+bool liveLoadSample(UNICHAR *filenameU, uint8_t targetInstrument,
+	uint8_t targetSample, bool asInstrument)
+{
+	return queueDiskOpSample(filenameU, DISKOP_PREVIEW_ROUTE_LIVE_LOAD,
+		targetInstrument, targetSample, asInstrument);
+}
+
+void cancelSamplePreview(void)
+{
+	if (previewRequestMutex != NULL)
+	{
+		SDL_LockMutex(previewRequestMutex);
+		previewCancelRequested = true;
+		previewRequestSerial++;
+		SDL_CondSignal(previewRequestCond);
+		SDL_UnlockMutex(previewRequestMutex);
+	}
+
+	stopDiskOpSamplePreview();
+}
+
+void shutdownSamplePreview(void)
+{
+	if (previewRequestMutex == NULL)
+		return;
+
+	SDL_LockMutex(previewRequestMutex);
+	previewShutdownRequested = true;
+	previewCancelRequested = true;
+	previewRequestSerial++;
+	if (previewRequestCond != NULL)
+		SDL_CondSignal(previewRequestCond);
+	SDL_Thread *threadToJoin = previewThread;
+	SDL_UnlockMutex(previewRequestMutex);
+
+	if (threadToJoin != NULL)
+		SDL_WaitThread(threadToJoin, NULL);
+
+	previewThread = NULL;
+	previewThreadRunning = false;
+	stopDiskOpSamplePreview();
 }
 
 
@@ -784,6 +1111,7 @@ static void freeFolderInstrument(instr_t *instrument)
 static int32_t loadSampleFolderThread(void *ptr)
 {
 	sampleFolderImportJob_t *job = (sampleFolderImportJob_t *)ptr;
+	bool decodeMutexLocked = false;
 	uint32_t decodedCount = 0;
 	sample_t *decodedSamples = (sample_t *)calloc(job->fileCount, sizeof (sample_t));
 	if (decodedSamples == NULL)
@@ -792,6 +1120,10 @@ static int32_t loadSampleFolderThread(void *ptr)
 		goto folderLoadError;
 	}
 
+	SDL_LockMutex(sampleDecodeMutex);
+	decodeMutexLocked = true;
+	loaderMsgBox = myLoaderMsgBoxThreadSafe;
+	loaderSysReq = okBoxThreadSafe;
 	for (uint32_t i = 0; i < job->fileCount; i++)
 	{
 		if (!decodeFolderSample(job->files[i].pathU, &decodedSamples[decodedCount]))
@@ -801,6 +1133,8 @@ static int32_t loadSampleFolderThread(void *ptr)
 		}
 		decodedCount++;
 	}
+	SDL_UnlockMutex(sampleDecodeMutex);
+	decodeMutexLocked = false;
 
 	if (job->mode == SAMPLE_FOLDER_IMPORT_TAPESISTER)
 	{
@@ -1060,6 +1394,8 @@ static int32_t loadSampleFolderThread(void *ptr)
 	return true;
 
 folderLoadError:
+	if (decodeMutexLocked)
+		SDL_UnlockMutex(sampleDecodeMutex);
 	freeDecodedFolderSamples(decodedSamples, decodedCount);
 	freeSampleFolderJob(job);
 	setMouseBusy(false);
@@ -1096,6 +1432,10 @@ bool loadSampleFolder(const UNICHAR *folderPathU, const UNICHAR *const *fileName
 {
 	if (sampleIsLoading || folderPathU == NULL || fileNamesU == NULL || fileCount == 0)
 		return false;
+	if (!ensureSampleLoaderMutexes())
+		return false;
+
+	cancelSamplePreview();
 
 	loaderMsgBox = myLoaderMsgBoxThreadSafe;
 	loaderSysReq = okBoxThreadSafe;
@@ -1221,6 +1561,10 @@ bool loadSamplesToMatrix(const UNICHAR *folderPathU,
 	{
 		return false;
 	}
+	if (!ensureSampleLoaderMutexes())
+		return false;
+
+	cancelSamplePreview();
 
 	loaderMsgBox = myLoaderMsgBoxThreadSafe;
 	loaderSysReq = okBoxThreadSafe;
@@ -1316,6 +1660,10 @@ bool loadTapeSisterExchange(const UNICHAR *folderPathU,
 	{
 		return false;
 	}
+	if (!ensureSampleLoaderMutexes())
+		return false;
+
+	cancelSamplePreview();
 
 	loaderMsgBox = myLoaderMsgBoxThreadSafe;
 	loaderSysReq = okBoxThreadSafe;

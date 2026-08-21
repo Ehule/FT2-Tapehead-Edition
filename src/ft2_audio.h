@@ -143,6 +143,11 @@ void setMixerBPM(int32_t bpm);
 void audioSetVolRamp(bool volRamp);
 void audioSetInterpolationType(uint8_t interpolationType);
 void stopVoice(int32_t i);
+void audioDiskOpPreviewTrigger(const sample_t *sample, uint8_t note,
+	int8_t volume);
+void audioDiskOpPreviewNoteOff(uint8_t note);
+/* Caller must hold the audio lock. */
+void audioDiskOpPreviewStop(void);
 void audioSampleLauncherTrigger(uint8_t voiceIndex, const sample_t *sample,
 	uint8_t outputBus);
 void audioSampleLauncherStop(uint8_t voiceIndex);
@@ -150,6 +155,8 @@ void audioSampleLauncherStopAll(void);
 void audioSampleLauncherSetOutputBus(uint8_t voiceIndex, uint8_t outputBus);
 bool setupAudio(bool showErrorMsg);
 #ifdef TAPEHEAD_AUDIO_ROUTING_TEST
+bool tapeheadTestDiskOpPreviewSincSelection(uint64_t lowDelta,
+	uint64_t middleDelta, uint64_t highDelta);
 bool tapeheadTestRouteSyntheticVoice(uint16_t outputMask,
 	uint8_t renderBusCount, uint8_t staleGlobalBusCount, float *peakBusA,
 	float *peakBusB);

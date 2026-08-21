@@ -11,11 +11,17 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <string.h>
 #include "../ft2_header.h"
 #include "../ft2_audio.h"
 #include "../ft2_sample_ed.h"
 #include "../ft2_sysreqs.h"
 #include "../ft2_sample_loader.h"
+
+/* Disk Op previews reuse the normal decoder but suppress errors and choose a
+** deterministic stereo mix instead of opening modal import dialogs. */
+#define loaderMsgBox sampleLoaderShowError
+#define loaderSysReq sampleLoaderAskStereo
 
 bool loadIFF(FILE *f, uint32_t filesize)
 {

@@ -351,6 +351,10 @@ void playToneOneShot(uint8_t chNum, uint8_t insNum, uint8_t note, int8_t vol,
 	uint16_t midiVibDepth, uint16_t midiPitch, bool reverse);
 void playSample(uint8_t chNum, uint8_t insNum, uint8_t smpNum, uint8_t note, uint16_t midiVibDepth, uint16_t midiPitch);
 void playRange(uint8_t chNum, uint8_t insNum, uint8_t smpNum, uint8_t note, uint16_t midiVibDepth, uint16_t midiPitch, int32_t smpOffset, int32_t length);
+bool installDiskOpSamplePreview(sample_t *sample);
+void playDiskOpSamplePreviewNote(uint8_t note, int8_t volume);
+void releaseDiskOpSamplePreviewNote(uint8_t note);
+void stopDiskOpSamplePreview(void);
 void keyOff(channel_t *ch);
 void conv8BitSample(int8_t *p, int32_t length, bool stereo); // changes sample sign
 void conv16BitSample(int8_t *p, int32_t length, bool stereo); // changes sample sign

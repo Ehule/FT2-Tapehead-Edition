@@ -147,6 +147,8 @@
       <Filter>modloaders</Filter>
     </ClCompile>
     <ClCompile Include="..\..\src\ft2_diskop.c" />
+    <ClCompile Include="..\..\src\ft2_diskop_browser.c" />
+    <ClCompile Include="..\..\src\ft2_diskop_preview.c" />
     <ClCompile Include="..\..\src\smploaders\ft2_load_brr.c">
       <Filter>smploaders</Filter>
     </ClCompile>
@@ -197,6 +199,12 @@
       <Filter>headers</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\ft2_diskop.h">
+      <Filter>headers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\ft2_diskop_browser.h">
+      <Filter>headers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\ft2_diskop_preview.h">
       <Filter>headers</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\ft2_edit.h">

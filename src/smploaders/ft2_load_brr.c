@@ -13,6 +13,11 @@
 #include "../ft2_sysreqs.h"
 #include "../ft2_sample_loader.h"
 
+/* Disk Op previews reuse the normal decoder but suppress errors and choose a
+** deterministic stereo mix instead of opening modal import dialogs. */
+#define loaderMsgBox sampleLoaderShowError
+#define loaderSysReq sampleLoaderAskStereo
+
 #define BRR_RATIO(x) (((x) * 16) / 9)
 
 static int16_t s1, s2;

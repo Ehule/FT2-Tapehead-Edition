@@ -1,6 +1,8 @@
 #pragma once
 
 #include <stdint.h>
+#include <stdbool.h>
+#include <SDL2/SDL.h>
 #include "ft2_unicode.h"
 
 #define DISKOP_ENTRY_NUM 15
@@ -42,6 +44,10 @@ void pbDiskOpRoot(void);
 int32_t getExtOffset(char *s, int32_t stringLen); // get byte offset of file extension (last '.')
 bool testDiskOpMouseDown(bool mouseHeldDown);
 void testDiskOpMouseRelease(void);
+bool diskOpHandleKey(int32_t keycode, bool keyWasRepeated);
+bool diskOpHandlePreviewKeyDown(SDL_Scancode scancode, bool keyWasRepeated);
+bool diskOpHandlePreviewKeyUp(SDL_Scancode scancode);
+bool diskOpHandlePreviewMIDI(uint8_t note, int8_t volume);
 void diskOp_StartDirReadThread(void);
 void diskOp_DrawFilelist(void);
 void diskOp_DrawDirectory(void);
@@ -56,6 +62,7 @@ void pbDiskOpListUp(void);
 void pbDiskOpListDown(void);
 void pbDiskOpParent(void);
 void cbDiskOpAllFiles(void);
+void cbDiskOpAudition(void);
 #ifdef _WIN32
 void pbDiskOpDrive1(void);
 void pbDiskOpDrive2(void);

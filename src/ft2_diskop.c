@@ -35,6 +35,8 @@
 #include "ft2_sample_launcher.h"
 #include "ft2_sample_saver.h"
 #include "ft2_diskop.h"
+#include "ft2_diskop_browser.h"
+#include "ft2_diskop_preview.h"
 #include "ft2_wav_renderer.h"
 #include "ft2_module_loader.h"
 #include "ft2_module_saver.h"
@@ -54,6 +56,7 @@
 #define FILENAME_TEXT_X 170
 #define FILESIZE_TEXT_X 295
 #define DISKOP_MAX_DRIVE_BUTTONS 8
+#define DISKOP_DOUBLE_CLICK_MS 400
 
 #ifdef _WIN32
 #define PARENT_DIR_STR L".."
@@ -83,8 +86,13 @@ static char *modTmpFName, *insTmpFName, *smpTmpFName, *patTmpFName, *trkTmpFName
 static char *modTmpFNameUTF8; // for window title
 static uint8_t FReq_Item;
 static bool FReq_ShowAllFiles, insPathSet, smpPathSet, patPathSet, trkPathSet, firstTimeOpeningDiskOp = true;
+static bool FReq_AuditionPreview = true;
 static bool bakeMergeExactDuplicates = true;
 static int32_t FReq_EntrySelected = -1, FReq_FileCount, FReq_DirPos, lastMouseY;
+static int32_t lastFileClickEntry = -1;
+static uint32_t lastFileClickTime;
+static bool previewQwertyNotes[SDL_NUM_SCANCODES];
+static bool previewMIDINotes[97];
 static UNICHAR *FReq_CurPathU, *FReq_ModCurPathU, *FReq_InsCurPathU, *FReq_SmpCurPathU, *FReq_PatCurPathU, *FReq_TrkCurPathU;
 static DirRec *FReq_Buffer;
 static SDL_Thread *thread;
@@ -106,6 +114,30 @@ static char pathBrowserFileName[PATH_MAX + 1];
 static void setDiskOpItem(uint8_t item);
 static void acceptTapeSisterPathBrowser(void);
 static void drawTapeSisterPathBrowserChoice(void);
+
+static void resetDiskOpClickState(void)
+{
+	lastFileClickEntry = -1;
+	lastFileClickTime = 0;
+}
+
+static bool diskOpSampleBrowseMode(void)
+{
+	return tapeSisterPathBrowser == TAPESISTER_PATH_BROWSER_NONE &&
+		(FReq_Item == DISKOP_ITEM_INSTR || FReq_Item == DISKOP_ITEM_SAMPLE);
+}
+
+static void drawDiskOpAuditionToggle(void)
+{
+	hideCheckBox(CB_DISKOP_AUDITION);
+	fillRect(134, 29, 31, 21, PAL_DESKTOP);
+	if (!diskOpSampleBrowseMode())
+		return;
+
+	checkBoxes[CB_DISKOP_AUDITION].checked = FReq_AuditionPreview;
+	showCheckBox(CB_DISKOP_AUDITION);
+	textOutShadow(137, 42, PAL_FORGRND, PAL_DSKTOP2, "Prev");
+}
 
 static UNICHAR *tapeSisterUtf8ToPath(const char *src)
 {
@@ -357,6 +389,8 @@ static void freeDirRecBuffer(void)
 
 void freeDiskOp(void)
 {
+	cancelSamplePreview();
+
 	if (editor.tmpFilenameU != NULL)
 	{
 		free(editor.tmpFilenameU);
@@ -1622,6 +1656,57 @@ void loadCurrentFolderIntoSampleLauncher(void)
 	freeSamplePathList(&files);
 }
 
+static bool makeDiskOpEntryPath(const DirRec *entry, UNICHAR *pathU)
+{
+	if (entry == NULL || entry->nameU == NULL || FReq_CurPathU == NULL)
+		return false;
+
+	const size_t pathLength = UNICHAR_STRLEN(FReq_CurPathU);
+	const size_t nameLength = UNICHAR_STRLEN(entry->nameU);
+	const bool needsDelimiter = pathLength > 0 &&
+		FReq_CurPathU[pathLength-1] != DIR_DELIMITER;
+	if (pathLength + (needsDelimiter ? 1 : 0) + nameLength > PATH_MAX)
+		return false;
+
+	UNICHAR_STRCPY(pathU, FReq_CurPathU);
+	if (needsDelimiter)
+	{
+#ifdef _WIN32
+		UNICHAR_STRCAT(pathU, L"\\");
+#else
+		UNICHAR_STRCAT(pathU, "/");
+#endif
+	}
+	UNICHAR_STRCAT(pathU, entry->nameU);
+	return true;
+}
+
+static void activateDiskOpEntry(int32_t visibleIndex)
+{
+	const int32_t entryIndex = FReq_DirPos + visibleIndex;
+	if (entryIndex < 0 || entryIndex >= FReq_FileCount ||
+		FReq_Buffer == NULL || FReq_Buffer[entryIndex].isDir)
+	{
+		cancelSamplePreview();
+		return;
+	}
+
+	UNICHAR pathU[PATH_MAX + 1];
+	if (!makeDiskOpEntryPath(&FReq_Buffer[entryIndex], pathU))
+	{
+		cancelSamplePreview();
+		return;
+	}
+
+	const diskOpPreviewRoute_t route = diskOpPreviewSelectionRoute(
+		diskOpSampleBrowseMode(), FReq_AuditionPreview, false);
+	if (route == DISKOP_PREVIEW_ROUTE_PRIVATE)
+		previewSample(pathU);
+	else if (route == DISKOP_PREVIEW_ROUTE_LIVE_LOAD)
+		liveLoadSample(pathU, editor.curInstr, editor.curSmp,
+			FReq_Item == DISKOP_ITEM_INSTR);
+}
+
 static void fileListPressed(int32_t index)
 {
 	char *nameTmp;
@@ -1661,8 +1746,9 @@ static void fileListPressed(int32_t index)
 		return;
 	}
 
-	// remove file selection
-	FReq_EntrySelected = -1;
+	// Sample browsing keeps a stable highlight; explicit activation is the door.
+	if (!diskOpSampleBrowseMode())
+		FReq_EntrySelected = -1;
 	diskOp_DrawFilelist();
 
 	switch (mode)
@@ -1774,8 +1860,6 @@ bool testDiskOpMouseDown(bool mouseHeldDlown)
 
 	if (!mouseHeldDlown) // select file
 	{
-		FReq_EntrySelected = -1;
-
 		if (mouse.x >= 169 && mouse.x <= 331 && mouse.y >= 4 && mouse.y <= 168)
 		{
 			tmpEntry = (mouse.y - 4) / (FONT1_CHAR_H + 1);
@@ -1784,9 +1868,26 @@ bool testDiskOpMouseDown(bool mouseHeldDlown)
 				FReq_EntrySelected = tmpEntry;
 				diskOp_DrawFilelist();
 			}
+			else
+			{
+				if (diskOpSampleBrowseMode())
+				{
+					resetDiskOpClickState();
+					cancelSamplePreview();
+				}
+				else
+					FReq_EntrySelected = -1;
+				diskOp_DrawFilelist();
+			}
 
 			mouse.lastUsedObjectType = OBJECT_DISKOPLIST;
 			return true;
+		}
+
+		if (!diskOpSampleBrowseMode())
+		{
+			FReq_EntrySelected = -1;
+			diskOp_DrawFilelist();
 		}
 
 		return false;
@@ -1796,12 +1897,18 @@ bool testDiskOpMouseDown(bool mouseHeldDlown)
 	if (mouse.y < 4)
 	{
 		scrollBarScrollUp(SB_DISKOP_LIST, 1);
-		FReq_EntrySelected = -1;
+		if (!diskOpSampleBrowseMode())
+			FReq_EntrySelected = -1;
+		resetDiskOpClickState();
+		cancelSamplePreview();
 	}
 	else if (mouse.y > 168)
 	{
 		scrollBarScrollDown(SB_DISKOP_LIST, 1);
-		FReq_EntrySelected = -1;
+		if (!diskOpSampleBrowseMode())
+			FReq_EntrySelected = -1;
+		resetDiskOpClickState();
+		cancelSamplePreview();
 	}
 
 	if (mouse.y == lastMouseY)
@@ -1812,7 +1919,8 @@ bool testDiskOpMouseDown(bool mouseHeldDlown)
 	tmpEntry = (mouse.y - 4) / (FONT1_CHAR_H + 1);
 	if (mouse.x < 169 || mouse.x > 331 || mouse.y < 4 || tmpEntry < 0 || tmpEntry >= max)
 	{
-		FReq_EntrySelected = -1;
+		if (!diskOpSampleBrowseMode())
+			FReq_EntrySelected = -1;
 		diskOp_DrawFilelist();
 
 		return true;
@@ -1832,7 +1940,32 @@ void testDiskOpMouseRelease(void)
 	if (ui.diskOpShown && FReq_EntrySelected != -1)
 	{
 		if (mouse.x >= 169 && mouse.x <= 329 && mouse.y >= 4 && mouse.y <= 168)
-			fileListPressed((mouse.y - 4) / (FONT1_CHAR_H + 1));
+		{
+			const int32_t visibleEntry = (mouse.y - 4) / (FONT1_CHAR_H + 1);
+			if (diskOpSampleBrowseMode() && mouse.mode == MOUSE_MODE_NORMAL)
+			{
+				const int32_t absoluteEntry = FReq_DirPos + visibleEntry;
+				const uint32_t now = SDL_GetTicks();
+				const bool doubleClick = diskOpBrowserIsDoubleClick(
+					lastFileClickEntry, lastFileClickTime, absoluteEntry, now,
+					DISKOP_DOUBLE_CLICK_MS);
+				if (doubleClick)
+				{
+					resetDiskOpClickState();
+					cancelSamplePreview();
+					fileListPressed(visibleEntry);
+				}
+				else
+				{
+					lastFileClickEntry = absoluteEntry;
+					lastFileClickTime = now;
+					activateDiskOpEntry(visibleEntry);
+				}
+				return;
+			}
+
+			fileListPressed(visibleEntry);
+		}
 
 		if (tapeSisterPathBrowser != TAPESISTER_PATH_BROWSER_EXECUTABLE ||
 			pathBrowserFileU[0] == 0)
@@ -2497,6 +2630,17 @@ void diskOp_DrawDirectory(void)
 #ifdef _WIN32
 	setupDiskOpDrives();
 #endif
+	drawDiskOpAuditionToggle();
+
+	if (diskOpSampleBrowseMode() && FReq_FileCount > 0)
+	{
+		const int32_t visibleCount = MIN(FReq_FileCount - FReq_DirPos,
+			DISKOP_ENTRY_NUM);
+		if (FReq_EntrySelected < 0)
+			FReq_EntrySelected = 0;
+		else if (FReq_EntrySelected >= visibleCount)
+			FReq_EntrySelected = visibleCount - 1;
+	}
 
 	setScrollBarEnd(SB_DISKOP_LIST, FReq_FileCount);
 	setScrollBarPos(SB_DISKOP_LIST, FReq_DirPos, DONT_TRIGGER_CALLBACK);
@@ -2606,6 +2750,9 @@ static int32_t diskOp_ReadDirectoryThread(void *ptr)
 
 void diskOp_StartDirReadThread(void)
 {
+	cancelSamplePreview();
+	resetDiskOpClickState();
+	FReq_EntrySelected = -1;
 	editor.diskOpReadDone = false;
 
 	mouseAnimOn();
@@ -2706,6 +2853,10 @@ static void setDiskOpItemRadioButtons(void)
 
 static void setDiskOpItem(uint8_t item)
 {
+	cancelSamplePreview();
+	resetDiskOpClickState();
+	FReq_EntrySelected = -1;
+
 	hideRadioButtonGroup(RB_GROUP_DISKOP_MOD_SAVEAS);
 	hideRadioButtonGroup(RB_GROUP_DISKOP_INS_SAVEAS);
 	hideRadioButtonGroup(RB_GROUP_DISKOP_SMP_SAVEAS);
@@ -2810,6 +2961,7 @@ static void setDiskOpItem(uint8_t item)
 		fillRect(4, 101, 40, 38, PAL_DESKTOP);
 		drawSaveAsElements();
 		setDiskOpItemRadioButtons();
+		drawDiskOpAuditionToggle();
 
 		diskOp_DrawDirectory();
 		drawTextBox(TB_DISKOP_FILENAME);
@@ -2878,6 +3030,7 @@ static void drawDiskOpScreen(void)
 
 	showCheckBox(CB_DISKOP_SHOW_ALL);
 	textOutShadow(85, 108, PAL_FORGRND, PAL_DSKTOP2, "All files");
+	drawDiskOpAuditionToggle();
 
 	showScrollBar(SB_DISKOP_LIST);
 	showTextBox(TB_DISKOP_FILENAME);
@@ -2966,6 +3119,13 @@ void showDiskOpScreen(void)
 
 void hideDiskOpScreen(void)
 {
+	/* Close the input gate before stopping the private voice so a concurrent
+	** MIDI callback cannot retrigger it during teardown. */
+	ui.diskOpShown = false;
+	cancelSamplePreview();
+	resetDiskOpClickState();
+	FReq_EntrySelected = -1;
+
 #ifdef _WIN32
 	for (uint16_t i = 0; i < DISKOP_MAX_DRIVE_BUTTONS; i++)
 		hidePushButton(PB_DISKOP_DRIVE1 + i);
@@ -2984,6 +3144,7 @@ void hideDiskOpScreen(void)
 	hidePushButton(PB_DISKOP_LIST_DOWN);
 
 	hideCheckBox(CB_DISKOP_SHOW_ALL);
+	hideCheckBox(CB_DISKOP_AUDITION);
 
 	hideScrollBar(SB_DISKOP_LIST);
 	hideTextBox(TB_DISKOP_FILENAME);
@@ -2994,7 +3155,6 @@ void hideDiskOpScreen(void)
 	hideRadioButtonGroup(RB_GROUP_DISKOP_PAT_SAVEAS);
 	hideRadioButtonGroup(RB_GROUP_DISKOP_TRK_SAVEAS);
 
-	ui.diskOpShown = false;
 }
 
 static void closeTapeSisterPathBrowser(void)
@@ -3194,11 +3354,136 @@ void toggleDiskOpScreen(void)
 		showDiskOpScreen();
 }
 
+bool diskOpHandleKey(int32_t keycode, bool keyWasRepeated)
+{
+	if (!ui.diskOpShown || !diskOpSampleBrowseMode() ||
+		mouse.mode != MOUSE_MODE_NORMAL)
+	{
+		return false;
+	}
+
+	/* Shift+Up/Down keeps the existing global instrument selection behavior.
+	** Ctrl+Up/Down is its Disk Op companion for choosing the destination sample
+	** slot without disturbing the highlighted browser candidate. */
+	const int32_t sampleSlotDelta = diskOpBrowserSampleSlotDelta(
+		keyb.leftCtrlPressed, keyb.leftShiftPressed, keyb.leftAltPressed,
+		keycode == SDLK_UP ? -1 : keycode == SDLK_DOWN ? 1 : 0);
+	if (sampleSlotDelta != 0)
+	{
+		if (sampleSlotDelta < 0)
+			decCurSmp();
+		else
+			incCurSmp();
+		return true;
+	}
+
+	if (keyb.keyModifierDown)
+		return false;
+
+	if (keycode == SDLK_RETURN || keycode == SDLK_KP_ENTER)
+	{
+		if (FReq_EntrySelected == -1)
+			return false;
+		if (!keyWasRepeated)
+		{
+			resetDiskOpClickState();
+			cancelSamplePreview();
+			fileListPressed(FReq_EntrySelected);
+		}
+		return true;
+	}
+
+	if (keycode != SDLK_UP && keycode != SDLK_DOWN)
+		return false;
+	if (FReq_FileCount <= 0 || FReq_Buffer == NULL)
+		return true;
+
+	if (!diskOpBrowserMoveSelection(FReq_FileCount, DISKOP_ENTRY_NUM,
+		FReq_DirPos, FReq_EntrySelected, keycode == SDLK_UP ? -1 : 1,
+		&FReq_DirPos, &FReq_EntrySelected))
+	{
+		return true;
+	}
+	setScrollBarPos(SB_DISKOP_LIST, FReq_DirPos, DONT_TRIGGER_CALLBACK);
+	resetDiskOpClickState();
+	diskOp_DrawFilelist();
+	activateDiskOpEntry(FReq_EntrySelected);
+	return true;
+}
+
+static bool diskOpPreviewInputActive(void)
+{
+	return ui.diskOpShown && diskOpPreviewCapturesInput(
+		diskOpSampleBrowseMode(), FReq_AuditionPreview);
+}
+
+bool diskOpHandlePreviewKeyDown(SDL_Scancode scancode, bool keyWasRepeated)
+{
+	if (scancode < 0 || scancode >= SDL_NUM_SCANCODES)
+		return false;
+
+	const int8_t note = scancodeKeyToNote(scancode);
+	if (note <= 0 || note > 96)
+		return false;
+
+	if (!diskOpPreviewInputActive() || keyb.keyModifierDown)
+	{
+		previewQwertyNotes[scancode] = false;
+		return false;
+	}
+
+	previewQwertyNotes[scancode] = true;
+	if (!keyWasRepeated)
+		playDiskOpSamplePreviewNote((uint8_t)note, -1);
+	return true;
+}
+
+bool diskOpHandlePreviewKeyUp(SDL_Scancode scancode)
+{
+	if (scancode >= SDL_NUM_SCANCODES || !previewQwertyNotes[scancode])
+		return false;
+
+	previewQwertyNotes[scancode] = false;
+	const int8_t note = scancodeKeyToNote(scancode);
+	if (note > 0 && note <= 96)
+		releaseDiskOpSamplePreviewNote((uint8_t)note);
+	return true;
+}
+
+bool diskOpHandlePreviewMIDI(uint8_t note, int8_t volume)
+{
+	if (note == 0 || note > 96)
+		return false;
+
+	if (volume != 0)
+	{
+		if (!diskOpPreviewInputActive())
+		{
+			previewMIDINotes[note] = false;
+			return false;
+		}
+
+		previewMIDINotes[note] = true;
+		playDiskOpSamplePreviewNote(note, volume);
+		return true;
+	}
+
+	if (!previewMIDINotes[note])
+		return false;
+	previewMIDINotes[note] = false;
+	releaseDiskOpSamplePreviewNote(note);
+	return true;
+}
+
 void sbDiskOpSetPos(uint32_t pos)
 {
 	if ((int32_t)pos != FReq_DirPos && FReq_FileCount > DISKOP_ENTRY_NUM)
 	{
+		cancelSamplePreview();
+		resetDiskOpClickState();
 		FReq_DirPos = (int32_t)pos;
+		if (!diskOpSampleBrowseMode())
+			FReq_EntrySelected = -1;
 		diskOp_DrawFilelist();
 	}
 }
@@ -3235,6 +3520,15 @@ void cbDiskOpAllFiles(void)
 	editor.diskOpReadDir = true; // refresh dir
 }
 
+void cbDiskOpAudition(void)
+{
+	FReq_AuditionPreview = checkBoxes[CB_DISKOP_AUDITION].checked;
+	if (!FReq_AuditionPreview)
+		cancelSamplePreview();
+	else if (FReq_EntrySelected != -1)
+		activateDiskOpEntry(FReq_EntrySelected);
+}
+
 #ifdef _WIN32
 void pbDiskOpDrive1(void) { openDrive(logicalDriveNames[driveIndexes[0]]); }
 void pbDiskOpDrive2(void) { openDrive(logicalDriveNames[driveIndexes[1]]); }
@@ -3248,11 +3542,19 @@ void pbDiskOpDrive8(void) { openDrive(logicalDriveNames[driveIndexes[7]]); }
 
 void pbDiskOpDelete(void)
 {
+	cancelSamplePreview();
+	resetDiskOpClickState();
+	FReq_EntrySelected = -1;
+	diskOp_DrawFilelist();
 	setMouseMode(MOUSE_MODE_DELETE);
 }
 
 void pbDiskOpRename(void)
 {
+	cancelSamplePreview();
+	resetDiskOpClickState();
+	FReq_EntrySelected = -1;
+	diskOp_DrawFilelist();
 	setMouseMode(MOUSE_MODE_RENAME);
 }
 

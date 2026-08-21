@@ -9,12 +9,18 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <math.h>
+#include <string.h>
 #include "../ft2_header.h"
 #include "../ft2_mouse.h"
 #include "../ft2_audio.h"
 #include "../ft2_sample_ed.h"
 #include "../ft2_sysreqs.h"
 #include "../ft2_sample_loader.h"
+
+/* Disk Op previews reuse the normal decoder but suppress errors and choose a
+** deterministic stereo mix instead of opening modal import dialogs. */
+#define loaderMsgBox sampleLoaderShowError
+#define loaderSysReq sampleLoaderAskStereo
 
 static double getAIFFSampleRate(uint8_t *in);
 static bool aiffIsStereo(FILE *f); // only ran on files that are confirmed to be AIFFs
@@ -152,7 +158,8 @@ bool loadAIFF(FILE *f, uint32_t filesize)
 	if (aiffIsStereo(f))
 	{
 		stereoAction = loaderSysReq(4, "System request", "This is a stereo sample. Which channel do you want to read?", NULL);
-		setMouseBusy(true);
+		if (!sampleLoaderIsPreviewDecode())
+			setMouseBusy(true);
 	}
 
 	// read sample data

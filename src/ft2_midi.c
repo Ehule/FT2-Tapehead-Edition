@@ -24,6 +24,7 @@
 #include "ft2_audio.h"
 #include "ft2_mouse.h"
 #include "ft2_pattern_ed.h"
+#include "ft2_diskop.h"
 #include "ft2_structs.h"
 #include "rtmidi/rtmidi_c.h"
 
@@ -209,7 +210,10 @@ static inline void midiInKeyAction(int8_t m, uint8_t mv)
 		m += (int8_t)config.recMIDITranspVal;
 
 	if ((mv == 0 || vol != 0) && m > 0 && m < 96 && recMIDIValidChn)
-		recordNote(m, (int8_t)vol);
+	{
+		if (!diskOpHandlePreviewMIDI((uint8_t)m, (int8_t)vol))
+			recordNote(m, (int8_t)vol);
+	}
 }
 
 static inline void midiInControlChange(uint8_t data1, uint8_t data2)

@@ -117,6 +117,9 @@ void readKeyModifiers(void)
 
 void keyUpHandler(SDL_Scancode scancode, SDL_Keycode keycode)
 {
+	if (diskOpHandlePreviewKeyUp(scancode))
+		return;
+
 	if (editor.editTextFlag || ui.sysReqShown)
 		return; // kludge: don't handle key up! (XXX: Is this hack really needed anymore?)
 
@@ -227,6 +230,12 @@ void keyDownHandler(SDL_Scancode scancode, SDL_Keycode keycode, SDL_Keymod modif
 		return;
 
 	if (interpolationHandlePreviewKey(scancode, keycode, keyWasRepeated))
+		return;
+
+	if (diskOpHandleKey(keycode, keyWasRepeated))
+		return;
+
+	if (diskOpHandlePreviewKeyDown(scancode, keyWasRepeated))
 		return;
 
 	if (scancode == SDL_SCANCODE_SPACE && keyb.leftCtrlPressed &&

@@ -3726,6 +3726,12 @@ void closeReplayer(void)
 		instr[0] = NULL;
 	}
 
+	if (instr[129] != NULL)
+	{
+		free(instr[129]);
+		instr[129] = NULL;
+	}
+
 	if (instr[130] != NULL)
 	{
 		free(instr[130]);
@@ -3779,6 +3785,15 @@ bool setupReplayer(void)
 		return false;
 	}
 	instr[0]->smp[0].volume = 0;
+
+	/* Runtime-only Disk Op audition instrument. Unlike instrument 130 (the
+	** Sample Editor's shallow-copy playback slot), this slot owns its sample
+	** memory and is never serialized into a module. */
+	if (!allocateInstr(129))
+	{
+		showErrorMsgBox("Not enough memory!");
+		return false;
+	}
 
 	if (!allocateInstr(130))
 	{
@@ -4209,6 +4224,56 @@ void playRange(uint8_t chNum, uint8_t insNum, uint8_t smpNum, uint8_t note, uint
 	// for sampling playback line in Smp. Ed.
 	editor.curPlayInstr = editor.curInstr;
 	editor.curPlaySmp = editor.curSmp;
+}
+
+void stopDiskOpSamplePreview(void)
+{
+	if (instr[129] == NULL)
+		return;
+
+	lockAudio();
+
+	audioDiskOpPreviewStop();
+	freeSmpData(&instr[129]->smp[0]);
+	memset(&instr[129]->smp[0], 0, sizeof (sample_t));
+	instr[129]->smp[0].panning = 128;
+	instr[129]->smp[0].volume = 64;
+
+	unlockAudio();
+}
+
+bool installDiskOpSamplePreview(sample_t *sample)
+{
+	if (sample == NULL || sample->dataPtr == NULL || sample->length <= 0 ||
+		instr[129] == NULL)
+	{
+		return false;
+	}
+
+	lockAudio();
+
+	audioDiskOpPreviewStop();
+
+	sample_t *preview = &instr[129]->smp[0];
+	freeSmpData(preview);
+	memcpy(preview, sample, sizeof (sample_t));
+	memset(sample, 0, sizeof (sample_t)); // ownership moved to reserved instrument 129
+	sanitizeSample(preview);
+	fixSample(preview);
+	unlockAudio();
+
+	return true;
+}
+
+void playDiskOpSamplePreviewNote(uint8_t note, int8_t volume)
+{
+	if (instr[129] != NULL)
+		audioDiskOpPreviewTrigger(&instr[129]->smp[0], note, volume);
+}
+
+void releaseDiskOpSamplePreviewNote(uint8_t note)
+{
+	audioDiskOpPreviewNoteOff(note);
 }
 
 void stopVoices(void)

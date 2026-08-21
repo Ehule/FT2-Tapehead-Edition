@@ -2,16 +2,12 @@
 
 PR42 makes the Pattern Editor choose its transport visualization independently for every visible tracker channel.
 
-## Configuration
+## Rendering invariant
 
-Add this key under `[Pattern]` in `tapehead.ini`:
-
-```ini
-[Pattern]
-PerTrackTransportVisuals=true
-```
-
-The default is `true`, including for older `tapehead.ini` files where the key is absent. Set it to `false` to retain the pre-PR42 TapeHead transport rendering as closely as possible.
+The mode is selected per track and is not controlled by a machine-local INI
+switch. This keeps Linux and Windows behavior identical: an active
+FastTracks/LEN/Freeze lane always owns stationary data and a moving playhead,
+while a standard lane keeps ordinary FT2 scrolling.
 
 ## Rendering rules
 
@@ -29,4 +25,11 @@ A normal track being strummed keeps the FT2 metaphor: the Pattern Jog row moves 
 
 ## Editing safety
 
-Hybrid playback rendering never rewrites pattern, song-order, block, or undo data. Recording modes and an active block selection deliberately fall back to the established editor coordinate model so a visual transport transform cannot redirect pattern edits or block operations.
+Hybrid playback rendering never rewrites pattern, song-order, block, or undo
+data. While playback is running, the pattern-data body is display-only: mouse
+buttons cannot place the cursor, create or clear a block mark, or audition a
+row. LEN/control and FasTrack gestures in the channel headers remain active.
+When playback is stopped, ordinary cursor placement, block marking, and middle
+click auditioning work normally. Recording modes retain the established editor
+coordinate model for write safety, and a stored block mark never changes the
+transport view.
