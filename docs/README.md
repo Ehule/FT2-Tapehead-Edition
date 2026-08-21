@@ -18,6 +18,7 @@ was built a particular way.
 | [`MULTICHANNEL_OUTPUT.md`](MULTICHANNEL_OUTPUT.md) | Stereo buses, JACK/PipeWire-JACK, Mono Outputs, and routing gestures |
 | [`CONFIGURATION.md`](CONFIGURATION.md) | Every `tapehead.ini` section and startup behavior |
 | [`FT2_EXCHANGE.md`](FT2_EXCHANGE.md) | Bidirectional TapeSister exchange protocol and round-trip checklist |
+| [`UNIVERSAL_PALETTE.md`](UNIVERSAL_PALETTE.md) | Shared TapeSister/Tapehead `palette.pal` schema and eyedropper behavior |
 | [`PATTERN_INTERPOLATION.md`](PATTERN_INTERPOLATION.md) | Interpolation and Melodic Walk previews |
 | [`SAMPLE_MAP.md`](SAMPLE_MAP.md) | Mapping sample positions into pattern/row addresses |
 | [`../UNDO_IMPLEMENTATION_NOTES.md`](../UNDO_IMPLEMENTATION_NOTES.md) | Undo/Redo coverage, limits, and transaction behavior |

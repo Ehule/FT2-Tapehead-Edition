@@ -1,0 +1,27 @@
+; Shared TapeSister / Tapehead palette
+; Both applications preserve every key in this file.
+
+[Palette]
+PatternText=#FF1C00
+BlockMark=#2D0039
+TextOnBlock=#009EE3
+Mouse=#FFD265
+Desktop=#1C1C1C
+Buttons=#5D555D
+PatternNote=#FFE700
+PatternInstrument=#18FF00
+PatternVolume=#FF1CE7
+PatternTuning=#147DFF
+PatternEffect=#35FFFF
+PatternEmpty=#5900FF
+TrackLengthPlayhead=#41D7FF
+FastTracksPlayhead=#FFAE20
+ControlPlayhead=#FF3131
+FastTracksSync=#00CE41
+FastTracksPhase=#FF3131
+FastTracksSong=#FFAE20
+FastTracksLengthPlayhead=#D061FF
+WaveSelection=#2D0039
+ActiveTile=#FFD265
+DesktopContrast=52
+ButtonsContrast=57

@@ -334,6 +334,7 @@
     <ClCompile Include="..\..\src\ft2_mouse.c" />
     <ClCompile Include="..\..\src\ft2_nibbles.c" />
     <ClCompile Include="..\..\src\ft2_palette.c" />
+    <ClCompile Include="..\..\src\ft2_universal_palette.c" />
     <ClCompile Include="..\..\src\ft2_pattern_ed.c" />
     <ClCompile Include="..\..\src\ft2_pattern_draw.c" />
     <ClCompile Include="..\..\src\ft2_pattern_launcher.c" />
@@ -453,6 +454,7 @@
     <ClInclude Include="..\..\src\ft2_mouse.h" />
     <ClInclude Include="..\..\src\ft2_nibbles.h" />
     <ClInclude Include="..\..\src\ft2_palette.h" />
+    <ClInclude Include="..\..\src\ft2_universal_palette.h" />
     <ClInclude Include="..\..\src\ft2_pattern_ed.h" />
     <ClInclude Include="..\..\src\ft2_pattern_draw.h" />
     <ClInclude Include="..\..\src\ft2_pattern_launcher.h" />
@@ -511,6 +513,7 @@
   <ItemGroup>
     <TapeheadRuntimeAsset Include="$(ProjectDir)..\..\release\other\FT2.CFG" />
     <TapeheadRuntimeAsset Include="$(ProjectDir)..\..\release\other\tapehead.ini" />
+    <TapeheadRuntimeAsset Include="$(ProjectDir)..\..\release\other\palette.pal" />
     <TapeheadRuntimeAsset Include="$(ProjectDir)..\..\release\other\fastTracksLogoBadges.bmp" />
     <TapeheadRuntimeAsset Include="$(ProjectDir)..\..\release\other\tapeheadSplash.png" />
     <TapeheadOptionalRuntimeAsset Include="$(ProjectDir)..\..\src\gfxdata\icon\tapehead\tapehead-icon.bmp" Condition="Exists('$(ProjectDir)..\..\src\gfxdata\icon\tapehead\tapehead-icon.bmp')" />

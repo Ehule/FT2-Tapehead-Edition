@@ -33,6 +33,7 @@
     <ClCompile Include="..\..\src\ft2_mouse.c" />
     <ClCompile Include="..\..\src\ft2_nibbles.c" />
     <ClCompile Include="..\..\src\ft2_palette.c" />
+    <ClCompile Include="..\..\src\ft2_universal_palette.c" />
     <ClCompile Include="..\..\src\ft2_pattern_draw.c" />
     <ClCompile Include="..\..\src\ft2_pattern_ed.c" />
     <ClCompile Include="..\..\src\ft2_pattern_launcher.c" />
@@ -262,6 +263,9 @@
       <Filter>headers</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\ft2_palette.h">
+      <Filter>headers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\ft2_universal_palette.h">
       <Filter>headers</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\ft2_pattern_draw.h">

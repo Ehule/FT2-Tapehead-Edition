@@ -3,6 +3,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include "ft2_universal_palette.h"
+
 enum
 {
 	// for setPalette()
@@ -20,7 +22,7 @@ enum
 #define TAPEHEAD_TRANSPORT_COLOR_COUNT 7
 #define TAPEHEAD_CUSTOM_COLOR_COUNT \
 	(TAPEHEAD_PATTERN_FIELD_COLOR_COUNT + TAPEHEAD_TRANSPORT_COLOR_COUNT)
-#define TAPEHEAD_PALETTE_EDIT_COUNT (6 + TAPEHEAD_CUSTOM_COLOR_COUNT)
+#define TAPEHEAD_PALETTE_EDIT_COUNT TAPEHEAD_UNIVERSAL_TAPEHEAD_COLOR_COUNT
 
 // palette entry for transparency
 #define PAL_TRANSPR 127
@@ -99,8 +101,9 @@ void configPalBDown(void);
 void configPalBUp(void);
 void configPalContDown(void);
 void configPalContUp(void);
-void configPalImport(void);
-void configPalExport(void);
+void configPalLoadShared(void);
+void configPalSaveShared(void);
+void loadTapeheadPaletteOnStartup(void);
 void showPaletteEditor(void);
 
 void rbConfigPalPatternText(void);

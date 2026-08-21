@@ -89,6 +89,11 @@ Configure the shared folder and optional TapeSister executable in
 **Configuration → Layout**. The path fields are editable and open Tapehead's
 built-in browser on double-click; see the [exchange guide](docs/FT2_EXCHANGE.md).
 
+The same exchange directory can hold one reciprocal `palette.pal`. Tapehead
+retains TapeSister-only colors on every save and provides 14 tiny TapeSister
+eyedropper swatches without adding them to Tapehead's 19-color selector. See
+the [universal palette guide](docs/UNIVERSAL_PALETTE.md).
+
 ## First run
 
 The example configuration is [`release/other/tapehead.ini`](release/other/tapehead.ini).

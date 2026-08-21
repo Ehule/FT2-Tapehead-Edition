@@ -9,6 +9,21 @@ milestones and may contain limitations or planned work that later entries
 supersede. See [`docs/README.md`](docs/README.md) for the current documentation
 map.
 
+## Universal TapeSister/Tapehead palette — 2026-08-21
+
+- Replaced the split palette workflow with canonical `palette.pal` and the
+  shared `[Palette]` schema established by TapeSister PR43.
+- Tapehead preserves all 21 union colors and both contrast values, including
+  TapeSister-only Wave Selection and Active Tile fields that remain hidden from
+  Tapehead's 19 editable destinations.
+- Startup and manual loading retain legacy `tapehead.pal` and
+  `[TapeheadPalette]` compatibility without rewriting old files; explicit Save
+  writes a complete canonical file in the exchange directory or local fallback.
+- Added a compact 14-swatch TapeSister eyedropper strip to the existing Layout
+  editor. Missing legacy sources render neutral and cannot overwrite a color.
+- Shipped a complete runtime `palette.pal` and added reciprocal schema,
+  path-resolution, legacy, save/reopen, and eyedropper regression coverage.
+
 ## Disk Op browse-by-ear sample audition — 2026-08-20
 
 - Sample and Instrument Disk Op modes now keep a persistent highlighted row.

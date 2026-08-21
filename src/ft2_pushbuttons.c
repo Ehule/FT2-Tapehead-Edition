@@ -5,6 +5,7 @@
 
 #include <stdio.h>
 #include <stdbool.h>
+#include <string.h>
 #include "ft2_header.h"
 #include "ft2_gui.h"
 #include "ft2_about.h"
@@ -408,8 +409,8 @@ pushButton_t pushButtons[NUM_PUSHBUTTONS] =
 	{ 606, 43, 23, 13, 1, 4, ARROW_RIGHT_STRING, NULL,    configPalBUp,      NULL },
 	{ 513, 71, 23, 13, 1, 4, ARROW_LEFT_STRING,  NULL,    configPalContDown, NULL },
 	{ 606, 71, 23, 13, 1, 4, ARROW_RIGHT_STRING, NULL,    configPalContUp,   NULL },
-	{ 566, 57, 13, 13, 0, 0, "I",                NULL,    NULL,              configPalImport },
-	{ 580, 57, 13, 13, 0, 0, "E",                NULL,    NULL,              configPalExport },
+	{ 566, 57, 31, 13, 0, 0, "Load",             NULL,    NULL,              configPalLoadShared },
+	{ 598, 57, 31, 13, 0, 0, "Save",             NULL,    NULL,              configPalSaveShared },
 	{ 475,  88, 154, 16, 0, 0, "User defined",     NULL,    NULL,              cyclePalettePreset },
 	{ 475, 105, 154, 16, 0, 0, "Edit",             NULL,    NULL,              cyclePatternColorMode },
 

@@ -13,6 +13,7 @@ actions = (ROOT / "src/ft2_tapehead_actions.c").read_text()
 apc = (ROOT / "src/ft2_apc40_mk2.c").read_text()
 draw = (ROOT / "src/ft2_pattern_draw.c").read_text()
 palette = (ROOT / "src/ft2_palette.c").read_text()
+universal_palette = (ROOT / "src/ft2_universal_palette.c").read_text()
 config = (ROOT / "src/ft2_config.c").read_text()
 
 # Offline Baker save/restore includes the runtime clutch with FastTracks phase.
@@ -79,7 +80,7 @@ hybrid = draw.index("PAL_FASTTRACKS_LENGTH_PLAYHEAD")
 control = draw.index("PAL_CONTROL_PLAYHEAD", hybrid)
 dim = draw.index("dimPatternColor(playheadColor)", control)
 assert hybrid < control < dim
-assert '"FastTracksLengthPlayhead"' in palette
+assert '"FastTracksLengthPlayhead"' in universal_palette
 assert '"FastTracksLengthPlayheadColor"' in config
 assert "FT+LEN Head" in palette
 

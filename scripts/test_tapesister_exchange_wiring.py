@@ -99,7 +99,7 @@ def main() -> None:
     assert "TAPEHEAD_CONFIG_PATH_CAPACITY - 1" in textboxes
     assert "SDL_GetTicks()" in textboxes and "openTapeSisterPathBrowser" in textboxes
     assert "hideTextBox(TB_CONF_TAPESISTER_EXCHANGE)" in config
-    assert '"Double-click a path to browse"' in palette
+    assert "drawTapeSisterSwatches();" in palette
     ordered(palette, "showTextBox(TB_CONF_TAPESISTER_EXCHANGE)",
             "drawTextBox(TB_CONF_TAPESISTER_EXCHANGE)")
     ordered(palette, "showTextBox(TB_CONF_TAPESISTER_EXECUTABLE)",
