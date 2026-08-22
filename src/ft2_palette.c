@@ -26,8 +26,9 @@ static bool patternColorsInitialized;
 
 static uint8_t cfg_Red, cfg_Green, cfg_Blue, cfg_Contrast;
 static tapeheadUniversalPalette_t universalPalette;
+static tapeheadUniversalPalette_t tapeSisterSuggestions;
 static bool universalPaletteInitialized;
-static char tapeSisterSwatchStatus[16] = "TS SOURCES";
+static char tapeSisterSwatchStatus[8] = "";
 
 #define PAL_LIST_FRAME_X 396
 #define PAL_LIST_FRAME_Y 2
@@ -38,7 +39,7 @@ static char tapeSisterSwatchStatus[16] = "TS SOURCES";
 #define PAL_LIST_TEXT_W 86
 #define PAL_LIST_ROW_H 13
 #define PAL_LIST_VISIBLE_ROWS 6
-#define TAPESISTER_SWATCH_X 418
+#define TAPESISTER_SWATCH_X 428
 #define TAPESISTER_SWATCH_Y 158
 #define TAPESISTER_SWATCH_W 8
 #define TAPESISTER_SWATCH_H 9
@@ -392,6 +393,7 @@ static void initializeUniversalPalette(void)
 	if (universalPaletteInitialized)
 		return;
 	tapeheadUniversalPaletteDefault(&universalPalette);
+	tapeSisterSuggestions = universalPalette;
 	universalPaletteInitialized = true;
 }
 
@@ -444,6 +446,7 @@ static void applyUniversalPalette(const tapeheadUniversalPalette_t *palette,
 	applyPaletteContrast(PAL_USER_DEFINED, 4, palette->desktopContrast);
 	applyPaletteContrast(PAL_USER_DEFINED, 5, palette->buttonsContrast);
 	universalPalette = *palette;
+	tapeSisterSuggestions = *palette;
 	universalPaletteInitialized = true;
 	config.cfg_StdPalNum = PAL_USER_DEFINED;
 	if (redraw)
@@ -576,14 +579,14 @@ static void drawTapeSisterSwatches(void)
 		const tapeheadUniversalColor_t color =
 			tapeheadUniversalPaletteTapeSisterSwatchColor(swatch);
 		const bool defined = tapeheadUniversalPaletteColorIsDefined(
-			&universalPalette, color);
+			&tapeSisterSuggestions, color);
 		drawTrueColorRect(x, TAPESISTER_SWATCH_Y, TAPESISTER_SWATCH_W,
 			TAPESISTER_SWATCH_H,
 			video.palette[PAL_DSKTOP2] & UINT32_C(0xFFFFFF));
 		drawTrueColorRect(x + 1, TAPESISTER_SWATCH_Y + 1,
 			TAPESISTER_SWATCH_W - 2, TAPESISTER_SWATCH_H - 2,
 			tapeheadUniversalPaletteTapeSisterSwatchDisplayColor(
-				&universalPalette, swatch));
+				&tapeSisterSuggestions, swatch));
 		if (!defined)
 		{
 			const uint32_t mark = UINT32_C(0x303030);
@@ -594,7 +597,7 @@ static void drawTapeSisterSwatches(void)
 			}
 		}
 	}
-	textOutClipX(559, 159, PAL_FORGRND, tapeSisterSwatchStatus, 630);
+	textOutClipX(574, 159, PAL_FORGRND, tapeSisterSwatchStatus, 630);
 }
 
 static int32_t tapeSisterSwatchFromPoint(int32_t x, int32_t y)
@@ -618,27 +621,26 @@ static int32_t tapeSisterSwatchFromPoint(int32_t x, int32_t y)
 static void sampleTapeSisterSwatch(int32_t swatch)
 {
 	initializeUniversalPalette();
-	const char *name = tapeheadUniversalPaletteTapeSisterSwatchName(swatch);
 	const tapeheadUniversalColor_t source =
 		tapeheadUniversalPaletteTapeSisterSwatchColor(swatch);
-	if (!tapeheadUniversalPaletteColorIsDefined(&universalPalette, source))
+	if (!tapeheadUniversalPaletteColorIsDefined(&tapeSisterSuggestions, source))
 	{
 		snprintf(tapeSisterSwatchStatus, sizeof (tapeSisterSwatchStatus),
-			"UNSET:%.5s", name);
+			"UNSET");
 		showPaletteEditor();
 		return;
 	}
 	if ((config.specialFlags2 & HARDWARE_MOUSE) && cfg_ColorNum == 3)
 	{
 		snprintf(tapeSisterSwatchStatus, sizeof (tapeSisterSwatchStatus),
-			"MOUSE LOCKED");
+			"LOCKED");
 		showPaletteEditor();
 		return;
 	}
 
 	promotePaletteToUserDefined();
-	if (!tapeheadUniversalPaletteSampleTapeSister(&universalPalette,
-		cfg_ColorNum, swatch))
+	if (!tapeheadUniversalPaletteSampleTapeSisterFrom(&universalPalette,
+		&tapeSisterSuggestions, cfg_ColorNum, swatch))
 	{
 		return;
 	}
@@ -652,7 +654,7 @@ static void sampleTapeSisterSwatch(int32_t swatch)
 			palContrast[PAL_USER_DEFINED][cfg_ColorNum - 4]);
 	}
 	snprintf(tapeSisterSwatchStatus, sizeof (tapeSisterSwatchStatus),
-		"%.11s", name);
+		"SAMPLED");
 	setPalette(palTable[PAL_USER_DEFINED], REDRAW_SCREEN);
 	updatePaletteEditor();
 	showPaletteEditor();
@@ -830,6 +832,8 @@ void configPalLoadShared(void)
 		return;
 	}
 	applyUniversalPalette(&loaded, true);
+	snprintf(tapeSisterSwatchStatus, sizeof (tapeSisterSwatchStatus),
+		"LOADED");
 	showPaletteEditor();
 	if (source == PALETTE_LOAD_LEGACY)
 	{
@@ -878,8 +882,9 @@ void configPalSaveShared(void)
 		return;
 	}
 	universalPalette.definedColors = TAPEHEAD_UNIVERSAL_ALL_COLORS_MASK;
+	tapeSisterSuggestions = universalPalette;
 	snprintf(tapeSisterSwatchStatus, sizeof (tapeSisterSwatchStatus),
-		"SHARED SAVED");
+		"SAVED");
 	showPaletteEditor();
 	okBox(0, "Shared palette", "Saved complete shared palette.pal.", NULL);
 }

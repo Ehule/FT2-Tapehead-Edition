@@ -150,6 +150,17 @@ static void testLegacyAndEyedropper(const char *temporaryDirectory)
 	assert(tapeheadUniversalPaletteSampleTapeSister(&palette, 18, 0));
 	assert(palette.colors[destination] == 0x102030);
 	assert(tapeheadUniversalPaletteColorIsDefined(&palette, destination));
+	{
+		tapeheadUniversalPalette_t suggestions = palette;
+		tapeheadUniversalPalette_t edited = palette;
+		suggestions.colors[TAPEHEAD_UNIVERSAL_PATTERN_TEXT] = 0xA1B2C3;
+		edited.colors[TAPEHEAD_UNIVERSAL_PATTERN_TEXT] = 0x010203;
+		assert(tapeheadUniversalPaletteSampleTapeSisterFrom(&edited,
+			&suggestions, 18, 0));
+		assert(edited.colors[destination] == 0xA1B2C3);
+		assert(suggestions.colors[TAPEHEAD_UNIVERSAL_PATTERN_TEXT] ==
+			0xA1B2C3);
+	}
 	assert(!tapeheadUniversalPaletteSampleTapeSister(&palette,
 		TAPEHEAD_UNIVERSAL_TAPEHEAD_COLOR_COUNT, 0));
 	assert(tapeheadUniversalPaletteTapeheadColor(18) ==

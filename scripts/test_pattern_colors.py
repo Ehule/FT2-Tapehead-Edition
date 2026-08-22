@@ -68,7 +68,12 @@ assert "getBundledPalettePathU" in palette
 assert "drawTapeSisterSwatches" in palette
 assert "tapeSisterSwatchFromPoint" in palette
 assert "sampleTapeSisterSwatch" in palette
-assert '"UNSET:%.5s"' in palette
+assert "tapeSisterSuggestions" in palette
+assert "tapeheadUniversalPaletteSampleTapeSisterFrom" in palette
+assert '"UNSET"' in palette and '"SAVED"' in palette
+assert "TAPESISTER_SWATCH_X 428" in palette
+assert "textOutClipX(574" in palette
+assert '"SHARED SAVED"' not in palette
 assert '"Load"' in pushbuttons and "configPalLoadShared" in pushbuttons
 assert '"Save"' in pushbuttons and "configPalSaveShared" in pushbuttons
 assert '"[Palette]\\n"' in universal

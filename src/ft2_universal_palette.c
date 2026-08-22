@@ -339,23 +339,33 @@ uint32_t tapeheadUniversalPaletteTapeSisterSwatchDisplayColor(
 		palette->colors[color] : TAPEHEAD_UNIVERSAL_UNSET_SWATCH_RGB;
 }
 
-bool tapeheadUniversalPaletteSampleTapeSister(tapeheadUniversalPalette_t *palette,
+bool tapeheadUniversalPaletteSampleTapeSisterFrom(
+	tapeheadUniversalPalette_t *destinationPalette,
+	const tapeheadUniversalPalette_t *sourcePalette,
 	int32_t tapeheadDestination, int32_t swatch)
 {
-	if (palette == NULL || tapeheadDestination < 0 ||
+	if (destinationPalette == NULL || sourcePalette == NULL ||
+		tapeheadDestination < 0 ||
 		tapeheadDestination >= TAPEHEAD_UNIVERSAL_TAPEHEAD_COLOR_COUNT)
 	{
 		return false;
 	}
 	const tapeheadUniversalColor_t source =
 		tapeheadUniversalPaletteTapeSisterSwatchColor(swatch);
-	if (!tapeheadUniversalPaletteColorIsDefined(palette, source))
+	if (!tapeheadUniversalPaletteColorIsDefined(sourcePalette, source))
 		return false;
 	const tapeheadUniversalColor_t destination =
 		tapeheadUniversalPaletteTapeheadColor(tapeheadDestination);
-	palette->colors[destination] = palette->colors[source];
-	palette->definedColors |= UINT32_C(1) << destination;
+	destinationPalette->colors[destination] = sourcePalette->colors[source];
+	destinationPalette->definedColors |= UINT32_C(1) << destination;
 	return true;
+}
+
+bool tapeheadUniversalPaletteSampleTapeSister(tapeheadUniversalPalette_t *palette,
+	int32_t tapeheadDestination, int32_t swatch)
+{
+	return tapeheadUniversalPaletteSampleTapeSisterFrom(palette, palette,
+		tapeheadDestination, swatch);
 }
 
 bool tapeheadUniversalPaletteResolvePath(char *path, size_t pathSize,

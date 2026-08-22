@@ -59,6 +59,10 @@ tapeheadUniversalColor_t tapeheadUniversalPaletteTapeSisterSwatchColor(int32_t s
 const char *tapeheadUniversalPaletteTapeSisterSwatchName(int32_t swatch);
 uint32_t tapeheadUniversalPaletteTapeSisterSwatchDisplayColor(
 	const tapeheadUniversalPalette_t *palette, int32_t swatch);
+bool tapeheadUniversalPaletteSampleTapeSisterFrom(
+	tapeheadUniversalPalette_t *destinationPalette,
+	const tapeheadUniversalPalette_t *sourcePalette,
+	int32_t tapeheadDestination, int32_t swatch);
 bool tapeheadUniversalPaletteSampleTapeSister(tapeheadUniversalPalette_t *palette,
 	int32_t tapeheadDestination, int32_t swatch);
 
