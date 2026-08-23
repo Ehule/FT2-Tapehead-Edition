@@ -43,6 +43,12 @@ made outside the application are still read on the next launch.
 See [`FT2_EXCHANGE.md`](FT2_EXCHANGE.md) for confirmation behavior, the exact
 version-1 manifest, and a round-trip test checklist.
 
+The same **Exchange** directory also owns the universal `palette.pal`. Tapehead
+loads it at startup and its Layout palette **Load**/**Save** buttons use it.
+With no Exchange path, the file lives beside `FT2.CFG`. See
+[`UNIVERSAL_PALETTE.md`](UNIVERSAL_PALETTE.md) for legacy fallback and the
+complete reciprocal schema.
+
 ## Video
 
 ```ini
@@ -92,12 +98,17 @@ default exposes all 256 rows; a lower ceiling gives the absolute hardware more
 precision. Existing module LEN values above the ceiling remain valid until
 edited.
 
-The scrollable **Configuration → Layout** palette includes six transport
+The scrollable **Configuration → Layout** palette includes seven transport
 entries in addition to the pattern-field colors: `LEN Head`, `FT Head`,
-`CONTROL Head`, `FT Sync LED`, `FT Phase LED`, and `FT Song Badge`. Saving the
-configuration writes their corresponding `*Color=#RRGGBB` keys under
-`[Pattern]`; `tapehead.pal` import/export carries the same colors while older
-palette files retain the built-in cyan, amber, red, and green defaults.
+`CONTROL Head`, `FT Sync LED`, `FT Phase LED`, `FT Song Badge`, and `FT+LEN
+Head`. Saving the configuration writes their corresponding `*Color=#RRGGBB`
+keys under `[Pattern]`.
+
+The Layout **Load**/**Save** controls read and write the complete shared
+`palette.pal`, including TapeSister's retained `WaveSelection` and `ActiveTile`
+fields. Fourteen tiny TapeSister swatches form a source-only eyedropper strip;
+they never add destinations to Tapehead's 19-color selector. Legacy
+`tapehead.pal` and `[TapeheadPalette]` files still load without being rewritten.
 
 ## Launcher
 

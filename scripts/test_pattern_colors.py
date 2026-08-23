@@ -9,6 +9,10 @@ draw = (ROOT / "src/ft2_pattern_draw.c").read_text()
 config = (ROOT / "src/ft2_config.c").read_text()
 header = (ROOT / "src/ft2_palette.h").read_text()
 radios = (ROOT / "src/ft2_radiobuttons.c").read_text()
+pushbuttons = (ROOT / "src/ft2_pushbuttons.c").read_text()
+universal = (ROOT / "src/ft2_universal_palette.c").read_text()
+universal_header = (ROOT / "src/ft2_universal_palette.h").read_text()
+asset = (ROOT / "release/other/palette.pal").read_text()
 
 for name in ("NOTE", "INSTRUMENT", "VOLUME", "TUNING", "EFFECT", "EMPTY"):
     assert f"PAL_PATTERN_{name}" in header
@@ -56,10 +60,29 @@ for preset in ("Arctic", "LiTHe dark", "Aurora Borealis", "Rose", "Blues",
                "Jungle", "User defined"):
     assert f'"{preset}"' in palette
 
-assert "i >= 6 && i < 12 && !colorFound[i]" in palette
-assert "colors[i] = colors[0]" in palette
 assert "TAPEHEAD_PALETTE_EDIT_COUNT" in palette
-assert "retain new color defaults" in palette
+assert "loadTapeheadPaletteOnStartup" in palette
+assert "getCanonicalPalettePathU" in palette
+assert 'getConfiguredPalettePathU("tapehead.pal", false)' in palette
+assert "getBundledPalettePathU" in palette
+assert "drawTapeSisterSwatches" in palette
+assert "tapeSisterSwatchFromPoint" in palette
+assert "sampleTapeSisterSwatch" in palette
+assert "tapeSisterSuggestions" in palette
+assert "tapeheadUniversalPaletteSampleTapeSisterFrom" in palette
+assert '"UNSET"' in palette and '"SAVED"' in palette
+assert "TAPESISTER_SWATCH_X 428" in palette
+assert "textOutClipX(574" in palette
+assert '"SHARED SAVED"' not in palette
+assert '"Load"' in pushbuttons and "configPalLoadShared" in pushbuttons
+assert '"Save"' in pushbuttons and "configPalSaveShared" in pushbuttons
+assert '"[Palette]\\n"' in universal
+assert 'equalNoCase(text + 1, "TapeheadPalette")' in universal
+assert "TAPEHEAD_UNIVERSAL_TAPEHEAD_COLOR_COUNT 19" in universal_header
+assert asset.startswith("; Shared TapeSister / Tapehead palette")
+for key in ("WaveSelection", "ActiveTile", "TrackLengthPlayhead",
+            "FastTracksLengthPlayhead", "DesktopContrast", "ButtonsContrast"):
+    assert f"{key}=" in asset
 
 for key in ("PatternNoteColor", "PatternInstrumentColor", "PatternVolumeColor",
             "PatternTuningColor", "PatternEffectColor", "PatternEmptyColor"):

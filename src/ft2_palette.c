@@ -3,8 +3,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <ctype.h>
 #include <math.h>
+#include <wctype.h>
 #include "ft2_header.h"
 #include "ft2_palette.h"
 #include "ft2_gui.h"
@@ -16,6 +16,8 @@
 #include "ft2_replayer.h"
 #include "ft2_structs.h"
 #include "ft2_textboxes.h"
+#include "ft2_unicode.h"
+#include "ft2_universal_palette.h"
 
 uint8_t cfg_ColorNum = 0; // globalized
 static uint8_t paletteListOffset;
@@ -23,6 +25,10 @@ static pal16 patternColors[12][TAPEHEAD_CUSTOM_COLOR_COUNT];
 static bool patternColorsInitialized;
 
 static uint8_t cfg_Red, cfg_Green, cfg_Blue, cfg_Contrast;
+static tapeheadUniversalPalette_t universalPalette;
+static tapeheadUniversalPalette_t tapeSisterSuggestions;
+static bool universalPaletteInitialized;
+static char tapeSisterSwatchStatus[8] = "";
 
 #define PAL_LIST_FRAME_X 396
 #define PAL_LIST_FRAME_Y 2
@@ -33,6 +39,12 @@ static uint8_t cfg_Red, cfg_Green, cfg_Blue, cfg_Contrast;
 #define PAL_LIST_TEXT_W 86
 #define PAL_LIST_ROW_H 13
 #define PAL_LIST_VISIBLE_ROWS 6
+#define TAPESISTER_SWATCH_X 428
+#define TAPESISTER_SWATCH_Y 158
+#define TAPESISTER_SWATCH_W 8
+#define TAPESISTER_SWATCH_H 9
+#define TAPESISTER_SWATCH_STEP_X 10
+#define UNIVERSAL_PALETTE_PATH_CAPACITY (TAPEHEAD_CONFIG_PATH_CAPACITY * 4 + 64)
 
 static const uint8_t FTC_EditOrder[TAPEHEAD_PALETTE_EDIT_COUNT] =
 {
@@ -44,14 +56,6 @@ static const uint8_t FTC_EditOrder[TAPEHEAD_PALETTE_EDIT_COUNT] =
 	PAL_FASTTRACKS_SONG, PAL_FASTTRACKS_LENGTH_PLAYHEAD
 };
 static const uint8_t scaleOrder[3] = { 8, 4, 9 };
-static const char *paletteFileKeys[TAPEHEAD_PALETTE_EDIT_COUNT] =
-{
-	"PatternText", "BlockMark", "TextOnBlock", "Mouse", "Desktop", "Buttons",
-	"PatternNote", "PatternInstrument", "PatternVolume", "PatternTuning",
-	"PatternEffect", "PatternEmpty", "TrackLengthPlayhead",
-	"FastTracksPlayhead", "ControlPlayhead", "FastTracksSync",
-	"FastTracksPhase", "FastTracksSong", "FastTracksLengthPlayhead"
-};
 static const char *paletteEntryNames[TAPEHEAD_PALETTE_EDIT_COUNT] =
 {
 	"PAT Text", "Block Mark", "Block Text", "Mouse", "Desktop", "Buttons",
@@ -101,75 +105,113 @@ static uint8_t palContrast[12][2] = // palette desktop/button contrasts
 	{66, 62}, {68, 57}, {58, 42}, {57, 55}, {62, 57}, {52, 57}
 };
 
-static UNICHAR *getPaletteFilePathU(void)
+static char *paletteConfigPathUtf8(void)
 {
 	if (editor.configFileLocationU == NULL)
 		return NULL;
-
-	const size_t configPathLen = UNICHAR_STRLEN(editor.configFileLocationU);
 #ifdef _WIN32
-	const size_t configNameLen = UNICHAR_STRLEN(L"FT2.CFG");
-	const size_t paletteNameLen = UNICHAR_STRLEN(L"tapehead.pal");
-#else
-	const size_t configNameLen = UNICHAR_STRLEN("FT2.CFG");
-	const size_t paletteNameLen = UNICHAR_STRLEN("tapehead.pal");
-#endif
-	if (configPathLen < configNameLen)
+	const int32_t length = WideCharToMultiByte(CP_UTF8, 0,
+		editor.configFileLocationU, -1, NULL, 0, NULL, NULL);
+	if (length <= 0)
 		return NULL;
-
-	UNICHAR *filePathU = (UNICHAR *)malloc((configPathLen - configNameLen + paletteNameLen + 1) * sizeof (UNICHAR));
-	if (filePathU == NULL)
+	char *path = (char *)malloc((size_t)length);
+	if (path == NULL)
 		return NULL;
-
-	UNICHAR_STRCPY(filePathU, editor.configFileLocationU);
-	filePathU[configPathLen - configNameLen] = 0;
-#ifdef _WIN32
-	UNICHAR_STRCAT(filePathU, L"tapehead.pal");
-#else
-	UNICHAR_STRCAT(filePathU, "tapehead.pal");
-#endif
-	return filePathU;
-}
-
-static char *trimPaletteText(char *s)
-{
-	while (isspace((unsigned char)*s)) s++;
-	char *end = s + strlen(s);
-	while (end > s && isspace((unsigned char)end[-1])) end--;
-	*end = '\0';
-	return s;
-}
-
-static bool parsePaletteHex(const char *text, uint32_t *color)
-{
-	if (text[0] == '#')
-		text++;
-	else if (text[0] == '0' && (text[1] == 'x' || text[1] == 'X'))
-		text += 2;
-
-	if (strlen(text) != 6)
-		return false;
-
-	for (int32_t i = 0; i < 6; i++)
+	if (WideCharToMultiByte(CP_UTF8, 0, editor.configFileLocationU, -1,
+		path, length, NULL, NULL) <= 0)
 	{
-		if (!isxdigit((unsigned char)text[i]))
-			return false;
+		free(path);
+		return NULL;
+	}
+	return path;
+#else
+	return strdup(editor.configFileLocationU);
+#endif
+}
+
+static UNICHAR *palettePathFromUtf8(const char *path)
+{
+	if (path == NULL)
+		return NULL;
+#ifdef _WIN32
+	int32_t length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+		path, -1, NULL, 0);
+	if (length <= 0)
+		length = MultiByteToWideChar(CP_ACP, 0, path, -1, NULL, 0);
+	if (length <= 0)
+		return NULL;
+	wchar_t *plain = (wchar_t *)malloc((size_t)(length + 8) * sizeof (wchar_t));
+	if (plain == NULL)
+		return NULL;
+	if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path, -1, plain,
+		length) <= 0 && MultiByteToWideChar(CP_ACP, 0, path, -1, plain,
+		length) <= 0)
+	{
+		free(plain);
+		return NULL;
 	}
 
-	*color = (uint32_t)strtoul(text, NULL, 16);
-	return true;
+	const size_t plainLength = wcslen(plain);
+	const bool driveAbsolute = plainLength >= 3 && iswalpha(plain[0]) &&
+		plain[1] == L':' && (plain[2] == L'\\' || plain[2] == L'/');
+	const bool uncAbsolute = plainLength >= 2 && plain[0] == L'\\' &&
+		plain[1] == L'\\';
+	if (plainLength >= MAX_PATH - 1 && (driveAbsolute || uncAbsolute) &&
+		wcsncmp(plain, L"\\\\?\\", 4) != 0)
+	{
+		wchar_t *extended = (wchar_t *)malloc((plainLength + 9) *
+			sizeof (wchar_t));
+		if (extended == NULL)
+		{
+			free(plain);
+			return NULL;
+		}
+		if (wcsncmp(plain, L"\\\\", 2) == 0)
+			swprintf(extended, plainLength + 9, L"\\\\?\\UNC\\%ls", plain + 2);
+		else
+			swprintf(extended, plainLength + 9, L"\\\\?\\%ls", plain);
+		free(plain);
+		return extended;
+	}
+	return plain;
+#else
+	return strdup(path);
+#endif
 }
 
-static bool parsePaletteContrast(const char *text, uint8_t *contrast)
+static UNICHAR *getConfiguredPalettePathU(const char *filename,
+	bool useExchangeDirectory)
 {
-	char *end;
-	const unsigned long value = strtoul(text, &end, 10);
-	while (isspace((unsigned char)*end)) end++;
-	if (text == end || *end != '\0' || value < 1 || value > 100)
-		return false;
+	char resolved[UNIVERSAL_PALETTE_PATH_CAPACITY];
+	char *configPath = paletteConfigPathUtf8();
+	const char *exchangePath = useExchangeDirectory ?
+		tapeheadConfig.tapeSisterExchangePath : NULL;
+	const bool valid = tapeheadUniversalPaletteResolvePath(resolved,
+		sizeof (resolved), exchangePath, configPath, filename);
+	free(configPath);
+	return valid ? palettePathFromUtf8(resolved) : NULL;
+}
 
-	*contrast = (uint8_t)value;
-	return true;
+static UNICHAR *getCanonicalPalettePathU(void)
+{
+	return getConfiguredPalettePathU("palette.pal", true);
+}
+
+static UNICHAR *getLegacyPalettePathU(void)
+{
+	return getConfiguredPalettePathU("tapehead.pal", false);
+}
+
+static UNICHAR *getBundledPalettePathU(void)
+{
+	char resolved[UNIVERSAL_PALETTE_PATH_CAPACITY];
+	char *basePath = SDL_GetBasePath();
+	if (basePath == NULL)
+		return NULL;
+	const bool valid = tapeheadUniversalPaletteResolvePath(resolved,
+		sizeof (resolved), basePath, NULL, "palette.pal");
+	SDL_free(basePath);
+	return valid ? palettePathFromUtf8(resolved) : NULL;
 }
 
 static uint8_t color8To6(uint8_t color)
@@ -346,6 +388,278 @@ static void applyPaletteContrast(uint8_t layout, uint8_t editIndex, uint8_t cont
 	palContrast[layout][editIndex - 4] = contrast;
 }
 
+static void initializeUniversalPalette(void)
+{
+	if (universalPaletteInitialized)
+		return;
+	tapeheadUniversalPaletteDefault(&universalPalette);
+	tapeSisterSuggestions = universalPalette;
+	universalPaletteInitialized = true;
+}
+
+static uint32_t paletteLayoutColor(uint8_t layout, int32_t editIndex)
+{
+	const pal16 color = editIndex < 6 ?
+		palTable[layout][FTC_EditOrder[editIndex]] :
+		patternColors[layout][editIndex - 6];
+	return RGB32(COLOR_6BIT_TO_8BIT(color.r), COLOR_6BIT_TO_8BIT(color.g),
+		COLOR_6BIT_TO_8BIT(color.b));
+}
+
+static void setPaletteLayoutColor(uint8_t layout, int32_t editIndex,
+	uint32_t rgb)
+{
+	pal16 *destination = editIndex < 6 ?
+		&palTable[layout][FTC_EditOrder[editIndex]] :
+		&patternColors[layout][editIndex - 6];
+	destination->r = color8To6(RGB32_R(rgb));
+	destination->g = color8To6(RGB32_G(rgb));
+	destination->b = color8To6(RGB32_B(rgb));
+}
+
+static void captureUniversalPalette(uint8_t layout)
+{
+	initializeUniversalPalette();
+	initPatternColors();
+	for (int32_t i = 0; i < TAPEHEAD_PALETTE_EDIT_COUNT; i++)
+	{
+		const tapeheadUniversalColor_t color =
+			tapeheadUniversalPaletteTapeheadColor(i);
+		universalPalette.colors[color] = paletteLayoutColor(layout, i);
+	}
+	universalPalette.desktopContrast = palContrast[layout][0];
+	universalPalette.buttonsContrast = palContrast[layout][1];
+}
+
+static void applyUniversalPalette(const tapeheadUniversalPalette_t *palette,
+	bool redraw)
+{
+	if (palette == NULL)
+		return;
+	initPatternColors();
+	for (int32_t i = 0; i < TAPEHEAD_PALETTE_EDIT_COUNT; i++)
+	{
+		const tapeheadUniversalColor_t color =
+			tapeheadUniversalPaletteTapeheadColor(i);
+		setPaletteLayoutColor(PAL_USER_DEFINED, i, palette->colors[color]);
+	}
+	applyPaletteContrast(PAL_USER_DEFINED, 4, palette->desktopContrast);
+	applyPaletteContrast(PAL_USER_DEFINED, 5, palette->buttonsContrast);
+	universalPalette = *palette;
+	tapeSisterSuggestions = *palette;
+	universalPaletteInitialized = true;
+	config.cfg_StdPalNum = PAL_USER_DEFINED;
+	if (redraw)
+	{
+		setPalette(palTable[PAL_USER_DEFINED], REDRAW_SCREEN);
+		updatePaletteEditor();
+	}
+}
+
+static bool loadUniversalPalettePath(const UNICHAR *path,
+	tapeheadUniversalPalette_t *palette, char *error, size_t errorSize)
+{
+	if (path == NULL)
+		return false;
+	FILE *file = UNICHAR_FOPEN(path, "rb");
+	if (file == NULL)
+		return false;
+	const bool loaded = tapeheadUniversalPaletteLoadStream(palette, file,
+		error, errorSize);
+	if (fclose(file) != 0 && loaded)
+	{
+		if (error != NULL && errorSize > 0)
+			snprintf(error, errorSize, "Could not finish reading palette");
+		return false;
+	}
+	return loaded;
+}
+
+typedef enum paletteLoadSource_t
+{
+	PALETTE_LOAD_NONE = 0,
+	PALETTE_LOAD_CANONICAL,
+	PALETTE_LOAD_LEGACY,
+	PALETTE_LOAD_BUNDLED
+} paletteLoadSource_t;
+
+static paletteLoadSource_t loadUniversalPaletteCandidates(
+	tapeheadUniversalPalette_t *palette, char *error, size_t errorSize)
+{
+	UNICHAR *path = getCanonicalPalettePathU();
+	if (loadUniversalPalettePath(path, palette, error, errorSize))
+	{
+		free(path);
+		return PALETTE_LOAD_CANONICAL;
+	}
+	free(path);
+
+	path = getLegacyPalettePathU();
+	if (loadUniversalPalettePath(path, palette, error, errorSize))
+	{
+		free(path);
+		return PALETTE_LOAD_LEGACY;
+	}
+	free(path);
+
+	path = getBundledPalettePathU();
+	if (loadUniversalPalettePath(path, palette, error, errorSize))
+	{
+		free(path);
+		return PALETTE_LOAD_BUNDLED;
+	}
+	free(path);
+	return PALETTE_LOAD_NONE;
+}
+
+void loadTapeheadPaletteOnStartup(void)
+{
+	char error[160];
+	tapeheadUniversalPalette_t loaded;
+	initializeUniversalPalette();
+	if (loadUniversalPaletteCandidates(&loaded, error, sizeof (error)) !=
+		PALETTE_LOAD_NONE)
+	{
+		applyUniversalPalette(&loaded, false);
+	}
+}
+
+static void syncEditedUniversalColor(void)
+{
+	initializeUniversalPalette();
+	const tapeheadUniversalColor_t color =
+		tapeheadUniversalPaletteTapeheadColor(cfg_ColorNum);
+	universalPalette.colors[color] =
+		paletteLayoutColor((uint8_t)config.cfg_StdPalNum, cfg_ColorNum);
+	universalPalette.definedColors |= UINT32_C(1) << color;
+	if (cfg_ColorNum == 4)
+		universalPalette.desktopContrast = cfg_Contrast;
+	else if (cfg_ColorNum == 5)
+		universalPalette.buttonsContrast = cfg_Contrast;
+}
+
+static void promotePaletteToUserDefined(void)
+{
+	if (config.cfg_StdPalNum == PAL_USER_DEFINED)
+		return;
+	const uint8_t source = (uint8_t)config.cfg_StdPalNum;
+	initPatternColors();
+	memcpy(palTable[PAL_USER_DEFINED], palTable[source], sizeof (palTable[0]));
+	memcpy(patternColors[PAL_USER_DEFINED], patternColors[source],
+		sizeof (patternColors[0]));
+	memcpy(palContrast[PAL_USER_DEFINED], palContrast[source],
+		sizeof (palContrast[0]));
+	config.cfg_StdPalNum = PAL_USER_DEFINED;
+}
+
+static void drawTrueColorRect(int32_t x, int32_t y, int32_t width,
+	int32_t height, uint32_t rgb)
+{
+	if (video.frameBuffer == NULL)
+		return;
+	const uint32_t pixel = UINT32_C(0xFF000000) | (rgb & UINT32_C(0xFFFFFF));
+	uint32_t *destination = &video.frameBuffer[y * SCREEN_W + x];
+	for (int32_t row = 0; row < height; row++)
+	{
+		for (int32_t column = 0; column < width; column++)
+			destination[column] = pixel;
+		destination += SCREEN_W;
+	}
+}
+
+static void drawTapeSisterSwatches(void)
+{
+	initializeUniversalPalette();
+	textOutShadow(400, 159, PAL_FORGRND, PAL_DSKTOP2, "TS:");
+	for (int32_t swatch = 0;
+		swatch < TAPEHEAD_UNIVERSAL_TAPESISTER_SWATCH_COUNT; swatch++)
+	{
+		const int32_t x = TAPESISTER_SWATCH_X +
+			swatch * TAPESISTER_SWATCH_STEP_X;
+		const tapeheadUniversalColor_t color =
+			tapeheadUniversalPaletteTapeSisterSwatchColor(swatch);
+		const bool defined = tapeheadUniversalPaletteColorIsDefined(
+			&tapeSisterSuggestions, color);
+		drawTrueColorRect(x, TAPESISTER_SWATCH_Y, TAPESISTER_SWATCH_W,
+			TAPESISTER_SWATCH_H,
+			video.palette[PAL_DSKTOP2] & UINT32_C(0xFFFFFF));
+		drawTrueColorRect(x + 1, TAPESISTER_SWATCH_Y + 1,
+			TAPESISTER_SWATCH_W - 2, TAPESISTER_SWATCH_H - 2,
+			tapeheadUniversalPaletteTapeSisterSwatchDisplayColor(
+				&tapeSisterSuggestions, swatch));
+		if (!defined)
+		{
+			const uint32_t mark = UINT32_C(0x303030);
+			for (int32_t point = 1; point < TAPESISTER_SWATCH_W - 1; point++)
+			{
+				drawTrueColorRect(x + point, TAPESISTER_SWATCH_Y + point,
+					1, 1, mark);
+			}
+		}
+	}
+	textOutClipX(574, 159, PAL_FORGRND, tapeSisterSwatchStatus, 630);
+}
+
+static int32_t tapeSisterSwatchFromPoint(int32_t x, int32_t y)
+{
+	if (x < TAPESISTER_SWATCH_X || y < TAPESISTER_SWATCH_Y ||
+		y >= TAPESISTER_SWATCH_Y + TAPESISTER_SWATCH_H)
+	{
+		return -1;
+	}
+	const int32_t swatch = (x - TAPESISTER_SWATCH_X) /
+		TAPESISTER_SWATCH_STEP_X;
+	if (swatch < 0 ||
+		swatch >= TAPEHEAD_UNIVERSAL_TAPESISTER_SWATCH_COUNT)
+	{
+		return -1;
+	}
+	return (x - TAPESISTER_SWATCH_X) % TAPESISTER_SWATCH_STEP_X <
+		TAPESISTER_SWATCH_W ? swatch : -1;
+}
+
+static void sampleTapeSisterSwatch(int32_t swatch)
+{
+	initializeUniversalPalette();
+	const tapeheadUniversalColor_t source =
+		tapeheadUniversalPaletteTapeSisterSwatchColor(swatch);
+	if (!tapeheadUniversalPaletteColorIsDefined(&tapeSisterSuggestions, source))
+	{
+		snprintf(tapeSisterSwatchStatus, sizeof (tapeSisterSwatchStatus),
+			"UNSET");
+		showPaletteEditor();
+		return;
+	}
+	if ((config.specialFlags2 & HARDWARE_MOUSE) && cfg_ColorNum == 3)
+	{
+		snprintf(tapeSisterSwatchStatus, sizeof (tapeSisterSwatchStatus),
+			"LOCKED");
+		showPaletteEditor();
+		return;
+	}
+
+	promotePaletteToUserDefined();
+	if (!tapeheadUniversalPaletteSampleTapeSisterFrom(&universalPalette,
+		&tapeSisterSuggestions, cfg_ColorNum, swatch))
+	{
+		return;
+	}
+	const tapeheadUniversalColor_t destination =
+		tapeheadUniversalPaletteTapeheadColor(cfg_ColorNum);
+	setPaletteLayoutColor(PAL_USER_DEFINED, cfg_ColorNum,
+		universalPalette.colors[destination]);
+	if (cfg_ColorNum == 4 || cfg_ColorNum == 5)
+	{
+		applyPaletteContrast(PAL_USER_DEFINED, cfg_ColorNum,
+			palContrast[PAL_USER_DEFINED][cfg_ColorNum - 4]);
+	}
+	snprintf(tapeSisterSwatchStatus, sizeof (tapeSisterSwatchStatus),
+		"SAMPLED");
+	setPalette(palTable[PAL_USER_DEFINED], REDRAW_SCREEN);
+	updatePaletteEditor();
+	showPaletteEditor();
+}
+
 static void paletteDragMoved(void)
 {
 	if (config.cfg_StdPalNum != PAL_USER_DEFINED)
@@ -384,8 +698,10 @@ static void paletteDragMoved(void)
 
 	setScrollBarPos(SB_PAL_CONTRAST, cfg_Contrast, DONT_TRIGGER_CALLBACK);
 	drawCurrentPaletteColor();
+	syncEditedUniversalColor();
 
 	setPalette(palTable[config.cfg_StdPalNum], REDRAW_SCREEN);
+	drawTapeSisterSwatches();
 }
 
 void sbPalRPos(uint32_t pos)
@@ -504,168 +820,73 @@ void configPalContUp(void)
 		scrollBarScrollRight(SB_PAL_CONTRAST, 1);
 }
 
-void configPalImport(void)
+void configPalLoadShared(void)
 {
-	UNICHAR *filePathU = getPaletteFilePathU();
-	if (filePathU == NULL)
+	char error[160] = "No usable palette was found";
+	tapeheadUniversalPalette_t loaded;
+	const paletteLoadSource_t source = loadUniversalPaletteCandidates(&loaded,
+		error, sizeof (error));
+	if (source == PALETTE_LOAD_NONE)
 	{
-		okBox(0, "System message", "Couldn't locate the palette file directory.", NULL);
+		okBox(0, "Shared palette", error, NULL);
 		return;
 	}
-
-	FILE *f = UNICHAR_FOPEN(filePathU, "r");
-	free(filePathU);
-	if (f == NULL)
+	applyUniversalPalette(&loaded, true);
+	snprintf(tapeSisterSwatchStatus, sizeof (tapeSisterSwatchStatus),
+		"LOADED");
+	showPaletteEditor();
+	if (source == PALETTE_LOAD_LEGACY)
 	{
-		okBox(0, "System message", "Couldn't open tapehead.pal for reading.", NULL);
-		return;
+		okBox(0, "Shared palette",
+			"Loaded legacy tapehead.pal. It will not be rewritten unless you choose Save Shared.",
+			NULL);
 	}
-
-	uint32_t colors[TAPEHEAD_PALETTE_EDIT_COUNT] = { 0 };
-	bool colorFound[TAPEHEAD_PALETTE_EDIT_COUNT] = { false };
-	uint8_t contrasts[2] =
+	else if (source == PALETTE_LOAD_BUNDLED)
 	{
-		palContrast[PAL_USER_DEFINED][0], palContrast[PAL_USER_DEFINED][1]
-	};
-	bool valid = true;
-	bool inPaletteSection = true;
-	char line[256];
-
-	while (fgets(line, sizeof (line), f) != NULL)
-	{
-		char *text = trimPaletteText(line);
-		if (*text == '\0' || *text == ';' || *text == '#')
-			continue;
-
-		if (*text == '[')
-		{
-			char *close = strchr(text, ']');
-			if (close == NULL)
-			{
-				valid = false;
-				break;
-			}
-
-			*close = '\0';
-			inPaletteSection = !_stricmp(text + 1, "TapeheadPalette") ||
-				!_stricmp(text + 1, "Palette");
-			continue;
-		}
-
-		if (!inPaletteSection)
-			continue;
-
-		char *equals = strchr(text, '=');
-		if (equals == NULL)
-		{
-			valid = false;
-			break;
-		}
-
-		*equals = '\0';
-		char *key = trimPaletteText(text);
-		char *value = trimPaletteText(equals + 1);
-		bool recognized = false;
-
-		for (int32_t i = 0; i < TAPEHEAD_PALETTE_EDIT_COUNT; i++)
-		{
-			if (!_stricmp(key, paletteFileKeys[i]))
-			{
-				recognized = true;
-				if (!parsePaletteHex(value, &colors[i]))
-					valid = false;
-				else
-					colorFound[i] = true;
-				break;
-			}
-		}
-
-		if (!recognized && !_stricmp(key, "DesktopContrast"))
-		{
-			recognized = true;
-			valid = parsePaletteContrast(value, &contrasts[0]);
-		}
-		else if (!recognized && !_stricmp(key, "ButtonsContrast"))
-		{
-			recognized = true;
-			valid = parsePaletteContrast(value, &contrasts[1]);
-		}
-
-		if (!valid)
-			break;
+		okBox(0, "Shared palette", "Loaded the bundled complete palette.pal.", NULL);
 	}
-
-	fclose(f);
-	/* The original six keys remain mandatory. Missing Phase-2 fields inherit
-	** PatternText, making every older tapehead.pal valid and monochrome-safe. */
-	for (int32_t i = 0; i < 6; i++)
+	else
 	{
-		if (!colorFound[i])
-			valid = false;
+		okBox(0, "Shared palette", "Loaded shared palette.pal.", NULL);
 	}
-
-	if (!valid)
-	{
-		okBox(0, "System message", "tapehead.pal is invalid or incomplete.", NULL);
-		return;
-	}
-
-	for (int32_t i = 0; i < TAPEHEAD_PALETTE_EDIT_COUNT; i++)
-	{
-		if (i >= 6 && i < 12 && !colorFound[i]) colors[i] = colors[0];
-		if (i >= 12 && !colorFound[i]) continue; /* retain new color defaults */
-		pal16 *dst = i < 6 ? &palTable[PAL_USER_DEFINED][FTC_EditOrder[i]] :
-			&patternColors[PAL_USER_DEFINED][i - 6];
-		dst->r = color8To6((uint8_t)(colors[i] >> 16));
-		dst->g = color8To6((uint8_t)(colors[i] >> 8));
-		dst->b = color8To6((uint8_t)colors[i]);
-	}
-
-	applyPaletteContrast(PAL_USER_DEFINED, 4, contrasts[0]);
-	applyPaletteContrast(PAL_USER_DEFINED, 5, contrasts[1]);
-	rbConfigPalUserDefined();
-	okBox(0, "System message", "Imported Tapehead palette from tapehead.pal.", NULL);
 }
 
-void configPalExport(void)
+void configPalSaveShared(void)
 {
-	UNICHAR *filePathU = getPaletteFilePathU();
+	UNICHAR *filePathU = getCanonicalPalettePathU();
 	if (filePathU == NULL)
 	{
-		okBox(0, "System message", "Couldn't locate the palette file directory.", NULL);
+		okBox(0, "Shared palette", "Couldn't resolve the shared palette path.", NULL);
 		return;
 	}
-
-	FILE *f = UNICHAR_FOPEN(filePathU, "w");
+	FILE *file = UNICHAR_FOPEN(filePathU, "wb");
 	free(filePathU);
-	if (f == NULL)
+	if (file == NULL)
 	{
-		okBox(0, "System message", "Couldn't open tapehead.pal for writing.", NULL);
+		okBox(0, "Shared palette", "Couldn't open palette.pal for writing.", NULL);
 		return;
 	}
 
-	const uint8_t layout = (uint8_t)config.cfg_StdPalNum;
-	fputs("; Tapehead Edition palette\n", f);
-	fputs("; Copy this file between installations or edit the hex values manually.\n", f);
-	fputs("; Press I in Config > Layout to import it into User defined.\n\n", f);
-	fputs("[TapeheadPalette]\n", f);
-	for (int32_t i = 0; i < TAPEHEAD_PALETTE_EDIT_COUNT; i++)
+	captureUniversalPalette((uint8_t)config.cfg_StdPalNum);
+	char error[160];
+	bool saved = tapeheadUniversalPaletteSaveStream(&universalPalette, file,
+		error, sizeof (error));
+	if (fclose(file) != 0)
 	{
-		const pal16 color = i < 6 ? palTable[layout][FTC_EditOrder[i]] : patternColors[layout][i - 6];
-		fprintf(f, "%s=#%02X%02X%02X\n", paletteFileKeys[i],
-			COLOR_6BIT_TO_8BIT(color.r), COLOR_6BIT_TO_8BIT(color.g),
-			COLOR_6BIT_TO_8BIT(color.b));
+		saved = false;
+		snprintf(error, sizeof (error), "Could not finish writing palette.pal");
 	}
-	fprintf(f, "DesktopContrast=%u\n", palContrast[layout][0]);
-	fprintf(f, "ButtonsContrast=%u\n", palContrast[layout][1]);
-
-	bool writeFailed = ferror(f) != 0;
-	if (fclose(f) != 0)
-		writeFailed = true;
-	if (writeFailed)
-		okBox(0, "System message", "General I/O error while writing tapehead.pal.", NULL);
-	else
-		okBox(0, "System message", "Exported Tapehead palette to tapehead.pal.", NULL);
+	if (!saved)
+	{
+		okBox(0, "Shared palette", error, NULL);
+		return;
+	}
+	universalPalette.definedColors = TAPEHEAD_UNIVERSAL_ALL_COLORS_MASK;
+	tapeSisterSuggestions = universalPalette;
+	snprintf(tapeSisterSwatchStatus, sizeof (tapeSisterSwatchStatus),
+		"SAVED");
+	showPaletteEditor();
+	okBox(0, "Shared palette", "Saved complete shared palette.pal.", NULL);
 }
 
 void showPaletteEditor(void)
@@ -692,7 +913,7 @@ void showPaletteEditor(void)
 	showTextBox(TB_CONF_TAPESISTER_EXECUTABLE);
 	drawTextBox(TB_CONF_TAPESISTER_EXCHANGE);
 	drawTextBox(TB_CONF_TAPESISTER_EXECUTABLE);
-	textOutShadow(400, 158, PAL_FORGRND, PAL_DSKTOP2, "Double-click a path to browse");
+	drawTapeSisterSwatches();
 	pushButtons[PB_CONFIG_PAL_PRESET].caption = (char *)presetNames[config.cfg_StdPalNum];
 	pushButtons[PB_CONFIG_PAL_COLOR_MODE].caption = (char *)modeNames[MIN(tapeheadConfig.patternColorMode, 2)];
 	charOutShadow(503, 17, PAL_FORGRND, PAL_DSKTOP2, 'R');
@@ -902,6 +1123,12 @@ bool paletteListMouseDown(int32_t x, int32_t y)
 {
 	if (!ui.configScreenShown || editor.currConfigScreen != CONFIG_SCREEN_LAYOUT)
 		return false;
+	const int32_t swatch = tapeSisterSwatchFromPoint(x, y);
+	if (swatch >= 0)
+	{
+		sampleTapeSisterSwatch(swatch);
+		return true;
+	}
 	if (x >= PAL_LIST_X && x < 484 && y >= PAL_LIST_Y && y < PAL_LIST_Y + (PAL_LIST_ROW_H * PAL_LIST_VISIBLE_ROWS))
 	{
 		const uint8_t row = (uint8_t)((y - PAL_LIST_Y) / PAL_LIST_ROW_H);
