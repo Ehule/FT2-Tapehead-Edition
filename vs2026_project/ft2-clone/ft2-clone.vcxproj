@@ -351,6 +351,7 @@
     <ClCompile Include="..\..\src\ft2_sample_ed.c" />
     <ClCompile Include="..\..\src\ft2_sample_loader.c" />
     <ClCompile Include="..\..\src\ft2_sample_saver.c" />
+    <ClCompile Include="..\..\src\ft2_tapesister_ack.c" />
     <ClCompile Include="..\..\src\ft2_tapesister_exchange.c" />
     <ClCompile Include="..\..\src\ft2_tapesister_protocol.c" />
     <ClCompile Include="..\..\src\ft2_scrollbars.c" />
@@ -470,6 +471,7 @@
     <ClInclude Include="..\..\src\ft2_sample_ed.h" />
     <ClInclude Include="..\..\src\ft2_sample_loader.h" />
     <ClInclude Include="..\..\src\ft2_sample_saver.h" />
+    <ClInclude Include="..\..\src\ft2_tapesister_ack.h" />
     <ClInclude Include="..\..\src\ft2_tapesister_exchange.h" />
     <ClInclude Include="..\..\src\ft2_tapesister_protocol.h" />
     <ClInclude Include="..\..\src\ft2_wav_metadata.h" />

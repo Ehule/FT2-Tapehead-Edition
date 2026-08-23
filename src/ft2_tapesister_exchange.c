@@ -47,13 +47,56 @@ typedef struct exchangeRuntimeOffer_t
 typedef struct exchangeSource_t
 {
 	tapeheadExchangeOffer_t manifest;
-	uint8_t instruments[TAPEHEAD_EXCHANGE_MAX_ITEMS];
-	uint8_t samples[TAPEHEAD_EXCHANGE_MAX_ITEMS];
+	uint8_t instruments[TAPEHEAD_EXCHANGE_MAX_V1_ITEMS];
+	uint8_t samples[TAPEHEAD_EXCHANGE_MAX_V1_ITEMS];
 } exchangeSource_t;
+
+typedef struct inboxScanJob_t
+{
+	UNICHAR *root;
+	bool manual, found;
+	SDL_atomic_t finished;
+	exchangeRuntimeOffer_t offer;
+	char diagnostic[192];
+} inboxScanJob_t;
 
 static uint32_t lastPollTick, lastPresenceTick;
 static uint64_t *deferredFolders;
 static size_t deferredFolderCount, deferredFolderCapacity;
+static SDL_Thread *inboxScanThread;
+static inboxScanJob_t *inboxScanJob;
+static bool manualScanRequested;
+
+static void showIncomingOffer(const exchangeRuntimeOffer_t *runtime);
+
+static void exchangeRuntimeOfferInit(exchangeRuntimeOffer_t *runtime)
+{
+	memset(runtime, 0, sizeof (*runtime));
+	tapeheadExchangeOfferInit(&runtime->manifest);
+}
+
+static void exchangeRuntimeOfferFree(exchangeRuntimeOffer_t *runtime)
+{
+	if (runtime == NULL)
+		return;
+	tapeheadExchangeOfferFree(&runtime->manifest);
+	memset(runtime, 0, sizeof (*runtime));
+}
+
+static bool exchangeSourceInit(exchangeSource_t *source)
+{
+	memset(source, 0, sizeof (*source));
+	tapeheadExchangeOfferInit(&source->manifest);
+	source->manifest.version = 1;
+	return tapeheadExchangeOfferReserve(&source->manifest,
+		TAPEHEAD_EXCHANGE_MAX_V1_ITEMS);
+}
+
+static void exchangeSourceFree(exchangeSource_t *source)
+{
+	if (source != NULL)
+		tapeheadExchangeOfferFree(&source->manifest);
+}
 
 #ifdef _WIN32
 static const UNICHAR tapeheadPresenceName[] = L".tapehead.running";
@@ -328,7 +371,8 @@ static void displayFolderName(const UNICHAR *name, char destination[256])
 }
 
 static bool candidateIsComplete(const UNICHAR *folder, const UNICHAR *name,
-	uint64_t modified, bool manual, exchangeRuntimeOffer_t *candidate)
+	uint64_t modified, bool manual, exchangeRuntimeOffer_t *candidate,
+	char *diagnostic, size_t diagnosticSize)
 {
 	if (unicodeEndsWithPartial(name) || (!manual && folderIsDeferred(folder)))
 		return false;
@@ -356,28 +400,48 @@ static bool candidateIsComplete(const UNICHAR *folder, const UNICHAR *name,
 
 	char error[192];
 	tapeheadExchangeOffer_t offer;
+	tapeheadExchangeOfferInit(&offer);
 	const bool parsed = tapeheadExchangeParseManifest(file, &offer, error,
 		sizeof (error));
 	fclose(file);
 	if (!parsed || strcmp(offer.sender, "tapesister") != 0 ||
 		strcmp(offer.recipient, "tapehead") != 0)
 	{
+		if (!parsed && diagnostic != NULL && diagnostic[0] == '\0')
+		{
+			snprintf(diagnostic, diagnosticSize,
+				"Rejected TapeSister transfer %.80s: %.90s",
+				candidate->folderName[0] != '\0' ? candidate->folderName :
+				"(unnamed folder)", error);
+		}
+		tapeheadExchangeOfferFree(&offer);
 		return false;
 	}
 
-	for (uint8_t i = 0; i < offer.count; i++)
+	for (uint16_t i = 0; i < offer.count; i++)
 	{
 		UNICHAR *filenameU = pathFromUtf8(offer.items[i].filename);
 		if (filenameU == NULL || !joinPath(path, EXCHANGE_RUNTIME_PATH_CAPACITY,
 			folder, filenameU))
 		{
+			if (diagnostic != NULL && diagnostic[0] == '\0')
+				snprintf(diagnostic, diagnosticSize,
+					"Rejected TapeSister transfer: unsafe WAV path.");
 			free(filenameU);
+			tapeheadExchangeOfferFree(&offer);
 			return false;
 		}
 		free(filenameU);
 		bool directory = false;
 		if (!pathAttributes(path, &directory, NULL) || directory)
+		{
+			if (diagnostic != NULL && diagnostic[0] == '\0')
+				snprintf(diagnostic, diagnosticSize,
+					"Rejected TapeSister transfer: referenced WAV %.80s is missing or unreadable.",
+					offer.items[i].filename);
+			tapeheadExchangeOfferFree(&offer);
 			return false;
+		}
 	}
 
 	candidate->manifest = offer;
@@ -390,7 +454,8 @@ static bool candidateIsComplete(const UNICHAR *folder, const UNICHAR *name,
 }
 
 static bool considerCandidate(const UNICHAR *root, const UNICHAR *name,
-	uint64_t modified, bool manual, exchangeRuntimeOffer_t *best, bool *found)
+	uint64_t modified, bool manual, exchangeRuntimeOffer_t *best, bool *found,
+	char *diagnostic, size_t diagnosticSize)
 {
 	UNICHAR folder[EXCHANGE_RUNTIME_PATH_CAPACITY];
 	if (!joinPath(folder, EXCHANGE_RUNTIME_PATH_CAPACITY, root, name) ||
@@ -399,32 +464,31 @@ static bool considerCandidate(const UNICHAR *root, const UNICHAR *name,
 		return true;
 	}
 	exchangeRuntimeOffer_t candidate;
-	if (candidateIsComplete(folder, name, modified, manual, &candidate) &&
+	exchangeRuntimeOfferInit(&candidate);
+	displayFolderName(name, candidate.folderName);
+	if (candidateIsComplete(folder, name, modified, manual, &candidate,
+		diagnostic, diagnosticSize) &&
 		(!*found || candidate.modified > best->modified))
 	{
+		exchangeRuntimeOfferFree(best);
 		*best = candidate;
 		*found = true;
+		return true;
 	}
+	exchangeRuntimeOfferFree(&candidate);
 	return true;
 }
 
-static bool findPendingOffer(bool manual, exchangeRuntimeOffer_t *offer)
+static bool findPendingOffer(const UNICHAR *root, bool manual,
+	exchangeRuntimeOffer_t *offer, char *diagnostic, size_t diagnosticSize)
 {
-	UNICHAR *root = pathFromUtf8(tapeheadConfig.tapeSisterExchangePath);
 	if (root == NULL || !pathIsDirectory(root))
-	{
-		free(root);
 		return false;
-	}
 	bool found = false;
-	memset(offer, 0, sizeof (*offer));
 #ifdef _WIN32
 	UNICHAR search[EXCHANGE_RUNTIME_PATH_CAPACITY];
 	if (!joinPath(search, EXCHANGE_RUNTIME_PATH_CAPACITY, root, L"*"))
-	{
-		free(root);
 		return false;
-	}
 	WIN32_FIND_DATAW data;
 	HANDLE handle = FindFirstFileW(search, &data);
 	if (handle != INVALID_HANDLE_VALUE)
@@ -440,7 +504,7 @@ static bool findPendingOffer(bool manual, exchangeRuntimeOffer_t *offer)
 				((uint64_t)data.ftLastWriteTime.dwHighDateTime << 32) |
 				data.ftLastWriteTime.dwLowDateTime;
 			considerCandidate(root, data.cFileName, modified, manual, offer,
-				&found);
+				&found, diagnostic, diagnosticSize);
 		}
 		while (FindNextFileW(handle, &data));
 		FindClose(handle);
@@ -465,13 +529,88 @@ static bool findPendingOffer(bool manual, exchangeRuntimeOffer_t *offer)
 				pathAttributes(folder, NULL, &modified);
 			}
 			considerCandidate(root, entry->d_name, modified, manual, offer,
-				&found);
+				&found, diagnostic, diagnosticSize);
 		}
 		closedir(directory);
 	}
 #endif
-	free(root);
 	return found;
+}
+
+static int32_t scanInboxThread(void *ptr)
+{
+	inboxScanJob_t *job = (inboxScanJob_t *)ptr;
+	job->found = findPendingOffer(job->root, job->manual, &job->offer,
+		job->manual ? job->diagnostic : NULL, sizeof (job->diagnostic));
+	SDL_AtomicSet(&job->finished, true);
+	return 0;
+}
+
+static void freeInboxScanJob(inboxScanJob_t *job)
+{
+	if (job == NULL)
+		return;
+	free(job->root);
+	exchangeRuntimeOfferFree(&job->offer);
+	free(job);
+}
+
+static bool startInboxScan(bool manual)
+{
+	if (inboxScanThread != NULL || inboxScanJob != NULL)
+		return false;
+
+	inboxScanJob_t *job = calloc(1, sizeof (*job));
+	if (job == NULL)
+		return false;
+	job->root = pathFromUtf8(tapeheadConfig.tapeSisterExchangePath);
+	job->manual = manual;
+	exchangeRuntimeOfferInit(&job->offer);
+	SDL_AtomicSet(&job->finished, false);
+	if (job->root == NULL)
+	{
+		freeInboxScanJob(job);
+		return false;
+	}
+
+	inboxScanThread = SDL_CreateThread(scanInboxThread,
+		"TapeSister inbox scan", job);
+	if (inboxScanThread == NULL)
+	{
+		freeInboxScanJob(job);
+		return false;
+	}
+	inboxScanJob = job;
+	return true;
+}
+
+static bool inboxCanShowResult(void)
+{
+	return !ui.sysReqShown && !editor.editTextFlag &&
+		!editor.samplingAudioFlag && !sampleLoaderIsBusy() &&
+		!okBoxData.active;
+}
+
+static bool finishInboxScanIfReady(void)
+{
+	if (inboxScanThread == NULL || inboxScanJob == NULL ||
+		!SDL_AtomicGet(&inboxScanJob->finished) || !inboxCanShowResult())
+	{
+		return false;
+	}
+
+	SDL_WaitThread(inboxScanThread, NULL);
+	inboxScanThread = NULL;
+	inboxScanJob_t *job = inboxScanJob;
+	inboxScanJob = NULL;
+	if (job->found)
+		showIncomingOffer(&job->offer);
+	else if (job->manual)
+		okBox(0, "TapeSister Inbox", job->diagnostic[0] != '\0' ?
+			job->diagnostic :
+			"No complete unacknowledged TapeSister transfer was found.", NULL);
+	freeInboxScanJob(job);
+	return true;
 }
 
 static bool instrumentOccupied(uint8_t instrument)
@@ -480,24 +619,41 @@ static bool instrumentOccupied(uint8_t instrument)
 		return true;
 	if (song.instrName[instrument][0] != '\0')
 		return true;
-	if (instr[instrument] == NULL)
+	/* An allocated instrument can contain envelopes, maps, MIDI settings, or
+	** timeline metadata even when every sample slot is empty. Treat it as
+	** occupied so replacement is never presented as conflict-free. */
+	return instr[instrument] != NULL;
+}
+
+static bool sampleOccupied(uint8_t instrument, uint8_t sample)
+{
+	if (instrument == 0 || instrument > MAX_INST || sample == 0 ||
+		sample > MAX_SMP_PER_INST || instr[instrument] == NULL)
+	{
 		return false;
-	for (uint8_t sample = 0; sample < MAX_SMP_PER_INST; sample++)
-		if (instr[instrument]->smp[sample].dataPtr != NULL &&
-			instr[instrument]->smp[sample].length > 0)
-			return true;
-	return false;
+	}
+	const sample_t *slot = &instr[instrument]->smp[sample - 1];
+	return slot->dataPtr != NULL && slot->length > 0;
 }
 
 static bool destinationsAreEmpty(const tapeheadExchangeOffer_t *offer,
 	uint8_t start)
 {
-	tapeheadExchangeDestination_t destinations[TAPEHEAD_EXCHANGE_MAX_ITEMS];
-	if (!tapeheadExchangeResolveDestinations(offer, start, destinations, NULL, 0))
+	tapeheadExchangeDestination_t *destinations = calloc(offer->count,
+		sizeof (*destinations));
+	if (destinations == NULL || !tapeheadExchangeResolveDestinations(offer,
+		start, destinations, NULL, 0))
+	{
+		free(destinations);
 		return false;
-	for (uint8_t i = 0; i < offer->count; i++)
+	}
+	for (uint16_t i = 0; i < offer->count; i++)
 		if (instrumentOccupied(destinations[i].instrument))
+		{
+			free(destinations);
 			return false;
+		}
+	free(destinations);
 	return true;
 }
 
@@ -548,66 +704,119 @@ static void showIncomingOffer(const exchangeRuntimeOffer_t *runtime)
 		return;
 	}
 
-	tapeheadExchangeDestination_t destinations[TAPEHEAD_EXCHANGE_MAX_ITEMS];
+	tapeheadExchangeDestination_t *destinations = calloc(runtime->manifest.count,
+		sizeof (*destinations));
 	char error[192];
-	if (!tapeheadExchangeResolveDestinations(&runtime->manifest,
+	if (destinations == NULL || !tapeheadExchangeResolveDestinations(&runtime->manifest,
 		(uint8_t)selected, destinations, error, sizeof (error)))
 	{
-		okBox(0, "TapeSister Inbox", error, NULL);
+		okBox(0, "TapeSister Inbox", destinations == NULL ?
+			"Not enough memory to validate this transfer." : error, NULL);
+		free(destinations);
 		deferFolder(runtime->folder);
 		return;
 	}
 
 	char message[4096] = { 0 };
-	appendMessage(message, sizeof (message),
-		"Folder: %.120s\nSamples: %u\nLayout: %s\n",
-		runtime->folderName, runtime->manifest.count,
-		tapeheadExchangeLayoutName(runtime->manifest.layout));
+	const bool multiPage = runtime->manifest.layout ==
+		TAPEHEAD_EXCHANGE_LAYOUT_PAGE_INSTRUMENTS;
+	const uint16_t span = tapeheadExchangeRelativeInstrumentSpan(
+		&runtime->manifest);
+	if (multiPage)
+	{
+		appendMessage(message, sizeof (message),
+			"Multi-page TapeSister bank\nFolder: %.120s\n"
+			"Pages/Instruments: %u\nWAV files: %u\n"
+			"Page 1 -> Instrument %02ld\nPage %u -> Instrument %02ld\n",
+			runtime->folderName, span, runtime->manifest.count, selected, span,
+			selected + span - 1);
+	}
+	else
+	{
+		appendMessage(message, sizeof (message),
+			"Folder: %.120s\nSamples: %u\nLayout: %s\n",
+			runtime->folderName, runtime->manifest.count,
+			tapeheadExchangeLayoutName(runtime->manifest.layout));
+	}
 	bool counted[MAX_INST + 1] = { false };
-	uint8_t conflicts = 0;
-	for (uint8_t i = 0; i < runtime->manifest.count; i++)
+	uint8_t occupiedInstruments = 0;
+	uint16_t occupiedSamples = 0, displayed = 0;
+	for (uint16_t i = 0; i < runtime->manifest.count; i++)
 	{
 		const tapeheadExchangeItem_t *item = &runtime->manifest.items[i];
 		const tapeheadExchangeDestination_t *destination = &destinations[i];
-		const bool occupied = instrumentOccupied(destination->instrument);
-		appendMessage(message, sizeof (message),
-			"Tile %02u -> I%03u:S%02u%s\n", item->tapeSisterTile,
-			destination->instrument, destination->sample,
-			occupied ? "  OCCUPIED" : "");
-		if (occupied && !counted[destination->instrument])
+		const bool occupiedInstrument = instrumentOccupied(destination->instrument);
+		const bool occupiedSlot = sampleOccupied(destination->instrument,
+			destination->sample);
+		if (occupiedSlot)
+			occupiedSamples++;
+		if (occupiedInstrument && !counted[destination->instrument])
 		{
 			counted[destination->instrument] = true;
-			conflicts++;
+			occupiedInstruments++;
+		}
+		if (!multiPage || displayed < 24)
+		{
+			if (multiPage)
+			{
+				appendMessage(message, sizeof (message),
+					"Page %03u tile %02u -> I%03u:S%02u%s\n",
+					item->ft2Instrument, item->tapeSisterTile,
+					destination->instrument, destination->sample,
+					occupiedSlot ? "  OCCUPIED SAMPLE" : "");
+			}
+			else
+			{
+				appendMessage(message, sizeof (message),
+					"Tile %02u -> I%03u:S%02u%s\n", item->tapeSisterTile,
+					destination->instrument, destination->sample,
+					occupiedSlot ? "  OCCUPIED SAMPLE" : "");
+			}
+			displayed++;
 		}
 	}
+	if (multiPage && runtime->manifest.count > displayed)
+		appendMessage(message, sizeof (message), "...and %u more WAV mappings.\n",
+			runtime->manifest.count - displayed);
 	if (runtime->manifest.layout == TAPEHEAD_EXCHANGE_LAYOUT_INSTRUMENT_SAMPLES)
 	{
 		appendMessage(message, sizeof (message),
 			"Import replaces instrument %03ld and clears all other sample slots.\n",
 			selected);
 	}
-	else
+	else if (runtime->manifest.layout == TAPEHEAD_EXCHANGE_LAYOUT_SEPARATE_INSTRUMENTS)
 	{
 		appendMessage(message, sizeof (message),
 			"Import replaces only the displayed destination instruments.\n");
 	}
-	if (conflicts > 0)
+	else
+	{
 		appendMessage(message, sizeof (message),
-			"WARNING: %u occupied destination instrument%s will be replaced.",
-			conflicts, conflicts == 1 ? "" : "s");
+			"Import updates only listed sample slots; empty TapeSister tiles do not erase samples.\n");
+	}
+	if (occupiedInstruments > 0 || occupiedSamples > 0)
+		appendMessage(message, sizeof (message),
+			"WARNING: %u destination instrument%s contain data; "
+			"%u listed sample slot%s will be overwritten.",
+			occupiedInstruments, occupiedInstruments == 1 ? "" : "s",
+			occupiedSamples, occupiedSamples == 1 ? "" : "s");
 	else
 		appendMessage(message, sizeof (message), "No occupied destination conflicts.");
 
-	const int16_t choice = okBox(conflicts > 0 ?
+	const int16_t choice = okBox((occupiedInstruments > 0 || occupiedSamples > 0) ?
 		SYSREQ_TYPE_TAPESISTER_REPLACE : SYSREQ_TYPE_TAPESISTER_IMPORT,
 		"TapeSister Inbox", message, NULL);
 	if (choice != 1)
 	{
+		free(destinations);
 		deferFolder(runtime->folder);
 		return;
 	}
 	deferFolder(runtime->folder);
-	if (!loadTapeSisterExchange(runtime->folder, &runtime->manifest, destinations))
+	const bool started = loadTapeSisterExchange(runtime->folder,
+		&runtime->manifest, destinations);
+	free(destinations);
+	if (!started)
 		okBox(0, "TapeSister Inbox", "Could not start the atomic sample import.", NULL);
 }
 
@@ -637,8 +846,8 @@ static void safeSampleName(const sample_t *sample, char *destination,
 
 static bool collectCurrentInstrument(exchangeSource_t *source)
 {
-	memset(source, 0, sizeof (*source));
-	if (editor.curInstr == 0 || instr[editor.curInstr] == NULL)
+	if (!exchangeSourceInit(source) || editor.curInstr == 0 ||
+		instr[editor.curInstr] == NULL)
 		return false;
 	strcpy(source->manifest.sender, "tapehead");
 	strcpy(source->manifest.recipient, "tapesister");
@@ -665,14 +874,14 @@ static bool collectCurrentInstrument(exchangeSource_t *source)
 
 static bool collectInstrumentRange(exchangeSource_t *source)
 {
-	memset(source, 0, sizeof (*source));
-	if (editor.curInstr == 0)
+	if (!exchangeSourceInit(source) || editor.curInstr == 0)
 		return false;
 	strcpy(source->manifest.sender, "tapehead");
 	strcpy(source->manifest.recipient, "tapesister");
 	source->manifest.layout = TAPEHEAD_EXCHANGE_LAYOUT_SEPARATE_INSTRUMENTS;
 	for (uint16_t instrument = editor.curInstr;
-		instrument <= MAX_INST && source->manifest.count < TAPEHEAD_EXCHANGE_MAX_ITEMS;
+		instrument <= MAX_INST &&
+		source->manifest.count < TAPEHEAD_EXCHANGE_MAX_V1_ITEMS;
 		instrument++)
 	{
 		if (instr[instrument] == NULL)
@@ -927,12 +1136,33 @@ void tapeSisterExchangeInit(void)
 	deferredFolders = NULL;
 	deferredFolderCount = 0;
 	deferredFolderCapacity = 0;
+	inboxScanThread = NULL;
+	inboxScanJob = NULL;
+	manualScanRequested = false;
 	refreshTapeheadPresence();
+}
+
+void tapeSisterExchangeShutdown(void)
+{
+	if (inboxScanThread != NULL)
+	{
+		SDL_WaitThread(inboxScanThread, NULL);
+		inboxScanThread = NULL;
+	}
+	freeInboxScanJob(inboxScanJob);
+	inboxScanJob = NULL;
+	manualScanRequested = false;
+	free(deferredFolders);
+	deferredFolders = NULL;
+	deferredFolderCount = 0;
+	deferredFolderCapacity = 0;
 }
 
 void tapeSisterExchangePoll(bool manualRequest)
 {
 	const uint32_t now = SDL_GetTicks();
+	if (manualRequest)
+		manualScanRequested = true;
 	if (manualRequest || (uint32_t)(now - lastPresenceTick) >=
 		EXCHANGE_POLL_INTERVAL_MS)
 	{
@@ -941,29 +1171,46 @@ void tapeSisterExchangePoll(bool manualRequest)
 	}
 	if (tapeheadConfig.tapeSisterExchangePath[0] == '\0')
 	{
-		if (manualRequest)
+		if (manualScanRequested)
+		{
 			okBox(0, "TapeSister Inbox", "Configure [TapeSister] ExchangePath in tapehead.ini first.", NULL);
+			manualScanRequested = false;
+		}
 		return;
 	}
-	if (!manualRequest)
+
+	if (finishInboxScanIfReady())
+		return;
+	if (inboxScanThread != NULL)
+		return;
+
+	const bool startManualScan = manualScanRequested;
+	if (!startManualScan)
 	{
 		if ((uint32_t)(now - lastPollTick) < EXCHANGE_POLL_INTERVAL_MS ||
-			ui.sysReqShown || editor.editTextFlag || editor.samplingAudioFlag ||
-			sampleLoaderIsBusy() || okBoxData.active)
+			!inboxCanShowResult())
 		{
 			return;
 		}
 		lastPollTick = now;
 	}
-
-	exchangeRuntimeOffer_t offer;
-	if (!findPendingOffer(manualRequest, &offer))
+	else if (!inboxCanShowResult())
 	{
-		if (manualRequest)
-			okBox(0, "TapeSister Inbox", "No complete unacknowledged TapeSister transfer was found.", NULL);
 		return;
 	}
-	showIncomingOffer(&offer);
+
+	if (!startInboxScan(startManualScan))
+	{
+		if (startManualScan)
+		{
+			okBox(0, "TapeSister Inbox",
+				"Could not start the TapeSister inbox scan.", NULL);
+			manualScanRequested = false;
+		}
+		return;
+	}
+	if (startManualScan)
+		manualScanRequested = false;
 }
 
 void tapeSisterExchangeOpenMenu(void)
@@ -996,6 +1243,7 @@ void tapeSisterExchangeOpenMenu(void)
 		collectInstrumentRange(&source);
 	if (!collected)
 	{
+		exchangeSourceFree(&source);
 		okBox(0, "Send to TapeSister",
 			choice == 1 ? "The current instrument has no populated samples." :
 			"No occupied instruments were found from the current instrument onward.",
@@ -1003,4 +1251,5 @@ void tapeSisterExchangeOpenMenu(void)
 		return;
 	}
 	confirmAndPublish(&source);
+	exchangeSourceFree(&source);
 }

@@ -369,6 +369,7 @@ static void initializeVars(void)
 
 static void cleanUpAndExit(void) // never call this inside the main loop!
 {
+	tapeSisterExchangeShutdown();
 #ifdef HAS_MIDI
 	// we used a thread to init MIDI (as it could take several seconds)
 	if (midi.initMidiThread != NULL)
