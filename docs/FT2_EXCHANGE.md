@@ -4,7 +4,8 @@ Tapehead and TapeSister exchange WAV files through a shared directory. They do
 not link to or command one another's project state. Each application refreshes
 a small presence marker in that directory so a sender can reuse a receiver
 that is already open. Version 1 is compatible with the contract implemented by
-TapeSister draft PR #34.
+TapeSister's version-1 exchange and the version-2 All Pages contract introduced
+by TapeSister PR #40.
 
 ## Configure both applications
 
@@ -27,8 +28,9 @@ TapeSister. Tapehead never launches a path read from a manifest.
 
 Tapehead checks the exchange root at startup and approximately once per second
 when no loader, modal dialog, text editor, or sampling operation owns the UI.
-It stages only complete `sender=tapesister`, `recipient=tapehead` folders.
-Nothing is imported automatically.
+Directory scanning, manifest parsing, file checks, and sample decoding happen
+off the UI/audio path. It stages only complete `sender=tapesister`,
+`recipient=tapehead` folders. Nothing is imported automatically.
 
 The confirmation flow shows the transfer folder, layout, sample count, every
 proposed instrument/sample destination, and occupied-instrument conflicts.
@@ -49,6 +51,14 @@ For `separate_instruments`, select the starting destination instrument.
 Manifest instrument numbers are relative positions, so gaps are preserved.
 The range is rejected if any resolved instrument exceeds 128. Acceptance
 replaces only the exact displayed instruments.
+
+For version-2 `page_instruments`, Tapehead identifies the offer as a multi-page
+TapeSister bank and shows its page/instrument span, total WAV count, first and
+last destination instruments, individual page/tile mappings, and occupied
+sample-slot warnings. Select the starting instrument: page 1 maps there, page
+2 maps to the next instrument, and so on. Each tile retains the same sample
+number. Only listed sample slots are updated; empty TapeSister tiles and sparse
+pages do not clear existing samples or instrument settings.
 
 Tapehead decodes every WAV and constructs every replacement instrument before
 opening one multi-instrument Undo transaction and committing under a single
@@ -115,6 +125,36 @@ duplicate resolved FT2 targets, absolute WAV paths, separators, `..`, and
 missing files. It ignores `.partial` folders, invalid/incomplete folders, its
 own outgoing folders, and folders containing `tapehead.received`.
 
+## Version-2 All Pages manifest
+
+TapeSister PR #40's **FT2 Link → All Pages** action publishes:
+
+```text
+TAPESISTER_EXCHANGE 2
+sender=tapesister
+recipient=tapehead
+layout=page_instruments
+count=3
+item=1,1,1,P001_01_Kick.wav
+item=4,1,4,P001_04_Noise.wav
+item=1,2,1,P002_01_Bass.wav
+```
+
+Each item is
+`tapesister_tile,relative_ft2_instrument,ft2_sample,wav_filename`. Relative
+instrument 1 is TapeSister page 1. Repeated tile/sample numbers are valid on
+different pages, but a duplicate `(relative instrument, sample)` is rejected.
+Relative instruments may be 1–255 and each page may address sample slots 1–16;
+the complete resolved range must still fit Tapehead's 128 instruments. `count`
+is the exact number of item/WAV rows, not the number of pages.
+
+Version 2 accepts only `page_instruments` from TapeSister to Tapehead. Version
+1 remains authoritative for `instrument_samples` and `separate_instruments`.
+Absolute paths, separators, `..`, malformed/duplicate fields, unsafe names,
+missing files, non-WAV content, corrupt WAVs, duplicate destinations, and
+out-of-range mappings reject the whole offer. No acknowledgement is written
+unless every WAV stages and the single Undo transaction commits.
+
 ## WAV metadata
 
 The normal Tapehead WAV loader adopts standard `smpl` MIDI unity note and
@@ -126,34 +166,45 @@ rate behavior.
 
 ## Manual round-trip checklist
 
-1. Build TapeSister PR #34 and this Tapehead branch. Point both applications
+1. Build TapeSister PR #40 and this Tapehead branch. Point both applications
    at a new shared exchange directory.
-2. In TapeSister, publish an `instrument_samples` offer with sparse tiles (for
+2. Fill at least two Sample Bank pages in TapeSister, including the same tile
+   number on both pages and some empty slots. Choose **FT2 Link → All Pages**.
+   Confirm Tapehead reports a multi-page bank and the correct page/WAV counts.
+3. Choose a starting instrument other than 1. Confirm page 1 maps there, page 2
+   maps to the next instrument, repeated tile numbers land in the same-numbered
+   sample slot of their respective instruments, and empty slots preserve any
+   existing destination samples. Undo and Redo once for the whole transfer.
+4. Repeat across an occupied range. Confirm listed occupied slots are warned
+   about, **Later** leaves the song and transfer untouched, no automatic repeat
+   prompt appears that session, and **Check inbox** reopens the offer.
+5. In TapeSister, publish an `instrument_samples` offer with sparse tiles (for
    example 1 and 4). Confirm Tapehead previews and imports exact sample slots
    1 and 4 into one instrument, then Undo and Redo once.
-3. Repeat into an occupied instrument. Confirm the warning says the whole
+6. Repeat into an occupied instrument. Confirm the warning says the whole
    instrument is replaced and unlisted slots are cleared. Choose **Later**,
    wait several seconds, and confirm no repeated prompt; use **Check inbox** to
    reopen it.
-4. Publish a `separate_instruments` offer with a relative gap. Confirm the
+7. Publish a `separate_instruments` offer with a relative gap. Confirm the
    preview preserves the gap, warns for each occupied destination, rejects an
    overflowing start range, and Undo/Redo treats the accepted batch as one
    operation.
-5. Put a missing or corrupt WAV in a complete-looking offer. Confirm the module
+8. Put a missing or corrupt WAV in a complete-looking offer. Confirm the module
    and Undo history do not change and no `tapehead.received` appears.
-6. After a successful import, confirm `tapehead.received` exists and the folder
+9. After a successful import, confirm `tapehead.received` exists and the folder
    is not offered again after restarting Tapehead.
-7. In Tapehead, right-click **Instrument Editor** and send **Current instr.**
+10. In Tapehead, right-click **Instrument Editor** and send **Current instr.**
    from an instrument with sparse populated slots. Verify TapeSister previews
    the same tile numbers and accepts them.
-8. Send **Instr. range** across instruments with gaps and multiple samples.
+11. Send **Instr. range** across instruments with gaps and multiple samples.
    Verify exactly the first populated slot per occupied instrument is exported
    to sequential tiles.
-9. With TapeSister already open, send normally and confirm no second instance
+12. With TapeSister already open, send normally and confirm no second instance
    opens. Repeat with **Publish + New** and confirm another instance opens.
    Close TapeSister, wait over five seconds, and confirm normal publishing
    launches it only after the final folder is visible. A blank
    `ExecutablePath` must still allow publication.
-10. Round-trip WAVs with fine/root tuning and forward, ping-pong, and backward
+13. Round-trip WAVs with C4 unity pitch, fine/root tuning, and forward,
+    ping-pong, and backward
     loops. Verify tuning is retained, loop endpoints remain valid, and the
     backward loop plays repeatedly in reverse.

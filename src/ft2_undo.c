@@ -67,6 +67,7 @@ typedef struct sampleChange_t
 typedef struct instrumentChange_t
 {
 	uint8_t instrNum;
+	bool afterPrepared;
 	instrumentSnapshot_t before, after;
 } instrumentChange_t;
 
@@ -151,16 +152,12 @@ void undoClear(void)
 	freeEntry(&pending);
 }
 
-static bool captureSample(uint8_t instrNum, uint8_t sampleNum, sampleSnapshot_t *dst)
+static bool captureSampleFrom(sample_t *src, sampleSnapshot_t *dst)
 {
 	memset(dst, 0, sizeof (*dst));
-	if (instrNum == 0 || instrNum > MAX_INST || sampleNum >= MAX_SMP_PER_INST ||
-		instr[instrNum] == NULL)
-	{
+	if (src == NULL)
 		return true;
-	}
 
-	sample_t *src = &instr[instrNum]->smp[sampleNum];
 	dst->exists = true;
 	dst->meta = *src;
 	dst->meta.dataPtr = dst->meta.origDataPtr = NULL;
@@ -178,25 +175,49 @@ static bool captureSample(uint8_t instrNum, uint8_t sampleNum, sampleSnapshot_t 
 	return true;
 }
 
-static bool captureInstrument(uint8_t instrNum, instrumentSnapshot_t *dst)
+static bool captureSample(uint8_t instrNum, uint8_t sampleNum,
+	sampleSnapshot_t *dst)
+{
+	if (instrNum == 0 || instrNum > MAX_INST || sampleNum >= MAX_SMP_PER_INST ||
+		instr[instrNum] == NULL)
+	{
+		memset(dst, 0, sizeof (*dst));
+		return true;
+	}
+	return captureSampleFrom(&instr[instrNum]->smp[sampleNum], dst);
+}
+
+static bool captureInstrumentFrom(const char name[23], instr_t *source,
+	instrumentSnapshot_t *dst)
 {
 	memset(dst, 0, sizeof (*dst));
-	if (instrNum == 0 || instrNum > MAX_INST || instr[instrNum] == NULL)
+	if (source == NULL)
 		return true;
 
 	dst->exists = true;
-	memcpy(dst->name, song.instrName[instrNum], sizeof (dst->name));
-	dst->meta = *instr[instrNum];
+	if (name != NULL)
+		memcpy(dst->name, name, sizeof (dst->name));
+	dst->meta = *source;
 	for (int32_t i = 0; i < MAX_SMP_PER_INST; i++)
 	{
 		memset(&dst->meta.smp[i], 0, sizeof (sample_t));
-		if (!captureSample(instrNum, (uint8_t)i, &dst->samples[i]))
+		if (!captureSampleFrom(&source->smp[i], &dst->samples[i]))
 		{
 			freeInstrumentSnapshot(dst);
 			return false;
 		}
 	}
 	return true;
+}
+
+static bool captureInstrument(uint8_t instrNum, instrumentSnapshot_t *dst)
+{
+	if (instrNum == 0 || instrNum > MAX_INST)
+	{
+		memset(dst, 0, sizeof (*dst));
+		return true;
+	}
+	return captureInstrumentFrom(song.instrName[instrNum], instr[instrNum], dst);
 }
 
 static bool capturePattern(uint16_t patternNum, patternSnapshot_t *dst)
@@ -432,6 +453,51 @@ bool undoTransactionAddInstrument(uint8_t instrNum)
 	return true;
 }
 
+bool undoTransactionPrepareInstrumentAfter(uint8_t instrNum,
+	const char name[23], instr_t *instrument)
+{
+	if (!undoTransactionIsActive() || instrNum == 0 || instrNum > MAX_INST ||
+		instrument == NULL)
+	{
+		return false;
+	}
+	for (uint16_t i = 0; i < pending.instrumentCount; i++)
+	{
+		instrumentChange_t *change = &pending.instruments[i];
+		if (change->instrNum != instrNum)
+			continue;
+		freeInstrumentSnapshot(&change->after);
+		change->afterPrepared = false;
+		if (!captureInstrumentFrom(name, instrument, &change->after))
+			return false;
+		change->afterPrepared = true;
+		return true;
+	}
+	return false;
+}
+
+bool undoTransactionPreparedInstrumentsFitMemoryLimit(void)
+{
+	if (!undoTransactionIsActive() || pending.instrumentCount == 0 ||
+		pending.patternCount != 0 || pending.sampleCount != 0 ||
+		pending.hasOrder || pending.hasSampleLauncher)
+	{
+		return false;
+	}
+	uint64_t bytes = sizeof (undoEntry_t);
+	for (uint16_t i = 0; i < pending.instrumentCount; i++)
+	{
+		const instrumentChange_t *change = &pending.instruments[i];
+		if (!change->afterPrepared)
+			return false;
+		bytes += instrumentSnapshotBytes(&change->before);
+		bytes += instrumentSnapshotBytes(&change->after);
+		if (bytes > memoryLimitBytes)
+			return false;
+	}
+	return true;
+}
+
 bool undoTransactionAddSampleLauncher(void)
 {
 	if (!undoTransactionIsActive())
@@ -478,7 +544,8 @@ void undoTransactionCommit(void)
 	for (uint16_t i = 0; i < pending.instrumentCount; i++)
 	{
 		instrumentChange_t *change = &pending.instruments[i];
-		if (!captureInstrument(change->instrNum, &change->after))
+		if (!change->afterPrepared &&
+			!captureInstrument(change->instrNum, &change->after))
 		{
 			currentStateId = nextStateId++;
 			undoClear();

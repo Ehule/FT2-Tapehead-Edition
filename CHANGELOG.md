@@ -24,6 +24,29 @@ map.
 - Shipped a complete runtime `palette.pal` and added reciprocal schema,
   path-resolution, legacy, save/reopen, and eyedropper regression coverage.
 
+## TapeSister All Pages exchange — 2026-08-21
+
+- Added version-2 `page_instruments` inbox support for TapeSister PR #40's
+  **FT2 Link → All Pages** transfer. TapeSister pages map to consecutive FT2
+  instruments and occupied tiles retain their same-numbered sample slots.
+- Multi-page confirmation now shows the page/instrument span, WAV total,
+  selected starting instrument, mapping preview, and explicit occupied
+  instrument/sample warnings before any module change.
+- Version-2 imports are sparse: existing instrument settings, names, and every
+  unlisted sample remain intact. Listed sample slots are the only replacements.
+  The established version-1 whole-instrument behaviors remain unchanged.
+- Inbox directory scanning and manifest/file validation now run on a joinable
+  background worker. Sample decoding already stages the full batch away from
+  the UI/audio path.
+- Every WAV must decode as a real WAV before one multi-instrument Undo commit.
+  Allocation, validation, missing-file, corrupt-WAV, or range failures leave
+  the song unchanged and unacknowledged; successful imports atomically create
+  `tapehead.received`.
+- Expanded protocol and integration regression coverage for dynamic multi-page
+  offers, sparse mappings, repeated tile numbers across pages, custom starting
+  instruments, overflow and duplicate rejection, safe paths, staged failure,
+  acknowledgement ordering, v1 compatibility, and WAV pitch/loop metadata.
+
 ## Disk Op browse-by-ear sample audition — 2026-08-20
 
 - Sample and Instrument Disk Op modes now keep a persistent highlighted row.

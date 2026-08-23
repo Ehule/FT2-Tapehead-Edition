@@ -22,6 +22,7 @@ TEST_SCRIPTS = (
 	"test_baker_adaptive_xm.py",
 	"test_baker_adaptive_patterns.py",
 	"test_tapesister_protocol.py",
+	"test_tapesister_ack.py",
 	"test_tapesister_config.py",
 	"test_wav_metadata.py",
 	"test_tapesister_exchange_wiring.py",

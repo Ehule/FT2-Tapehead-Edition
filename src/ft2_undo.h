@@ -3,6 +3,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+typedef struct instr_t instr_t;
+
 void undoInit(void);
 void undoClose(void);
 void undoClear(void);
@@ -15,6 +17,12 @@ bool undoTransactionAddPattern(uint16_t patternNum);
 bool undoTransactionAddOrder(void);
 bool undoTransactionAddSample(uint8_t instrNum, uint8_t sampleNum);
 bool undoTransactionAddInstrument(uint8_t instrNum);
+/* Stage an instrument transaction's post-edit snapshot before mutating the
+** live song. This lets atomic batch imports prove that all Undo allocations
+** and the configured memory limit are satisfied first. */
+bool undoTransactionPrepareInstrumentAfter(uint8_t instrNum,
+	const char name[23], instr_t *instrument);
+bool undoTransactionPreparedInstrumentsFitMemoryLimit(void);
 bool undoTransactionAddSampleLauncher(void);
 void undoTransactionCommit(void);
 bool undoTransactionIsActive(void);

@@ -5,7 +5,10 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#define TAPEHEAD_EXCHANGE_MAX_ITEMS 16
+#define TAPEHEAD_EXCHANGE_MAX_V1_ITEMS 16
+#define TAPEHEAD_EXCHANGE_MAX_PAGE_INSTRUMENTS 255
+#define TAPEHEAD_EXCHANGE_MAX_ITEMS \
+	(TAPEHEAD_EXCHANGE_MAX_PAGE_INSTRUMENTS * TAPEHEAD_EXCHANGE_MAX_V1_ITEMS)
 #define TAPEHEAD_EXCHANGE_FILENAME_CAPACITY 256
 #define TAPEHEAD_EXCHANGE_APP_CAPACITY 16
 
@@ -13,7 +16,8 @@ typedef enum tapeheadExchangeLayout_t
 {
 	TAPEHEAD_EXCHANGE_LAYOUT_INVALID = 0,
 	TAPEHEAD_EXCHANGE_LAYOUT_INSTRUMENT_SAMPLES,
-	TAPEHEAD_EXCHANGE_LAYOUT_SEPARATE_INSTRUMENTS
+	TAPEHEAD_EXCHANGE_LAYOUT_SEPARATE_INSTRUMENTS,
+	TAPEHEAD_EXCHANGE_LAYOUT_PAGE_INSTRUMENTS
 } tapeheadExchangeLayout_t;
 
 typedef struct tapeheadExchangeItem_t
@@ -26,11 +30,12 @@ typedef struct tapeheadExchangeItem_t
 
 typedef struct tapeheadExchangeOffer_t
 {
+	uint8_t version;
 	char sender[TAPEHEAD_EXCHANGE_APP_CAPACITY];
 	char recipient[TAPEHEAD_EXCHANGE_APP_CAPACITY];
 	tapeheadExchangeLayout_t layout;
-	uint8_t count;
-	tapeheadExchangeItem_t items[TAPEHEAD_EXCHANGE_MAX_ITEMS];
+	uint16_t count, itemCapacity;
+	tapeheadExchangeItem_t *items;
 } tapeheadExchangeOffer_t;
 
 typedef struct tapeheadExchangeDestination_t
@@ -40,6 +45,9 @@ typedef struct tapeheadExchangeDestination_t
 } tapeheadExchangeDestination_t;
 
 void tapeheadExchangeOfferInit(tapeheadExchangeOffer_t *offer);
+void tapeheadExchangeOfferFree(tapeheadExchangeOffer_t *offer);
+bool tapeheadExchangeOfferReserve(tapeheadExchangeOffer_t *offer,
+	uint16_t capacity);
 const char *tapeheadExchangeLayoutName(tapeheadExchangeLayout_t layout);
 bool tapeheadExchangeFilenameIsSafe(const char *filename);
 bool tapeheadExchangeParseManifest(FILE *file, tapeheadExchangeOffer_t *offer,
@@ -52,3 +60,5 @@ bool tapeheadExchangeParseManifestPath(const char *path,
 bool tapeheadExchangeResolveDestinations(const tapeheadExchangeOffer_t *offer,
 	uint8_t startingInstrument, tapeheadExchangeDestination_t *destinations,
 	char *error, size_t errorSize);
+uint16_t tapeheadExchangeRelativeInstrumentSpan(
+	const tapeheadExchangeOffer_t *offer);

@@ -302,6 +302,37 @@ static void test_saved_state_checkpoint(void)
     assert(song.isModified);
 }
 
+static void test_prepared_instrument_after_snapshot(void)
+{
+    resetFixture();
+    instr_t staged;
+    memset(&staged, 0, sizeof (staged));
+    staged.smp[0].length = 4;
+    staged.smp[0].volume = 64;
+    assert(allocateSmpData(&staged.smp[0], 4, false));
+    memcpy(staged.smp[0].dataPtr, "PAGE", 4);
+    char name[23] = "All Pages";
+
+    assert(undoTransactionBegin("Prepared instrument import"));
+    assert(undoTransactionAddInstrument(1));
+    assert(undoTransactionPrepareInstrumentAfter(1, name, &staged));
+    assert(undoTransactionPreparedInstrumentsFitMemoryLimit());
+
+    assert(allocateInstr(1));
+    *instr[1] = staged;
+    memcpy(song.instrName[1], name, sizeof (name));
+    setSongModifiedFlag();
+    undoTransactionCommit();
+
+    undoPerform();
+    assert(instr[1] == NULL);
+    redoPerform();
+    assert(instr[1] != NULL);
+    assert(strcmp(song.instrName[1], "All Pages") == 0);
+    assert(instr[1]->smp[0].length == 4);
+    assert(memcmp(instr[1]->smp[0].dataPtr, "PAGE", 4) == 0);
+}
+
 static void test_oversized_transaction_becomes_barrier(void)
 {
     resetFixture();
@@ -334,6 +365,32 @@ static void test_oversized_transaction_becomes_barrier(void)
     undoLoadConfig();
 }
 
+static void test_prepared_instrument_rejects_undo_overflow_before_edit(void)
+{
+    resetFixture();
+    tapeheadConfig.undoMemoryMB = 4;
+    undoLoadConfig();
+
+    instr_t staged;
+    memset(&staged, 0, sizeof (staged));
+    staged.smp[0].length = 5 * 1024 * 1024;
+    assert(allocateSmpData(&staged.smp[0], staged.smp[0].length, false));
+    memset(staged.smp[0].dataPtr, 1, (size_t)staged.smp[0].length);
+    char name[23] = "Too large";
+    assert(undoTransactionBegin("Prepared overflow"));
+    assert(undoTransactionAddInstrument(1));
+    assert(undoTransactionPrepareInstrumentAfter(1, name, &staged));
+    assert(!undoTransactionPreparedInstrumentsFitMemoryLimit());
+    undoCancelTransaction();
+
+    /* The caller has not mutated the live project and can discard staging. */
+    assert(instr[1] == NULL);
+    assert(song.instrName[1][0] == '\0');
+    freeSmpData(&staged.smp[0]);
+    tapeheadConfig.undoMemoryMB = 32;
+    undoLoadConfig();
+}
+
 int main(void)
 {
     tapeheadConfig.undoMemoryMB = 32;
@@ -341,8 +398,10 @@ int main(void)
     test_pattern_undo_redo_and_no_skip();
     test_pattern_metadata_undo_redo();
     test_composite_transaction();
+    test_prepared_instrument_after_snapshot();
     test_saved_state_checkpoint();
     test_oversized_transaction_becomes_barrier();
+    test_prepared_instrument_rejects_undo_overflow_before_edit();
     resetFixture();
     undoClose();
     puts("Undo transaction tests passed.");

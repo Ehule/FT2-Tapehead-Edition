@@ -26,6 +26,7 @@
 #include "ft2_sample_loader.h"
 #include "ft2_sample_launcher.h"
 #include "ft2_structs.h"
+#include "ft2_tapesister_ack.h"
 #include "ft2_undo.h"
 
 bool detectFLAC(FILE *f);
@@ -648,7 +649,7 @@ typedef struct sampleFolderImportJob_t
 {
 	uint8_t mode, instrument, launcherBank, launcherBankCount;
 	uint8_t launcherInstrument[SAMPLE_LAUNCHER_BANK_COUNT][2];
-	bool autoMap;
+	bool autoMap, exchangePreserveUnlistedSamples;
 	uint32_t fileCount;
 	sampleFolderFile_t *files;
 	char launcherName[23];
@@ -817,7 +818,8 @@ static void setImportedSampleName(sample_t *sample, const UNICHAR *filenameU)
 	free(filename);
 }
 
-static bool decodeFolderSample(const UNICHAR *filenameU, sample_t *sample)
+static bool decodeFolderSample(const UNICHAR *filenameU, sample_t *sample,
+	bool requireWav)
 {
 	memset(&tmpSmp, 0, sizeof (tmpSmp));
 	smpFilenameSet = false;
@@ -827,6 +829,11 @@ static bool decodeFolderSample(const UNICHAR *filenameU, sample_t *sample)
 		return false;
 
 	const int8_t format = detectSample(f);
+	if (requireWav && format != FORMAT_WAV)
+	{
+		fclose(f);
+		return false;
+	}
 	fseek(f, 0, SEEK_END);
 	const long fileSizeLong = ftell(f);
 	if (fileSizeLong <= 0 || (uint64_t)fileSizeLong > UINT32_MAX)
@@ -950,54 +957,50 @@ static instr_t *makeSingleSampleInstrument(sample_t *sample)
 
 static void freeFolderInstrument(instr_t *instrument);
 
-static bool writeExchangeAcknowledgement(const UNICHAR *pathU)
+static instr_t *cloneExchangeDestinationInstrument(uint8_t destination,
+	bool preserveUnlistedSamples)
 {
-	if (pathU == NULL)
-		return false;
-	const size_t length = UNICHAR_STRLEN(pathU);
-	UNICHAR *temporaryU = malloc((length + 5) * sizeof (UNICHAR));
-	if (temporaryU == NULL)
-		return false;
-	UNICHAR_STRCPY(temporaryU, pathU);
-#ifdef _WIN32
-	UNICHAR_STRCAT(temporaryU, L".tmp");
-#else
-	UNICHAR_STRCAT(temporaryU, ".tmp");
-#endif
-	FILE *file = UNICHAR_FOPEN(temporaryU, "wb");
-	bool ok = false;
-	if (file != NULL)
-	{
-		const bool wrote = fputs("recipient=tapehead\nstatus=imported\n", file) >= 0;
-		const bool closed = fclose(file) == 0;
-		file = NULL;
-		ok = wrote && closed;
-		if (ok)
-			ok = UNICHAR_RENAME(temporaryU, pathU) == 0;
-	}
-	if (!ok)
-	{
-		if (file != NULL)
-			fclose(file);
-		UNICHAR_REMOVE(temporaryU);
-	}
-	free(temporaryU);
-	return ok;
-}
-
-static instr_t *findOrCreateExchangeInstrument(instr_t **newInstruments,
-	uint8_t *destinations, uint8_t *instrumentCount, uint8_t destination)
-{
-	for (uint8_t i = 0; i < *instrumentCount; i++)
-		if (destinations[i] == destination)
-			return newInstruments[i];
-
-	if (*instrumentCount >= TAPEHEAD_EXCHANGE_MAX_ITEMS)
-		return NULL;
 	instr_t *instrument = calloc(1, sizeof (*instrument));
 	if (instrument == NULL)
 		return NULL;
-	initFolderInstrument(instrument);
+
+	if (!preserveUnlistedSamples || instr[destination] == NULL)
+	{
+		initFolderInstrument(instrument);
+		return instrument;
+	}
+
+	/* A page_instruments offer is a sparse patch: preserve the complete FT2
+	** instrument and deep-copy every existing sample before replacing only the
+	** explicitly listed slots. Nothing in the live song is touched here. */
+	memcpy(instrument, instr[destination], sizeof (*instrument));
+	memset(instrument->smp, 0, sizeof (instrument->smp));
+	for (uint8_t sample = 0; sample < MAX_SMP_PER_INST; sample++)
+	{
+		if (!cloneSample(&instr[destination]->smp[sample],
+			&instrument->smp[sample]))
+		{
+			freeFolderInstrument(instrument);
+			return NULL;
+		}
+	}
+	return instrument;
+}
+
+static instr_t *findOrCreateExchangeInstrument(instr_t **newInstruments,
+	uint8_t *destinations, uint16_t *instrumentCount, uint8_t destination,
+	bool preserveUnlistedSamples)
+{
+	for (uint16_t i = 0; i < *instrumentCount; i++)
+		if (destinations[i] == destination)
+			return newInstruments[i];
+
+	if (*instrumentCount >= MAX_INST)
+		return NULL;
+	instr_t *instrument = cloneExchangeDestinationInstrument(destination,
+		preserveUnlistedSamples);
+	if (instrument == NULL)
+		return NULL;
 	destinations[*instrumentCount] = destination;
 	newInstruments[*instrumentCount] = instrument;
 	(*instrumentCount)++;
@@ -1007,9 +1010,11 @@ static instr_t *findOrCreateExchangeInstrument(instr_t **newInstruments,
 static bool commitTapeSisterExchange(sampleFolderImportJob_t *job,
 	sample_t *decodedSamples, uint32_t decodedCount)
 {
-	instr_t *newInstruments[TAPEHEAD_EXCHANGE_MAX_ITEMS] = { NULL };
-	uint8_t destinations[TAPEHEAD_EXCHANGE_MAX_ITEMS] = { 0 };
-	uint8_t instrumentCount = 0;
+	instr_t *newInstruments[MAX_INST] = { NULL };
+	uint8_t destinations[MAX_INST] = { 0 };
+	bool destinationWasPopulated[MAX_INST] = { false };
+	char destinationNames[MAX_INST][23] = { { 0 } };
+	uint16_t instrumentCount = 0;
 
 	for (uint32_t i = 0; i < decodedCount; i++)
 	{
@@ -1019,43 +1024,75 @@ static bool commitTapeSisterExchange(sampleFolderImportJob_t *job,
 			goto allocationError;
 
 		instr_t *instrument = findOrCreateExchangeInstrument(newInstruments,
-			destinations, &instrumentCount, destination);
+			destinations, &instrumentCount, destination,
+			job->exchangePreserveUnlistedSamples);
 		if (instrument == NULL)
 			goto allocationError;
+		freeTmpSample(&instrument->smp[sample]);
 		memcpy(&instrument->smp[sample], &decodedSamples[i], sizeof (sample_t));
 		memset(&decodedSamples[i], 0, sizeof (sample_t));
 		sanitizeSample(&instrument->smp[sample]);
 		fixSample(&instrument->smp[sample]);
 	}
 
+	for (uint16_t i = 0; i < instrumentCount; i++)
+	{
+		const uint8_t destination = destinations[i];
+		destinationWasPopulated[i] = instr[destination] != NULL ||
+			song.instrName[destination][0] != '\0';
+		if (job->exchangePreserveUnlistedSamples &&
+			destinationWasPopulated[i])
+		{
+			memcpy(destinationNames[i], song.instrName[destination],
+				sizeof (destinationNames[i]));
+		}
+		else
+		{
+			for (uint8_t sample = 0; sample < MAX_SMP_PER_INST; sample++)
+			{
+				if (newInstruments[i]->smp[sample].dataPtr != NULL)
+				{
+					memcpy(destinationNames[i],
+						newInstruments[i]->smp[sample].name, 22);
+					break;
+				}
+			}
+		}
+		fixString(destinationNames[i], 21);
+		for (uint8_t sample = 0; sample < MAX_SMP_PER_INST; sample++)
+			fixString(newInstruments[i]->smp[sample].name, 21);
+	}
+
 	bool undoReady = undoTransactionBegin("Import TapeSister Transfer");
-	for (uint8_t i = 0; i < instrumentCount && undoReady; i++)
+	for (uint16_t i = 0; i < instrumentCount && undoReady; i++)
 		undoReady = undoTransactionAddInstrument(destinations[i]);
+	for (uint16_t i = 0; i < instrumentCount && undoReady; i++)
+	{
+		undoReady = undoTransactionPrepareInstrumentAfter(destinations[i],
+			destinationNames[i], newInstruments[i]);
+	}
 	if (!undoReady)
 	{
 		undoCancelTransaction();
 		loaderMsgBox("Not enough memory to create exchange Undo data. Nothing was changed.");
 		goto allocationError;
 	}
+	if (!undoTransactionPreparedInstrumentsFitMemoryLimit())
+	{
+		undoCancelTransaction();
+		loaderMsgBox("The exchange exceeds the configured Undo memory limit. Nothing was changed.");
+		goto allocationError;
+	}
 
 	lockMixerCallback();
-	for (uint8_t i = 0; i < instrumentCount; i++)
+	for (uint16_t i = 0; i < instrumentCount; i++)
 	{
 		const uint8_t destination = destinations[i];
 		freeInstr(destination);
 		instr[destination] = newInstruments[i];
 		newInstruments[i] = NULL;
-		memset(song.instrName[destination], 0, sizeof (song.instrName[destination]));
-		for (uint8_t sample = 0; sample < MAX_SMP_PER_INST; sample++)
-		{
-			if (instr[destination]->smp[sample].dataPtr != NULL)
-			{
-				memcpy(song.instrName[destination],
-					instr[destination]->smp[sample].name, 22);
-				break;
-			}
-		}
-		fixInstrAndSampleNames(destination);
+		memcpy(song.instrName[destination], destinationNames[i],
+			sizeof (song.instrName[destination]));
 	}
 	unlockMixerCallback();
 
@@ -1064,14 +1101,14 @@ static bool commitTapeSisterExchange(sampleFolderImportJob_t *job,
 	editor.curInstr = job->files[0].destinationInstrument;
 	editor.curSmp = job->files[0].destinationSample;
 	editor.updateCurSmp = true;
-	if (!writeExchangeAcknowledgement(job->exchangeAcknowledgementU))
+	if (!tapeheadExchangeWriteAcknowledgement(job->exchangeAcknowledgementU))
 	{
 		loaderMsgBox("TapeSister samples were imported, but tapehead.received could not be written.");
 	}
 	return true;
 
 allocationError:
-	for (uint8_t i = 0; i < instrumentCount; i++)
+	for (uint16_t i = 0; i < instrumentCount; i++)
 		freeFolderInstrument(newInstruments[i]);
 	return false;
 }
@@ -1126,7 +1163,9 @@ static int32_t loadSampleFolderThread(void *ptr)
 	loaderSysReq = okBoxThreadSafe;
 	for (uint32_t i = 0; i < job->fileCount; i++)
 	{
-		if (!decodeFolderSample(job->files[i].pathU, &decodedSamples[decodedCount]))
+		if (!decodeFolderSample(job->files[i].pathU,
+			&decodedSamples[decodedCount],
+			job->mode == SAMPLE_FOLDER_IMPORT_TAPESISTER))
 		{
 			loaderMsgBox("Couldn't load one of the folder samples. Nothing was changed.");
 			goto folderLoadError;
@@ -1671,6 +1710,8 @@ bool loadTapeSisterExchange(const UNICHAR *folderPathU,
 	if (job == NULL)
 		return false;
 	job->mode = SAMPLE_FOLDER_IMPORT_TAPESISTER;
+	job->exchangePreserveUnlistedSamples = offer->layout ==
+		TAPEHEAD_EXCHANGE_LAYOUT_PAGE_INSTRUMENTS;
 	job->fileCount = offer->count;
 	job->exchangeFolderU = UNICHAR_STRDUP(folderPathU);
 	job->files = calloc(job->fileCount, sizeof (*job->files));
@@ -1693,7 +1734,7 @@ bool loadTapeSisterExchange(const UNICHAR *folderPathU,
 		return false;
 	}
 
-	for (uint8_t i = 0; i < offer->count; i++)
+	for (uint16_t i = 0; i < offer->count; i++)
 	{
 #ifdef _WIN32
 		const int needed = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,

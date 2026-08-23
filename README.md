@@ -80,11 +80,14 @@ configurable MIDI Dub routing, and native JACK/PipeWire-JACK output buses.
 
 ### TapeSister exchange
 
-Tapehead and TapeSister can exchange up to 16 samples through an atomic,
-file-based inbox. Right-click the **Instrument Editor** button to send every
-populated slot in the current instrument or the first populated slot from up
-to 16 instruments. Incoming transfers always show their exact instrument and
-sample destinations—and any replacements—before Tapehead changes the module.
+Tapehead and TapeSister exchange samples through an atomic, file-based inbox.
+TapeSister's **All Pages** protocol addresses as many as 255 Sample Bank pages;
+Tapehead imports any consecutive mapping that fits its 128 instruments, with
+up to 16 same-numbered sample slots per page.
+Right-click the **Instrument Editor** button to send every populated slot in
+the current instrument or the first populated slot from up to 16 instruments.
+Incoming transfers always show their exact instrument and sample
+destinations—and any replacements—before Tapehead changes the module.
 Configure the shared folder and optional TapeSister executable in
 **Configuration → Layout**. The path fields are editable and open Tapehead's
 built-in browser on double-click; see the [exchange guide](docs/FT2_EXCHANGE.md).
