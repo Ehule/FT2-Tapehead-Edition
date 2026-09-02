@@ -2155,7 +2155,7 @@ typedef struct instrumentTransformSnapshot_t
 } instrumentTransformSnapshot_t;
 
 #define INST_TRANSFORM_PANEL_X 24
-#define INST_TRANSFORM_PANEL_Y 270
+#define INST_TRANSFORM_PANEL_Y 232
 #define INST_TRANSFORM_PANEL_W 584
 #define INST_TRANSFORM_PANEL_H 112
 
@@ -2370,6 +2370,12 @@ static void closeInstrumentTransform(bool apply)
 	else restoreInstrumentTransformSnapshots();
 	instrumentTransformActive = false;
 	freeInstrumentTransformSnapshots();
+
+	/* The transform panel is a persistent overlay rather than an okBox(), so
+	** closing it must explicitly rebuild whichever bottom editor it covered.
+	** Keep this after clearing instrumentTransformActive or the redraw pass can
+	** immediately paint the overlay back onto the restored editor. */
+	showBottomScreen();
 	ui.updatePatternEditor = true;
 }
 
