@@ -87,6 +87,13 @@ static void testTapeSisterSchemaAndRoundTrip(const char *assetPath,
 		0xD061FF);
 	assert(palette.colors[TAPEHEAD_UNIVERSAL_WAVE_SELECTION] == 0x2D0039);
 	assert(palette.colors[TAPEHEAD_UNIVERSAL_ACTIVE_TILE] == 0xFFD265);
+	assert(palette.colors[TAPEHEAD_UNIVERSAL_STEREO_WAVE_LEFT] == 0xFFAE20);
+	assert(palette.colors[TAPEHEAD_UNIVERSAL_STEREO_WAVE_RIGHT] == 0x35FFFF);
+	assert(palette.colors[TAPEHEAD_UNIVERSAL_STEREO_WAVE_SUM] == 0x18FF00);
+	assert(palette.colors[TAPEHEAD_UNIVERSAL_SISTER_SOURCE_HORIZONTAL] ==
+		0xFFAE20);
+	assert(palette.colors[TAPEHEAD_UNIVERSAL_SISTER_SOURCE_VERTICAL] ==
+		0x35FFFF);
 	assert(palette.desktopContrast == 52 && palette.buttonsContrast == 57);
 
 	palette.colors[TAPEHEAD_UNIVERSAL_WAVE_SELECTION] = 0x123456;
@@ -133,6 +140,13 @@ static void testLegacyAndEyedropper(const char *temporaryDirectory)
 	assert(palette.colors[TAPEHEAD_UNIVERSAL_PATTERN_EMPTY] == 0x102030);
 	assert(palette.colors[TAPEHEAD_UNIVERSAL_WAVE_SELECTION] == 0x203040);
 	assert(palette.colors[TAPEHEAD_UNIVERSAL_ACTIVE_TILE] == 0x405060);
+	assert(palette.colors[TAPEHEAD_UNIVERSAL_STEREO_WAVE_LEFT] == 0x102030);
+	assert(palette.colors[TAPEHEAD_UNIVERSAL_STEREO_WAVE_RIGHT] == 0x102030);
+	assert(palette.colors[TAPEHEAD_UNIVERSAL_STEREO_WAVE_SUM] == 0x102030);
+	assert(palette.colors[TAPEHEAD_UNIVERSAL_SISTER_SOURCE_HORIZONTAL] ==
+		0x102030);
+	assert(palette.colors[TAPEHEAD_UNIVERSAL_SISTER_SOURCE_VERTICAL] ==
+		0x102030);
 	assert(tapeheadUniversalPaletteColorIsDefined(&palette,
 		TAPEHEAD_UNIVERSAL_PATTERN_TEXT));
 	assert(!tapeheadUniversalPaletteColorIsDefined(&palette,
@@ -143,11 +157,11 @@ static void testLegacyAndEyedropper(const char *temporaryDirectory)
 		TAPEHEAD_UNIVERSAL_UNSET_SWATCH_RGB);
 
 	const tapeheadUniversalColor_t destination =
-		tapeheadUniversalPaletteTapeheadColor(18);
+		tapeheadUniversalPaletteTapeheadColor(19);
 	const uint32_t before = palette.colors[destination];
-	assert(!tapeheadUniversalPaletteSampleTapeSister(&palette, 18, 12));
+	assert(!tapeheadUniversalPaletteSampleTapeSister(&palette, 19, 12));
 	assert(palette.colors[destination] == before);
-	assert(tapeheadUniversalPaletteSampleTapeSister(&palette, 18, 0));
+	assert(tapeheadUniversalPaletteSampleTapeSister(&palette, 19, 0));
 	assert(palette.colors[destination] == 0x102030);
 	assert(tapeheadUniversalPaletteColorIsDefined(&palette, destination));
 	{
@@ -156,21 +170,25 @@ static void testLegacyAndEyedropper(const char *temporaryDirectory)
 		suggestions.colors[TAPEHEAD_UNIVERSAL_PATTERN_TEXT] = 0xA1B2C3;
 		edited.colors[TAPEHEAD_UNIVERSAL_PATTERN_TEXT] = 0x010203;
 		assert(tapeheadUniversalPaletteSampleTapeSisterFrom(&edited,
-			&suggestions, 18, 0));
+			&suggestions, 19, 0));
 		assert(edited.colors[destination] == 0xA1B2C3);
 		assert(suggestions.colors[TAPEHEAD_UNIVERSAL_PATTERN_TEXT] ==
 			0xA1B2C3);
 	}
 	assert(!tapeheadUniversalPaletteSampleTapeSister(&palette,
 		TAPEHEAD_UNIVERSAL_TAPEHEAD_COLOR_COUNT, 0));
-	assert(tapeheadUniversalPaletteTapeheadColor(18) ==
-		TAPEHEAD_UNIVERSAL_FASTTRACKS_LENGTH_PLAYHEAD);
+	assert(tapeheadUniversalPaletteTapeheadColor(12) ==
+		TAPEHEAD_UNIVERSAL_WAVE_SELECTION);
 	assert(tapeheadUniversalPaletteTapeheadColor(19) ==
+		TAPEHEAD_UNIVERSAL_FASTTRACKS_LENGTH_PLAYHEAD);
+	assert(tapeheadUniversalPaletteTapeheadColor(20) ==
 		(tapeheadUniversalColor_t)-1);
 	assert(strcmp(tapeheadUniversalPaletteTapeSisterSwatchName(6),
 		"WAVEFORM") == 0);
 	assert(strcmp(tapeheadUniversalPaletteTapeSisterSwatchName(13),
 		"ACTIVE TILE") == 0);
+	assert(strcmp(tapeheadUniversalPaletteTapeSisterSwatchName(18),
+		"SISTER V") == 0);
 }
 
 static void testCanonicalSectionAndPaths(const char *temporaryDirectory)

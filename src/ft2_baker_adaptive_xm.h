@@ -42,7 +42,8 @@ typedef struct bakerAdaptiveXMStats_t
 ** canonical ticks may be combined, and synthesized F01..F1F commands are
 ** written on otherwise empty timing rows. This prevents continuous effects,
 ** retriggers, BPM commands and fully occupied event rows from changing their
-** canonical one-tick behavior.
+** canonical one-tick behavior. Synthesized F01..F1F commands are emitted in
+** timingChannel, which callers normally reserve as a dedicated final track.
 **
 ** The destination may alias source. Capacity and validation failures leave it
 ** untouched. On BAKER_ADAPTIVE_XM_CAPACITY, stats->outputRows reports the
@@ -50,5 +51,6 @@ typedef struct bakerAdaptiveXMStats_t
 ** source F01..F1F commands; encountering one fails losslessly. */
 bakerAdaptiveXMResult_t bakerAdaptiveXMBuild(
 	const bakerAdaptiveXMCell_t *source, uint32_t sourceTickCount,
-	uint8_t channels, bakerAdaptiveXMCell_t *destination,
+	uint8_t channels, uint8_t timingChannel,
+	bakerAdaptiveXMCell_t *destination,
 	uint32_t rowCapacity, bakerAdaptiveXMStats_t *stats);

@@ -626,7 +626,15 @@ static void mapAdaptiveEmitterError(bakerAdaptiveXMResult_t result)
 
 static bool saveAdaptiveBakeResult(int32_t bakedRows, int32_t outputChannels)
 {
-	const size_t linearCellCount = (size_t)bakedRows * outputChannels;
+	/* Keep synthesized Fxx clock changes out of musical effect columns. The
+	** compacted source normally leaves room for one final timing-only track.
+	** A fully occupied 32-channel XM has no spare legal channel, so only that
+	** boundary case falls back to channel 1 without discarding source data. */
+	const int32_t adaptiveChannels = outputChannels < MAX_CHANNELS
+		? outputChannels + 1 : outputChannels;
+	const uint8_t timingChannel = (uint8_t)(adaptiveChannels > outputChannels
+		? adaptiveChannels - 1 : 0);
+	const size_t linearCellCount = (size_t)bakedRows * adaptiveChannels;
 	bakerAdaptiveXMCell_t *linearRows = calloc(linearCellCount,
 		sizeof (*linearRows));
 	if (linearRows == NULL)
@@ -647,15 +655,15 @@ static bool saveAdaptiveBakeResult(int32_t bakedRows, int32_t outputChannels)
 		for (int32_t channelIndex = 0; channelIndex < outputChannels;
 			channelIndex++)
 		{
-			linearRows[(size_t)row * outputChannels + channelIndex] =
+			linearRows[(size_t)row * adaptiveChannels + channelIndex] =
 				adaptiveCellFromNote(&source[channelIndex]);
 		}
 	}
 
 	bakerAdaptiveXMStats_t emitterStats;
 	const bakerAdaptiveXMResult_t emitterResult = bakerAdaptiveXMBuild(
-		linearRows, (uint32_t)bakedRows, (uint8_t)outputChannels, linearRows,
-		(uint32_t)bakedRows, &emitterStats);
+		linearRows, (uint32_t)bakedRows, (uint8_t)adaptiveChannels,
+		timingChannel, linearRows, (uint32_t)bakedRows, &emitterStats);
 	if (emitterResult != BAKER_ADAPTIVE_XM_OK)
 	{
 		mapAdaptiveEmitterError(emitterResult);
@@ -667,7 +675,7 @@ static bool saveAdaptiveBakeResult(int32_t bakedRows, int32_t outputChannels)
 	bakerAdaptivePatternStats_t patternStats;
 	const bakerAdaptivePatternResult_t patternResult =
 		bakerAdaptivePatternSetBuild(linearRows, emitterStats.outputRows,
-			(uint8_t)outputChannels, bakePatternRows, &patternSet,
+			(uint8_t)adaptiveChannels, bakePatternRows, &patternSet,
 			&patternStats);
 	free(linearRows);
 	if (patternResult != BAKER_ADAPTIVE_PATTERN_OK)
@@ -681,7 +689,7 @@ static bool saveAdaptiveBakeResult(int32_t bakedRows, int32_t outputChannels)
 
 	uint16_t clockAnchors = 0;
 	if (!bakerAdaptivePatternSetAnchorEmptyPatterns(patternSet, 1,
-		&clockAnchors))
+		timingChannel, &clockAnchors))
 	{
 		bakerAdaptivePatternSetFree(patternSet);
 		bakeAdaptiveSaveError = BAKE_ADAPTIVE_SAVE_INVALID;
@@ -707,7 +715,7 @@ static bool saveAdaptiveBakeResult(int32_t bakedRows, int32_t outputChannels)
 
 		for (uint16_t row = 0; row < rows; row++)
 		{
-			for (int32_t channelIndex = 0; channelIndex < outputChannels;
+			for (int32_t channelIndex = 0; channelIndex < adaptiveChannels;
 				channelIndex++)
 			{
 				const bakerAdaptiveXMCell_t *source =
@@ -725,7 +733,7 @@ static bool saveAdaptiveBakeResult(int32_t bakedRows, int32_t outputChannels)
 	bakeAdaptiveClockAnchors = clockAnchors;
 	song.songLength = patternSet->orderCount;
 	song.songLoopStart = 0;
-	song.numChannels = outputChannels;
+	song.numChannels = adaptiveChannels;
 	song.BPM = bakeInitialBPM;
 	song.speed = song.initialSpeed = song.tick = 1;
 	memset(song.orders, 0, sizeof (song.orders));

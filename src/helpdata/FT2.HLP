@@ -455,6 +455,7 @@ Delete  @T160Delete note or volume column at cursor.
 >Alt+F4 @T160Copy block.
 >Alt+F5 @T160Paste block.
 >F8 @T160Extract block to a Matrix-only pattern (copy-only).
+>Ctrl+Sh+T @T160Interpolate selected Mxx/Nxx Tuning/Drift values.
 >Alt+C  @T160Mark current track.
 
 @X040@C001Miscellaneous:

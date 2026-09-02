@@ -810,7 +810,20 @@ static void writeRange(void)
 	for (int32_t y = 0; y < SAMPLE_AREA_HEIGHT; y++)
 	{
 		for (int32_t x = 0; x < rangeLen; x++)
-			ptr32[x] = video.palette[(ptr32[x] >> 24) ^ 2]; // ">> 24" to get palette, XOR 2 to switch between mark/normal palette
+		{
+			const uint8_t taggedIndex = (uint8_t)(ptr32[x] >> 24);
+			if ((taggedIndex & PAL_SAMPLE_SELECTION_FLAG) != 0)
+			{
+				const uint8_t baseIndex = taggedIndex &
+					PAL_FRAMEBUFFER_INDEX_MASK;
+				if (baseIndex < PAL_NUM)
+					ptr32[x] = video.palette[baseIndex];
+			}
+			else if (taggedIndex < PAL_NUM)
+			{
+				ptr32[x] = paletteSampleSelectionPixel(taggedIndex);
+			}
+		}
 
 		ptr32 += SCREEN_W;
 	}
@@ -863,7 +876,7 @@ void sampleLine(int32_t x1, int32_t x2, int32_t y1, int32_t y2)
 	int32_t y  = y1;
 	const uint32_t pal1 = video.palette[PAL_DESKTOP];
 	const uint32_t pal2 = video.palette[PAL_FORGRND];
-	const uint32_t pixVal = video.palette[PAL_PATTEXT];
+	const uint32_t pixVal = video.palette[PAL_PATTERN_NOTE];
 	const int32_t pitch = sy * SCREEN_W;
 	uint32_t *dst32 = &video.frameBuffer[(y * SCREEN_W) + x];
 
@@ -3727,7 +3740,23 @@ static void invertSamplePosLine(int32_t x)
 
 	uint32_t *ptr32 = &video.frameBuffer[(174 * SCREEN_W) + x];
 	for (int32_t y = 0; y < SAMPLE_AREA_HEIGHT; y++, ptr32 += SCREEN_W)
-		*ptr32 = video.palette[(*ptr32 >> 24) ^ 1]; // ">> 24" to get palette, XOR 1 to switch between normal/inverted mode
+	{
+		const uint8_t taggedIndex = (uint8_t)(*ptr32 >> 24);
+		const bool selected = (taggedIndex & PAL_SAMPLE_SELECTION_FLAG) != 0;
+		const uint8_t baseIndex = selected
+			? taggedIndex & PAL_FRAMEBUFFER_INDEX_MASK : taggedIndex;
+		if (baseIndex >= PAL_NUM)
+			continue;
+
+		uint8_t invertedIndex = baseIndex;
+		if (baseIndex == PAL_BCKGRND) invertedIndex = PAL_PATTERN_NOTE;
+		else if (baseIndex == PAL_PATTERN_NOTE) invertedIndex = PAL_BCKGRND;
+		else if (baseIndex == PAL_DESKTOP) invertedIndex = PAL_FORGRND;
+		else if (baseIndex == PAL_FORGRND) invertedIndex = PAL_DESKTOP;
+
+		*ptr32 = selected ? paletteSampleSelectionPixel(invertedIndex) :
+			video.palette[invertedIndex];
+	}
 }
 
 static void writeSamplePosLine(void)

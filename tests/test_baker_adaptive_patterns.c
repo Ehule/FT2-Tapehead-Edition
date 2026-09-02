@@ -96,7 +96,8 @@ static void testTimingRowsSurvivePatternBoundaries(void)
 	canonical[99 * channels].note = 36;
 	bakerAdaptiveXMCell_t adaptive[ticks * channels];
 	bakerAdaptiveXMStats_t emitterStats;
-	assert(bakerAdaptiveXMBuild(canonical, ticks, channels, adaptive, ticks,
+	assert(bakerAdaptiveXMBuild(canonical, ticks, channels, channels - 1,
+		adaptive, ticks,
 		&emitterStats) == BAKER_ADAPTIVE_XM_OK);
 	assert(emitterStats.outputRows > 4);
 
@@ -215,26 +216,28 @@ static void testEmptyPatternClockAnchors(void)
 		&patterns, &stats) == BAKER_ADAPTIVE_PATTERN_OK);
 	assert(patterns->patternCount == 3 && patterns->rowCount[2] == 4);
 	uint16_t anchorCount = 0;
-	assert(bakerAdaptivePatternSetAnchorEmptyPatterns(patterns, 1,
+	assert(bakerAdaptivePatternSetAnchorEmptyPatterns(patterns, 1, 1,
 		&anchorCount));
 	assert(anchorCount == 1);
-	assert(patterns->pattern[1][0].efx == 0x0F);
-	assert(patterns->pattern[1][0].efxData == 6);
-	for (uint32_t cell = 1; cell < 4 * channels; cell++)
+	assert(patterns->pattern[1][1].efx == 0x0F);
+	assert(patterns->pattern[1][1].efxData == 6);
+	for (uint32_t cell = 0; cell < 4 * channels; cell++)
 	{
+		if (cell == 1)
+			continue;
 		bakerAdaptiveXMCell_t empty = { 0 };
 		assert(memcmp(&patterns->pattern[1][cell], &empty,
 			sizeof (empty)) == 0);
 	}
 
 	anchorCount = UINT16_MAX;
-	assert(bakerAdaptivePatternSetAnchorEmptyPatterns(patterns, 1,
+	assert(bakerAdaptivePatternSetAnchorEmptyPatterns(patterns, 1, 1,
 		&anchorCount));
 	assert(anchorCount == 0);
 	bakerAdaptivePatternSetFree(patterns);
 
 	anchorCount = UINT16_MAX;
-	assert(!bakerAdaptivePatternSetAnchorEmptyPatterns(NULL, 1,
+	assert(!bakerAdaptivePatternSetAnchorEmptyPatterns(NULL, 1, 0,
 		&anchorCount));
 	assert(anchorCount == 0);
 }

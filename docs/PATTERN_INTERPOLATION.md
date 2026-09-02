@@ -3,13 +3,21 @@
 > **Current CP04.6 workflow.** These operations participate in module Undo/Redo
 > when their previews are committed.
 
-Tapehead Edition provides three pattern operations:
+Tapehead Edition provides four pattern operations:
 
 - `Ctrl+Shift+V` — interpolate volume-column values.
 - `Ctrl+Shift+B` — interpolate compatible effect values (`8xx` panning and `Cxx` volume).
+- `Ctrl+Shift+T` — interpolate dedicated-lane `Mxx` microtuning or `Nxx`
+  drift-depth values.
 - `Ctrl+Shift+M` — paint a scale-based melodic walk from selected anchor notes.
 
 Press `Enter` to commit a preview or `Escape` to cancel it. While a preview is active, `Space` and `Right Ctrl` retain their normal playback functions so the temporary result can be auditioned before committing. The Fast Tracks logo also remains usable, including its Ctrl- and Shift-modified actions.
+
+Tuning interpolation requires matching `M` or matching `N` commands at the
+top and bottom of every selected track. Interior Tuning/Drift cells must be
+empty. The two-digit values are linearly filled in both directions, while the
+ordinary effect column remains untouched. Mixed `M`/`N` endpoints are rejected
+because cents offset and drift depth describe different quantities.
 
 ## Melodic Walk modes
 

@@ -44,6 +44,7 @@ TEST_SCRIPTS = (
 	"test_universal_palette.py",
 	"test_pattern_palette_native.py",
 	"test_pattern_block_extract.py",
+	"test_tuning_interpolation.py",
     "test_fasttracks_transport.py",
     "test_multichannel_native.py",
     "test_audio_bus_delivery.py",

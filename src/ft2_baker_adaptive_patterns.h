@@ -58,4 +58,5 @@ void bakerAdaptivePatternSetFree(bakerAdaptivePatternSet_t *patternSet);
 ** is timing-neutral, but preserves every intended pattern row count. */
 bool bakerAdaptivePatternSetAnchorEmptyPatterns(
 	bakerAdaptivePatternSet_t *patternSet, uint8_t initialTPL,
+	uint8_t timingChannel,
 	uint16_t *anchorCount);

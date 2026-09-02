@@ -467,6 +467,7 @@ void saveTapeheadPatternColorMode(void)
 	{
 		"PatternNoteColor", "PatternInstrumentColor", "PatternVolumeColor",
 		"PatternTuningColor", "PatternEffectColor", "PatternEmptyColor",
+		"WaveSelectionColor",
 		"TrackLengthPlayheadColor", "FastTracksPlayheadColor",
 		"ControlPlayheadColor", "FastTracksSyncColor",
 		"FastTracksPhaseColor", "FastTracksSongColor",
@@ -1139,6 +1140,7 @@ void loadTapeheadConfig(void)
 					"PatternNoteColor", "PatternInstrumentColor",
 					"PatternVolumeColor", "PatternTuningColor",
 					"PatternEffectColor", "PatternEmptyColor",
+					"WaveSelectionColor",
 					"TrackLengthPlayheadColor", "FastTracksPlayheadColor",
 					"ControlPlayheadColor", "FastTracksSyncColor",
 					"FastTracksPhaseColor", "FastTracksSongColor",

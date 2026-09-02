@@ -42,17 +42,17 @@ static void testSeparatedEventsAndTimingRows(void)
 	memset(output, 0xA5, sizeof (output));
 	bakerAdaptiveXMStats_t stats;
 
-	assert(bakerAdaptiveXMBuild(source, ticks, channels, output, ticks,
+	assert(bakerAdaptiveXMBuild(source, ticks, channels, channels - 1, output, ticks,
 		&stats) == BAKER_ADAPTIVE_XM_OK);
 	assert(memcmp(source, unchanged, sizeof (source)) == 0);
 	assert(stats.sourceTicks == ticks && stats.outputRows == 4);
 	assert(stats.timingRows == 2 && stats.speedCommands == 2);
 	assert(stats.initialTPL == 1);
 	assert(memcmp(&output[0], &source[0], channels * sizeof (*source)) == 0);
-	assert(output[channels].efx == 0x0F &&
-		output[channels].efxData == 4);
-	assert(output[2 * channels].efx == 0x0F &&
-		output[2 * channels].efxData == 1);
+	assert(output[channels + channels - 1].efx == 0x0F &&
+		output[channels + channels - 1].efxData == 4);
+	assert(output[2 * channels + channels - 1].efx == 0x0F &&
+		output[2 * channels + channels - 1].efxData == 1);
 	assert(memcmp(&output[3 * channels], &source[6 * channels],
 		channels * sizeof (*source)) == 0);
 
@@ -60,7 +60,7 @@ static void testSeparatedEventsAndTimingRows(void)
 	{
 		for (uint8_t channel = 0; channel < channels; channel++)
 		{
-			if (channel == 0)
+			if (channel == channels - 1)
 				continue;
 			assert(cellIsEmpty(&output[row * channels + channel]));
 		}
@@ -82,7 +82,7 @@ static void testTempoAndFullEventRowStayAtTPL1(void)
 	source[8 * channels + 0].efxData = 0x7D;
 	bakerAdaptiveXMCell_t output[ticks * channels];
 	bakerAdaptiveXMStats_t stats;
-	assert(bakerAdaptiveXMBuild(source, ticks, channels, output, ticks,
+	assert(bakerAdaptiveXMBuild(source, ticks, channels, channels - 1, output, ticks,
 		&stats) == BAKER_ADAPTIVE_XM_OK);
 
 	uint32_t expandedTick = 0;
@@ -121,7 +121,7 @@ static void testDenseTimelineIsByteIdentical(void)
 	}
 	bakerAdaptiveXMCell_t output[ticks * channels];
 	bakerAdaptiveXMStats_t stats;
-	assert(bakerAdaptiveXMBuild(source, ticks, channels, output, ticks,
+	assert(bakerAdaptiveXMBuild(source, ticks, channels, channels - 1, output, ticks,
 		&stats) == BAKER_ADAPTIVE_XM_OK);
 	assert(stats.outputRows == ticks && stats.timingRows == 0 &&
 		stats.speedCommands == 0);
@@ -137,7 +137,7 @@ static void testLongSilenceAndExactExpansion(void)
 	source[70 * channels + 1].note = 2;
 	bakerAdaptiveXMCell_t output[ticks * channels];
 	bakerAdaptiveXMStats_t stats;
-	assert(bakerAdaptiveXMBuild(source, ticks, channels, output, ticks,
+	assert(bakerAdaptiveXMBuild(source, ticks, channels, channels - 1, output, ticks,
 		&stats) == BAKER_ADAPTIVE_XM_OK);
 
 	uint32_t expandedTick = 0;
@@ -175,7 +175,7 @@ static void testTransactionalFailuresAndAliasing(void)
 	bakerAdaptiveXMCell_t sentinels[ticks * channels];
 	memcpy(sentinels, output, sizeof (output));
 	bakerAdaptiveXMStats_t stats;
-	assert(bakerAdaptiveXMBuild(source, ticks, channels, output, 2, &stats) ==
+	assert(bakerAdaptiveXMBuild(source, ticks, channels, channels - 1, output, 2, &stats) ==
 		BAKER_ADAPTIVE_XM_CAPACITY);
 	assert(stats.outputRows == 4);
 	assert(memcmp(output, sentinels, sizeof (output)) == 0);
@@ -184,17 +184,17 @@ static void testTransactionalFailuresAndAliasing(void)
 	memcpy(sourceSpeed, source, sizeof (source));
 	sourceSpeed[0].efx = 0x0F;
 	sourceSpeed[0].efxData = 0x06;
-	assert(bakerAdaptiveXMBuild(sourceSpeed, ticks, channels, output, ticks,
+	assert(bakerAdaptiveXMBuild(sourceSpeed, ticks, channels, channels - 1, output, ticks,
 		&stats) == BAKER_ADAPTIVE_XM_SOURCE_SPEED);
 	assert(memcmp(output, sentinels, sizeof (output)) == 0);
 
 	bakerAdaptiveXMCell_t inPlace[ticks * channels];
 	memcpy(inPlace, source, sizeof (source));
 	bakerAdaptiveXMCell_t separate[ticks * channels];
-	assert(bakerAdaptiveXMBuild(source, ticks, channels, separate, ticks,
+	assert(bakerAdaptiveXMBuild(source, ticks, channels, channels - 1, separate, ticks,
 		&stats) == BAKER_ADAPTIVE_XM_OK);
 	const uint32_t outputRows = stats.outputRows;
-	assert(bakerAdaptiveXMBuild(inPlace, ticks, channels, inPlace, ticks,
+	assert(bakerAdaptiveXMBuild(inPlace, ticks, channels, channels - 1, inPlace, ticks,
 		&stats) == BAKER_ADAPTIVE_XM_OK);
 	assert(stats.outputRows == outputRows);
 	assert(memcmp(inPlace, separate,
@@ -204,24 +204,26 @@ static void testTransactionalFailuresAndAliasing(void)
 static void testArgumentsAndMaximums(void)
 {
 	bakerAdaptiveXMStats_t stats;
-	assert(bakerAdaptiveXMBuild(NULL, 0, 1, NULL, 0, &stats) ==
+	assert(bakerAdaptiveXMBuild(NULL, 0, 1, 0, NULL, 0, &stats) ==
 		BAKER_ADAPTIVE_XM_OK);
 	assert(stats.outputRows == 0 && stats.initialTPL == 1);
-	assert(bakerAdaptiveXMBuild(NULL, 1, 1, NULL, 0, &stats) ==
+	assert(bakerAdaptiveXMBuild(NULL, 1, 1, 0, NULL, 0, &stats) ==
 		BAKER_ADAPTIVE_XM_INVALID_ARGUMENT);
-	assert(bakerAdaptiveXMBuild(NULL, 0, 0, NULL, 0, &stats) ==
+	assert(bakerAdaptiveXMBuild(NULL, 0, 0, 0, NULL, 0, &stats) ==
+		BAKER_ADAPTIVE_XM_INVALID_ARGUMENT);
+	assert(bakerAdaptiveXMBuild(NULL, 0, 1, 1, NULL, 0, &stats) ==
 		BAKER_ADAPTIVE_XM_INVALID_ARGUMENT);
 
 	const uint32_t maximumTicks = UINT32_C(65536);
 	bakerAdaptiveXMCell_t *source = calloc(maximumTicks, sizeof (*source));
 	bakerAdaptiveXMCell_t *output = calloc(maximumTicks, sizeof (*output));
 	assert(source != NULL && output != NULL);
-	assert(bakerAdaptiveXMBuild(source, maximumTicks, 1, output,
+	assert(bakerAdaptiveXMBuild(source, maximumTicks, 1, 0, output,
 		maximumTicks, &stats) == BAKER_ADAPTIVE_XM_OK);
 	assert(stats.outputRows == 2115 && stats.initialTPL == 1);
 	for (uint32_t tick = 0; tick < maximumTicks; tick++)
 		source[tick].note = 1;
-	assert(bakerAdaptiveXMBuild(source, maximumTicks, 1, output,
+	assert(bakerAdaptiveXMBuild(source, maximumTicks, 1, 0, output,
 		maximumTicks, &stats) == BAKER_ADAPTIVE_XM_OK);
 	assert(stats.outputRows == maximumTicks && stats.timingRows == 0);
 	assert(memcmp(source, output, maximumTicks * sizeof (*source)) == 0);
@@ -259,7 +261,7 @@ static void testDeterministicMixedTimelines(void)
 		}
 
 		bakerAdaptiveXMStats_t stats;
-		assert(bakerAdaptiveXMBuild(source, ticks, channels, output, ticks,
+		assert(bakerAdaptiveXMBuild(source, ticks, channels, channels - 1, output, ticks,
 			&stats) == BAKER_ADAPTIVE_XM_OK);
 		uint32_t expandedTick = 0;
 		uint8_t currentTPL = 1;
@@ -281,7 +283,7 @@ static void testDeterministicMixedTimelines(void)
 			{
 				for (uint8_t channel = 0; channel < channels; channel++)
 				{
-					if (channel == 0 && out[channel].efx == 0x0F &&
+					if (channel == channels - 1 && out[channel].efx == 0x0F &&
 						out[channel].efxData > 0 && out[channel].efxData < 0x20)
 					{
 						bakerAdaptiveXMCell_t timing = { 0 };
