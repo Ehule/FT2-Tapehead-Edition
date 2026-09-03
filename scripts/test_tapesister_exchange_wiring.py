@@ -28,6 +28,8 @@ def main() -> None:
     pushbuttons = (ROOT / "src/ft2_pushbuttons.c").read_text()
     textboxes = (ROOT / "src/ft2_textboxes.c").read_text()
     saver = (ROOT / "src/ft2_sample_saver.c").read_text()
+    renderer = (ROOT / "src/ft2_wav_renderer.c").read_text()
+    sysreqs = (ROOT / "src/ft2_sysreqs.c").read_text()
     xm_saver = (ROOT / "src/ft2_module_saver.c").read_text()
     xm_loader = (ROOT / "src/modloaders/ft2_load_xm.c").read_text()
 
@@ -67,16 +69,46 @@ def main() -> None:
 
     # Publication creates only a new .partial folder, writes the manifest after
     # every WAV, then performs one final rename. Blank launch paths are valid.
-    publish = exchange[exchange.index("static bool publishSource"):exchange.index("static void confirmAndPublish")]
-    ordered(publish, "makeDirectory(partialFolder)", "saveWAVSampleDirect(",
-            'UNICHAR_FOPEN(path, "wb")', "UNICHAR_RENAME(partialFolder, finalFolder)")
-    assert "pathExists(finalFolder) || pathExists(partialFolder)" in publish
+    create = exchange[exchange.index("static bool createTransferFolders"):
+                      exchange.index("static bool publishSource")]
+    publish = exchange[exchange.index("static bool publishSource"):
+                       exchange.index("static void cleanupRenderPartial")]
+    assert "makeDirectory(partialFolder)" in create
+    assert "pathExists(finalFolder) || pathExists(partialFolder)" in create
+    ordered(publish, "saveWAVSampleDirect(", 'UNICHAR_FOPEN(path, "wb")',
+            "UNICHAR_RENAME(partialFolder, finalFolder)")
     assert "cleanupPartial(partialFolder, source)" in publish
     launch = exchange[exchange.index("static bool launchTapeSister"):exchange.index("static bool publishSource")]
     assert "tapeSisterExecutablePath[0] == '\\0'" in launch
     assert "CreateProcessW" in launch and "execl(executable, executable" in launch
     assert "system(" not in exchange and "ShellExecute" not in exchange
     assert "UNC" in exchange and "driveAbsolute" in exchange and "uncAbsolute" in exchange
+
+    # Render exchange reuses the WAV engine and the same atomic publisher. The
+    # existing v1 manifest remains immediately consumable; provenance lives in
+    # a sidecar that older TapeSister builds can ignore.
+    render_publish = exchange[exchange.index("static bool writeRenderTransferFiles"):
+                              exchange.index("static void confirmAndPublish")]
+    assert 'metadataName[] = "render.tapehead"' in render_publish
+    ordered(render_publish, "tapeheadRenderWriteMetadata(",
+            '"TAPESISTER_EXCHANGE 1\\n"',
+            "UNICHAR_RENAME(job->partialFolder, job->finalFolder)")
+    assert '"layout=instrument_samples\\n"' in render_publish
+    assert '"count=1\\n"' in render_publish
+    assert '"item=1,1,1,%s\\n"' in render_publish
+    assert "cleanupRenderPartial(job)" in render_publish
+    assert "TAPEHEAD_RENDER_MAX_TAPESISTER_FRAMES" in render_publish
+    assert "startWavRenderToFile(file" in render_publish
+    assert "TAPEHEAD_RENDER_PATTERN_MIX" in exchange
+    assert "TAPEHEAD_RENDER_PATTERN_TRACK" in exchange
+    assert "TAPEHEAD_RENDER_SONG_TRACK" in exchange
+    assert "TAPEHEAD_RENDER_SONG_MIX" in exchange
+    assert '"Send samples", "Render audio"' in sysreqs
+    assert '"Pattern mix", "Pattern track", "Song track", "Song mix"' in sysreqs
+    assert "wavRenderCompletionCallback completion" in renderer
+    assert "dontRenderThisChannel = i != soloChannel" in renderer
+    assert "SDL_AtomicCAS(&renderThreadActive" in renderer
+    assert "SDL_AtomicSet(&renderThreadActive, false)" in renderer
 
     # The asynchronous importer requires actual WAV content, decodes the whole
     # batch before allocating Undo, commits under one mixer lock, then acks.

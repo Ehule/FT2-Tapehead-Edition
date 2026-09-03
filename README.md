@@ -78,12 +78,16 @@ configurable MIDI Dub routing, and native JACK/PipeWire-JACK output buses.
 
 ### TapeSister exchange
 
-Tapehead and TapeSister exchange samples through an atomic, file-based inbox.
+Tapehead and TapeSister exchange samples and rendered tracker audio through an
+atomic, file-based inbox.
 TapeSister's **All Pages** protocol addresses as many as 255 Sample Bank pages;
 Tapehead imports any consecutive mapping that fits its 128 instruments, with
 up to 16 same-numbered sample slots per page.
 Right-click the **Instrument Editor** button to send every populated slot in
-the current instrument or the first populated slot from up to 16 instruments.
+the current instrument, the first populated slot from up to 16 instruments,
+or render the current order's pattern or full song as a mix or selected track.
+Audio renders arrive in TapeSister tile 1 and retain a small provenance
+sidecar for future exchange-aware placement.
 Incoming transfers always show their exact instrument and sample
 destinations—and any replacements—before Tapehead changes the module.
 Configure the shared folder and optional TapeSister executable in

@@ -9,6 +9,24 @@ milestones and may contain limitations or planned work that later entries
 supersede. See [`docs/README.md`](docs/README.md) for the current documentation
 map.
 
+## Render tracker audio to TapeSister — 2026-09-04
+
+- Added atomic TapeSister transfers for the current-order pattern mix,
+  current-order selected track, full-song selected track, and full-song mix.
+- Reused Tapehead's offline WAV engine through a completion-aware file target;
+  selected-track renders keep other channels' tracker commands active while
+  excluding their audio from the stereo mix.
+- Kept current TapeSister compatibility by publishing each render as a normal
+  one-item version-1 offer targeting tile 1, with a separate versioned
+  `render.tapehead` provenance sidecar for future exchange-aware placement.
+- Made render cancellation and I/O failure remove the pending `.partial`
+  folder instead of exposing an incomplete offer, and retained the existing
+  live-instance versus **Publish + New** behavior. Renders beyond current
+  TapeSister's 100,000,000-frame import limit are rejected before publication.
+- Split the Instrument Editor exchange dialog into clear **Send samples** and
+  **Render audio** submenus and added native planning/metadata plus atomic
+  wiring regression coverage.
+
 ## Tapehead identity and portable packaging — 2026-09-03
 
 - Renamed the Linux, Windows, CMake, Visual Studio, desktop, MIDI-port, window,

@@ -1,10 +1,15 @@
 #pragma once
 
+#include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 #include "ft2_header.h"
 
 #define MIN_WAV_RENDER_FREQ 8000
 #define MAX_WAV_RENDER_FREQ 384000
+
+typedef void (*wavRenderCompletionCallback)(bool success,
+	uint64_t renderedFrames, void *userdata);
 
 void cbToggleWavRenderIndividualTracks(void);
 void setWavRenderFrequency(int32_t freq);
@@ -27,3 +32,8 @@ void pbWavSongEndDown(void);
 void resetWavRenderer(void);
 void rbWavRenderBitDepth16(void);
 void rbWavRenderBitDepth32(void);
+uint32_t getWavRenderFrequency(void);
+uint8_t getWavRenderBitDepth(void);
+bool startWavRenderToFile(FILE *file, uint8_t startPosition,
+	uint8_t stopPosition, int16_t soloChannel,
+	wavRenderCompletionCallback callback, void *userdata);

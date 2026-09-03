@@ -29,7 +29,7 @@ void (*loaderMsgBox)(const char *, ...);
 int16_t (*loaderSysReq)(int16_t, const char *, const char *, void (*)(void));
 // ----------------
 
-#define NUM_SYSREQ_TYPES 18
+#define NUM_SYSREQ_TYPES 20
 
 #define MAX_PUSHBUTTONS 5
 static char *buttonText[NUM_SYSREQ_TYPES][MAX_PUSHBUTTONS] =
@@ -51,10 +51,12 @@ static char *buttonText[NUM_SYSREQ_TYPES][MAX_PUSHBUTTONS] =
 	{ "Used only", "All", "Cancel", "", "" }, // EXS sample exporter
 	{ "This folder", "Subfolders too", "Cancel", "", "" }, // Folder sample scope
 	{ "Standard XM", "Tapehead XM", "Adaptive XM", "Cancel", "" }, // Baker output target
-	{ "Current instr.", "Instr. range", "Check inbox", "Open folder", "Cancel" },
+	{ "Send samples", "Render audio", "Check inbox", "Open folder", "Cancel" },
 	{ "Publish", "Publish + New", "Cancel", "", "" },
 	{ "Import/Replace", "Later", "", "", "" },
-	{ "Import", "Later", "", "", "" }
+	{ "Import", "Later", "", "", "" },
+	{ "Current instr.", "Instr. range", "Cancel", "", "" },
+	{ "Pattern mix", "Pattern track", "Song track", "Song mix", "Cancel" }
 };
 
 static SDL_Keycode shortCut[NUM_SYSREQ_TYPES][5] =
@@ -76,10 +78,12 @@ static SDL_Keycode shortCut[NUM_SYSREQ_TYPES][5] =
 	{ SDLK_u, SDLK_a, SDLK_c, 0,      0 }, // EXS sample exporter
 	{ SDLK_t, SDLK_s, SDLK_c, 0,      0 }, // Folder sample scope
 	{ SDLK_s, SDLK_t, SDLK_a, SDLK_c, 0 }, // Baker output target
-	{ SDLK_c, SDLK_r, SDLK_i, SDLK_o, SDLK_ESCAPE },
+	{ SDLK_s, SDLK_r, SDLK_i, SDLK_o, SDLK_ESCAPE },
 	{ SDLK_p, SDLK_n, SDLK_c, 0, 0 },
 	{ SDLK_i, SDLK_l, 0, 0, 0 },
-	{ SDLK_i, SDLK_l, 0, 0, 0 }
+	{ SDLK_i, SDLK_l, 0, 0, 0 },
+	{ SDLK_c, SDLK_r, SDLK_ESCAPE, 0, 0 },
+	{ SDLK_p, SDLK_t, SDLK_s, SDLK_m, SDLK_ESCAPE }
 };
 
 typedef struct quitType_t
