@@ -333,6 +333,13 @@ enum
 	TAPEHEAD_PATTERN_JOG_AUDITION_MANUAL_PINGPONG
 };
 
+enum
+{
+	TAPEHEAD_AUDIO_BACKEND_AUTO = 0,
+	TAPEHEAD_AUDIO_BACKEND_WASAPI,
+	TAPEHEAD_AUDIO_BACKEND_DIRECTSOUND
+};
+
 typedef struct tapeheadConfig_t
 {
 	bool diskOpBackspaceParent;
@@ -356,6 +363,7 @@ typedef struct tapeheadConfig_t
 	uint8_t trackTrimDisplayWidth;
 	uint8_t patternJogAudition;
 	uint8_t patternColorMode;
+	uint8_t audioBackend;
 	uint8_t controlTrackLeftStart;
 	uint8_t controlTrackRightStart;
 	uint16_t bakerPatternRows;
@@ -376,6 +384,8 @@ typedef struct tapeheadConfig_t
 
 extern tapeheadConfig_t tapeheadConfig;
 void loadTapeheadConfig(void);
+uint8_t tapeheadParseAudioBackend(const char *value);
+const char *tapeheadAudioBackendName(uint8_t backend);
 void saveTapeheadPatternColorMode(void);
 void saveTapeheadBakerPatternRows(void);
 void saveTapeSisterConfigPaths(void);

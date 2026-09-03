@@ -767,6 +767,25 @@ static bool parseUInt32Value(const char *s, uint32_t *value)
 	return true;
 }
 
+uint8_t tapeheadParseAudioBackend(const char *value)
+{
+	if (value != NULL && !_stricmp(value, "WASAPI"))
+		return TAPEHEAD_AUDIO_BACKEND_WASAPI;
+	if (value != NULL && !_stricmp(value, "DirectSound"))
+		return TAPEHEAD_AUDIO_BACKEND_DIRECTSOUND;
+	return TAPEHEAD_AUDIO_BACKEND_AUTO;
+}
+
+const char *tapeheadAudioBackendName(uint8_t backend)
+{
+	switch (backend)
+	{
+		case TAPEHEAD_AUDIO_BACKEND_WASAPI: return "WASAPI";
+		case TAPEHEAD_AUDIO_BACKEND_DIRECTSOUND: return "DirectSound";
+		default: return "Auto";
+	}
+}
+
 static int32_t parseMidiDubTrackKey(const char *key)
 {
 	if (_strnicmp(key, "Track", 5) != 0 || key[5] == '\0')
@@ -895,6 +914,10 @@ static void writeDefaultTapeheadConfig(const UNICHAR *filePathU)
 	fputs("; Set false to restore the original duplicate octave-6 command.\n", f);
 	fputs("F8ExtractBlock=true\n\n", f);
 	fputs("[Audio]\n\n", f);
+	fputs("; Windows audio backend: Auto, WASAPI or DirectSound. Auto lets SDL\n", f);
+	fputs("; choose its preferred available backend and is recommended. DirectSound\n", f);
+	fputs("; remains available for older devices that specifically require it.\n", f);
+	fputs("Backend=Auto\n\n", f);
 	fputs("; Logical stereo output buses requested from the selected audio device or\n", f);
 	fputs("; exposed as separate ports by \"Tapehead JACK Virtual Outputs\" on Linux.\n", f);
 	fputs("; 1 is ordinary stereo; accepted range is 1-16 (2-32 output channels).\n", f);
@@ -998,6 +1021,7 @@ void loadTapeheadConfig(void)
 	tapeheadConfig.sampleExportEXS = true;
 	tapeheadConfig.startWindow = TAPEHEAD_START_USE_LEGACY;
 	tapeheadConfig.outputBuses = 1;
+	tapeheadConfig.audioBackend = TAPEHEAD_AUDIO_BACKEND_AUTO;
 	tapeheadConfig.hdScale = 3;
 	tapeheadConfig.hdStyle = TAPEHEAD_HD_STYLE_CRISP;
 	/* Compatibility default for an older tapehead.ini without this key. */
@@ -1219,6 +1243,10 @@ void loadTapeheadConfig(void)
 				parseBoolValue(value, &tapeheadConfig.patternBackspacePullUp);
 			else if (!_stricmp(key, "F8ExtractBlock"))
 				parseBoolValue(value, &tapeheadConfig.f8ExtractBlock);
+		}
+		else if (section == TAPEHEAD_SECTION_AUDIO && !_stricmp(key, "Backend"))
+		{
+			tapeheadConfig.audioBackend = tapeheadParseAudioBackend(value);
 		}
 		else if (section == TAPEHEAD_SECTION_AUDIO && !_stricmp(key, "OutputBuses"))
 		{

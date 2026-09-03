@@ -7,11 +7,14 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
+#include <wchar.h>
 #include <time.h>
 #include <math.h> // modf()
 #ifdef _WIN32
 #define WIN32_MEAN_AND_LEAN
 #include <windows.h>
+#include <shlobj.h>
 #include <SDL2/SDL_syswm.h>
 #else
 #include <unistd.h> // chdir()
@@ -50,12 +53,15 @@
 
 static void initializeVars(void);
 static void cleanUpAndExit(void); // never call this inside the main loop
+static bool selectedAudioOutputIsDefault(void);
+static bool confirmDefaultAudioFallback(void);
 #ifdef __APPLE__
 static void osxSetDirToProgramDirFromArgs(char **argv);
 #endif
 
 #ifdef _WIN32
-static void disableWasapi(void);
+static uint8_t readWindowsAudioBackendBeforeSDL(void);
+static bool configureWindowsAudioBackendBeforeSDL(uint8_t backend);
 #endif
 
 int main(int argc, char *argv[])
@@ -129,9 +135,6 @@ int main(int argc, char *argv[])
 #ifndef _MSC_VER
 	SetProcessDPIAware();
 #endif
-
-	disableWasapi(); // disable problematic WASAPI SDL2 audio driver on Windows (causes clicks/pops sometimes...)
-	                 // 13.03.2020: This is still needed with SDL 2.0.12...
 #endif
 
 	/* SDL 2.0.9 for Windows has a serious bug where you need to initialize the joystick subsystem
@@ -139,13 +142,26 @@ int main(int argc, char *argv[])
 	** reinitialized in Windows and what not.
 	** Ref.: https://bugzilla.libsdl.org/show_bug.cgi?id=4391
 	*/
-#if defined _WIN32 && SDL_MAJOR_VERSION == 2 && SDL_MINOR_VERSION == 0 && SDL_PATCHLEVEL == 9
-	if (SDL_Init(SDL_INIT_AUDIO | SDL_INIT_VIDEO | SDL_INIT_JOYSTICK) != 0)
+#if defined _WIN32
+	const uint8_t startupAudioBackend = readWindowsAudioBackendBeforeSDL();
+	if (!configureWindowsAudioBackendBeforeSDL(startupAudioBackend))
+		return 1;
+
+	uint32_t sdlInitFlags = SDL_INIT_AUDIO | SDL_INIT_VIDEO;
+#if SDL_MAJOR_VERSION == 2 && SDL_MINOR_VERSION == 0 && SDL_PATCHLEVEL == 9
+	sdlInitFlags |= SDL_INIT_JOYSTICK;
+#endif
+	if (SDL_Init(sdlInitFlags) != 0)
 #else
 	if (SDL_Init(SDL_INIT_AUDIO | SDL_INIT_VIDEO) != 0)
 #endif
 	{
+#ifdef _WIN32
+		showErrorMsgBox("Couldn't initialize SDL with Windows audio backend %s:\n%s",
+			tapeheadAudioBackendName(startupAudioBackend), SDL_GetError());
+#else
 		showErrorMsgBox("Couldn't initialize SDL:\n%s", SDL_GetError());
+#endif
 		return 1;
 	}
 
@@ -171,6 +187,20 @@ int main(int argc, char *argv[])
 
 	loadConfigOrSetDefaults(); // config must be loaded at this exact point
 	loadTapeheadConfig();
+#ifdef _WIN32
+	if (tapeheadConfig.audioBackend != startupAudioBackend)
+	{
+		fprintf(stderr,
+			"Tapehead audio: startup backend path disagreed with loaded configuration "
+			"(%s vs %s); using the startup selection for this session.\n",
+			tapeheadAudioBackendName(startupAudioBackend),
+			tapeheadAudioBackendName(tapeheadConfig.audioBackend));
+	}
+	const char *activeDriver = SDL_GetCurrentAudioDriver();
+	fprintf(stderr, "Tapehead audio: configured backend=%s, active SDL backend=%s.\n",
+		tapeheadAudioBackendName(startupAudioBackend),
+		activeDriver != NULL ? activeDriver : "unknown");
+#endif
 	loadTapeheadPaletteOnStartup();
 	tapeSisterExchangeInit();
 
@@ -199,21 +229,33 @@ int main(int argc, char *argv[])
 	audio.currOutputDevice = getAudioOutputDeviceFromConfig();
 	audio.currInputDevice = getAudioInputDeviceFromConfig();
 
-	if (!setupAudio(CONFIG_HIDE_ERRORS)) // can we open the audio device?
+	if (!setupAudio(CONFIG_HIDE_ERRORS)) // can we open the configured audio device?
 	{
-		// nope, try with the default audio device
-		setToDefaultAudioOutputDevice();
-
-		if (!setupAudio(CONFIG_HIDE_ERRORS)) // does it work this time?
+		if (!selectedAudioOutputIsDefault())
 		{
-			// nope, try safe values (44.1kHz 16-bit @ 1024 samples)
+			if (!confirmDefaultAudioFallback())
+			{
+				cleanUpAndExit();
+				return 1;
+			}
+
+			fprintf(stderr,
+				"Tapehead audio: user approved fallback from \"%s\" to the system default.\n",
+				audioGetLastFailedOutputDevice());
+			audio.startupDefaultFallback = true;
+			setToDefaultAudioOutputDevice();
+		}
+
+		if (!setupAudio(CONFIG_HIDE_ERRORS))
+		{
+			// Keep the same device, but retry with conservative stream settings.
 			config.audioFreq = 44100;
 			config.specialFlags &= ~(BITDEPTH_32 + BUFFSIZE_512 + BUFFSIZE_2048);
 			config.specialFlags |=  (BITDEPTH_16 + BUFFSIZE_1024);
 
-			if (!setupAudio(CONFIG_SHOW_ERRORS)) // this time it surely must work?!
+			if (!setupAudio(CONFIG_SHOW_ERRORS))
 			{
-				cleanUpAndExit(); // well, nope!
+				cleanUpAndExit();
 				return 1;
 			}
 		}
@@ -477,39 +519,186 @@ static void osxSetDirToProgramDirFromArgs(char **argv)
 }
 #endif
 
-#ifdef _WIN32
-static void disableWasapi(void)
+static bool selectedAudioOutputIsDefault(void)
 {
-	// disable problematic WASAPI SDL2 audio driver on Windows (causes clicks/pops sometimes...)
+	return audio.currOutputDevice == NULL ||
+		strcmp(audio.currOutputDevice, DEFAULT_AUDIO_DEV_STR) == 0;
+}
 
-	const int32_t numAudioDrivers = SDL_GetNumAudioDrivers();
-	if (numAudioDrivers <= 1)
-		return;
+static bool confirmDefaultAudioFallback(void)
+{
+	char message[768];
+	snprintf(message, sizeof (message),
+		"Tapehead could not open the selected output device:\n\n%.240s\n\n"
+		"Reason: %.360s\n\n"
+		"Use the system default output instead? Tapehead will not change devices "
+		"unless you approve it.",
+		audioGetLastFailedOutputDevice(), audioGetLastOpenError());
 
-	// look for directsound and enable it if found
-	for (int32_t i = 0; i < numAudioDrivers; i++)
+	const SDL_MessageBoxButtonData buttons[] =
 	{
-		const char *audioDriver = SDL_GetAudioDriver(i);
-		if (audioDriver != NULL && strcmp("directsound", audioDriver) == 0)
+		{ SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Exit Tapehead" },
+		{ SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Use System Default" }
+	};
+	const SDL_MessageBoxData data =
+	{
+		SDL_MESSAGEBOX_WARNING,
+		video.window,
+		"Tapehead audio device unavailable",
+		message,
+		2,
+		buttons,
+		NULL
+	};
+
+	int buttonID = 0;
+	return SDL_ShowMessageBox(&data, &buttonID) == 0 && buttonID == 1;
+}
+
+#ifdef _WIN32
+static char *trimStartupConfigText(char *text)
+{
+	while (isspace((unsigned char)*text)) text++;
+	char *end = text + strlen(text);
+	while (end > text && isspace((unsigned char)end[-1])) end--;
+	*end = '\0';
+	return text;
+}
+
+static bool windowsFileExists(const wchar_t *path)
+{
+	FILE *file = _wfopen(path, L"rb");
+	if (file == NULL)
+		return false;
+	fclose(file);
+	return true;
+}
+
+static bool joinWindowsPath(wchar_t *destination, size_t capacity,
+	const wchar_t *directory, const wchar_t *filename)
+{
+	const size_t length = wcslen(directory);
+	const bool hasSeparator = length > 0 &&
+		(directory[length-1] == L'\\' || directory[length-1] == L'/');
+	const int written = _snwprintf(destination, capacity, hasSeparator
+		? L"%ls%ls" : L"%ls\\%ls", directory, filename);
+	if (written < 0 || (size_t)written >= capacity)
+	{
+		destination[0] = L'\0';
+		return false;
+	}
+	return true;
+}
+
+static bool findWindowsTapeheadConfig(wchar_t *destination, size_t capacity)
+{
+	wchar_t directory[PATH_MAX+1], candidate[PATH_MAX+1];
+	const DWORD moduleLength = GetModuleFileNameW(NULL, directory,
+		(DWORD)(sizeof (directory) / sizeof (directory[0])));
+	if (moduleLength > 0 && moduleLength < sizeof (directory) / sizeof (directory[0]))
+	{
+		wchar_t *separator = wcsrchr(directory, L'\\');
+		if (separator != NULL)
 		{
-			SDL_setenv("SDL_AUDIODRIVER", "directsound", true);
-			audio.rescanAudioDevicesSupported = false;
-			return;
+			*separator = L'\0';
+			if (joinWindowsPath(candidate, sizeof (candidate) / sizeof (candidate[0]),
+				directory, L"FT2.CFG") && windowsFileExists(candidate))
+			{
+				return joinWindowsPath(destination, capacity, directory,
+					L"tapehead.ini");
+			}
 		}
 	}
 
-	// directsound is not available, try winmm
-	for (int32_t i = 0; i < numAudioDrivers; i++)
+	const DWORD directoryCapacity =
+		(DWORD)(sizeof (directory) / sizeof (directory[0]));
+	const DWORD currentDirectoryLength = GetCurrentDirectoryW(directoryCapacity,
+		directory);
+	if (currentDirectoryLength > 0 && currentDirectoryLength < directoryCapacity &&
+		joinWindowsPath(candidate, sizeof (candidate) / sizeof (candidate[0]),
+			directory, L"FT2.CFG") && windowsFileExists(candidate))
 	{
-		const char *audioDriver = SDL_GetAudioDriver(i);
-		if (audioDriver != NULL && strcmp("winmm", audioDriver) == 0)
-		{
-			SDL_setenv("SDL_AUDIODRIVER", "winmm", true);
-			audio.rescanAudioDevicesSupported = false;
-			return;
-		}
+		return joinWindowsPath(destination, capacity, directory, L"tapehead.ini");
 	}
 
-	// we didn't find directsound or winmm, let's use wasapi after all...
+	if (SHGetFolderPathW(NULL, CSIDL_APPDATA, NULL, SHGFP_TYPE_CURRENT,
+		directory) == S_OK &&
+		joinWindowsPath(candidate, sizeof (candidate) / sizeof (candidate[0]),
+			directory, L"FT2 clone") &&
+		joinWindowsPath(destination, capacity, candidate, L"tapehead.ini"))
+	{
+		return true;
+	}
+
+	return false;
+}
+
+static uint8_t readWindowsAudioBackendBeforeSDL(void)
+{
+	wchar_t configPath[PATH_MAX+1];
+	if (!findWindowsTapeheadConfig(configPath,
+		sizeof (configPath) / sizeof (configPath[0])))
+	{
+		return TAPEHEAD_AUDIO_BACKEND_AUTO;
+	}
+
+	FILE *file = _wfopen(configPath, L"r");
+	if (file == NULL)
+		return TAPEHEAD_AUDIO_BACKEND_AUTO;
+
+	bool audioSection = false;
+	uint8_t backend = TAPEHEAD_AUDIO_BACKEND_AUTO;
+	char line[512];
+	while (fgets(line, sizeof (line), file) != NULL)
+	{
+		char *text = trimStartupConfigText(line);
+		if (*text == '\0' || *text == ';' || *text == '#')
+			continue;
+
+		if (*text == '[')
+		{
+			char *close = strchr(text, ']');
+			if (close != NULL) *close = '\0';
+			audioSection = !_stricmp(text + 1, "Audio");
+			continue;
+		}
+
+		if (!audioSection)
+			continue;
+
+		char *equals = strchr(text, '=');
+		if (equals == NULL)
+			continue;
+		*equals = '\0';
+		char *key = trimStartupConfigText(text);
+		char *value = trimStartupConfigText(equals + 1);
+		if (_stricmp(key, "Backend") != 0)
+			continue;
+
+		backend = tapeheadParseAudioBackend(value);
+		break;
+	}
+
+	fclose(file);
+	return backend;
+}
+
+static bool configureWindowsAudioBackendBeforeSDL(uint8_t backend)
+{
+	const char *requestedDriver = NULL;
+	if (backend == TAPEHEAD_AUDIO_BACKEND_WASAPI)
+		requestedDriver = "wasapi";
+	else if (backend == TAPEHEAD_AUDIO_BACKEND_DIRECTSOUND)
+		requestedDriver = "directsound";
+
+	if (requestedDriver != NULL &&
+		!SDL_SetHintWithPriority(SDL_HINT_AUDIODRIVER, requestedDriver,
+			SDL_HINT_OVERRIDE))
+	{
+		showErrorMsgBox("Couldn't select the configured Windows audio backend: %s",
+			tapeheadAudioBackendName(backend));
+		return false;
+	}
+	return true;
 }
 #endif

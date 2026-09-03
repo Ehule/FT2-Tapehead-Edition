@@ -152,10 +152,16 @@ same pattern number, row count, XM events, and Tuning/Drift data.
 
 ```ini
 [Audio]
+Backend=Auto
 OutputBuses=1
 MonoOutputs=false
 ```
 
+- `Backend`: Windows audio backend policy. `Auto` is the recommended default
+  and lets SDL choose its preferred available backend. `WASAPI` and
+  `DirectSound` explicitly select those drivers before SDL initializes audio.
+  DirectSound remains available for older-device compatibility. The setting is
+  ignored on other platforms.
 - `OutputBuses`: number of logical stereo buses, accepted range `1`–`16`.
   Linux's **Tapehead JACK Virtual Outputs** exposes two named ports per bus.
   Multichannel-capable SDL devices can expose the same 2–32 channel layout;
@@ -166,6 +172,13 @@ MonoOutputs=false
 
 Routing assignments are runtime performance state and are not stored in XM.
 See [`MULTICHANNEL_OUTPUT.md`](MULTICHANNEL_OUTPUT.md).
+
+Tapehead reports the active backend, selected device, negotiated sample rate,
+format, channel count, and buffer size to standard error and in the
+Ctrl+Shift+F diagnostic overlay. If an explicitly selected device cannot open
+at startup, Tapehead asks before switching to the system default. It never
+silently reroutes an explicit selection. A disconnected output is identified in
+the window title and is reopened when the configured device becomes available.
 
 ## MIDI performance control
 
