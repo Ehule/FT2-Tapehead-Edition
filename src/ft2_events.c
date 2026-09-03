@@ -16,6 +16,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include "ft2_header.h"
+#include "ft2_audio.h"
 #include "ft2_config.h"
 #include "ft2_diskop.h"
 #include "ft2_module_loader.h"
@@ -402,6 +403,15 @@ static void handleSDLEvents(void)
 		handleWaitVblQuirk(&event);
 		if (tapeheadSplashConsumeDismissEvent(&event))
 			continue;
+
+		/* Device recovery must run on the main thread, even while a long editor
+		** operation is otherwise suppressing normal input events. */
+		if (event.type == SDL_AUDIODEVICEADDED ||
+			event.type == SDL_AUDIODEVICEREMOVED)
+		{
+			handleAudioDeviceEvent(&event.adevice);
+			continue;
+		}
 
 		if (editor.busy)
 		{

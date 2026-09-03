@@ -5,6 +5,7 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include <string.h>
 #include "ft2_header.h"
 #include "ft2_config.h"
 #include "ft2_audio.h"
@@ -274,7 +275,11 @@ bool testAudioDeviceListsMouseDown(void)
 				}
 				else
 				{
-					okBox(0, "System message", "Couldn't open audio output device!", NULL);
+					char message[512];
+					snprintf(message, sizeof (message),
+						"Couldn't open audio output device:\n%.180s\n\n%.260s",
+						audioGetLastFailedOutputDevice(), audioGetLastOpenError());
+					okBox(0, "System message", message, NULL);
 				}
 			}
 			else

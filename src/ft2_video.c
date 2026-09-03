@@ -16,6 +16,7 @@
 #include <unistd.h> // usleep()
 #endif
 #include "ft2_header.h"
+#include "ft2_audio.h"
 #include "ft2_config.h"
 #include "ft2_gui.h"
 #include "ft2_video.h"
@@ -37,6 +38,7 @@
 #include "ft2_structs.h"
 #include "ft2_edit.h"
 #include "ft2_video_scaler.h"
+#include "ft2_jack.h"
 
 static const uint8_t textCursorData[12] =
 {
@@ -123,7 +125,7 @@ static void formatAuditionNote(char *text, int16_t note)
 }
 
 // for FPS counter
-#define FPS_LINES 15
+#define FPS_LINES 19
 #define FPS_SCAN_FRAMES 60
 #define FPS_RENDER_W 285
 #define FPS_RENDER_H (((FONT1_CHAR_H + 1) * FPS_LINES) + 1)
@@ -189,12 +191,21 @@ static void drawFPSCounter(void)
 	if (dRefreshRate < 0.0 || dRefreshRate > 9999.9)
 		dRefreshRate = 9999.9; // prevent number from overflowing text box
 
+	const char *audioDriver = tapeheadJackIsOpen()
+		? "jack-native" : SDL_GetCurrentAudioDriver();
+	const char *audioDevice = audio.outputDeviceLost
+		? "DISCONNECTED" : audioGetActiveOutputDevice();
+
 	sprintf(fpsTextBuf,
 	             "SDL version: %u.%u.%u\n" \
 	             "Frames per second: %.3f\n" \
 	             "Monitor refresh rate: %.1fHz (+/-)\n" \
 	             "59..61Hz GPU VSync used: %s\n" \
 	             "HPC frequency (timer): %.4fMHz\n" \
+	             "Audio backend: %s\n" \
+	             "Audio device: %.35s\n" \
+	             "Audio format: %s, %u channels\n" \
+	             "Audio fallback: %s\n" \
 	             "Audio frequency: %.1fkHz (expected %.1fkHz)\n" \
 	             "Audio buffer samples: %d (expected %d)\n" \
 	             "Render size: %dx%d (offset %d,%d)\n" \
@@ -210,6 +221,9 @@ static void drawFPSCounter(void)
 	             dRefreshRate,
 	             video.vsync60HzPresent ? "yes" : "no",
 	             hpcFreq.freq64 / (1000.0 * 1000.0),
+	             audioDriver != NULL ? audioDriver : "unknown",
+	             audioDevice, audioGetOutputFormatName(), audio.outputChannels,
+	             audio.startupDefaultFallback ? "user-approved default" : "none",
 	             audio.haveFreq / 1000.0, audio.wantFreq / 1000.0,
 	             audio.haveSamples, audio.wantSamples,
 	             video.renderW, video.renderH, video.renderX, video.renderY,
@@ -1270,6 +1284,10 @@ void updateWindowTitle(bool forceUpdate)
 		else
 			sprintf(wndTitle, "Fasttracker II clone v%s - \"untitled\"", PROG_VER_STR);
 	}
+
+	if (audio.outputDeviceLost)
+		strncat(wndTitle, " [AUDIO DISCONNECTED]",
+			sizeof (wndTitle) - strlen(wndTitle) - 1);
 
 	SDL_SetWindowTitle(video.window, wndTitle);
 	songIsModified = song.isModified;

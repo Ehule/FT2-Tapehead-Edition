@@ -12,12 +12,21 @@ enum
 	FREQ_TABLE_AMIGA = 1,
 };
 
+enum
+{
+	TAPEHEAD_AUDIO_EVENT_RESCAN = 1,
+	TAPEHEAD_AUDIO_EVENT_ACTIVE_OUTPUT_REMOVED = 2,
+	TAPEHEAD_AUDIO_EVENT_RETRY_OUTPUT = 4
+};
+
 #define DEFAULT_AUDIO_FREQ 48000
 
 #define MIN_AUDIO_FREQ 44100
 #define MAX_AUDIO_FREQ 96000
 
 #define MAX_AUDIO_DEVICES 99
+#define AUDIO_DIAGNOSTIC_DEVICE_NAME_LEN 256
+#define AUDIO_DIAGNOSTIC_ERROR_LEN 512
 
 // more bits makes little sense here
 
@@ -38,6 +47,7 @@ typedef struct audio_t
 	char *inputDeviceNames[MAX_AUDIO_DEVICES], *outputDeviceNames[MAX_AUDIO_DEVICES];
 	volatile bool locked, resetSyncTickTimeFlag, volumeRampingFlag, callbackOngoing;
 	bool linearPeriodsFlag, rescanAudioDevicesSupported, sincInterpolation, multichannelFallback, monoOutputMode;
+	bool outputDeviceLost, startupDefaultFallback;
 	volatile uint8_t interpolationType;
 	uint8_t outputChannels, outputBusCount;
 	int32_t inputDeviceNum, outputDeviceNum, lastWorkingAudioFreq, lastWorkingAudioBits;
@@ -59,7 +69,11 @@ typedef struct audio_t
 	float fQuickVolRampSamplesMul, fSamplesPerTickIntMul;
 
 	SDL_AudioDeviceID dev;
+	SDL_AudioFormat outputFormat;
 	uint32_t wantFreq, haveFreq, wantSamples, haveSamples;
+	char activeOutputDevice[AUDIO_DIAGNOSTIC_DEVICE_NAME_LEN];
+	char lastFailedOutputDevice[AUDIO_DIAGNOSTIC_DEVICE_NAME_LEN];
+	char lastOpenError[AUDIO_DIAGNOSTIC_ERROR_LEN];
 } audio_t;
 
 typedef struct
@@ -154,6 +168,11 @@ void audioSampleLauncherStop(uint8_t voiceIndex);
 void audioSampleLauncherStopAll(void);
 void audioSampleLauncherSetOutputBus(uint8_t voiceIndex, uint8_t outputBus);
 bool setupAudio(bool showErrorMsg);
+const char *audioGetActiveOutputDevice(void);
+const char *audioGetLastFailedOutputDevice(void);
+const char *audioGetLastOpenError(void);
+const char *audioGetOutputFormatName(void);
+void handleAudioDeviceEvent(const SDL_AudioDeviceEvent *event);
 #ifdef TAPEHEAD_AUDIO_ROUTING_TEST
 bool tapeheadTestDiskOpPreviewSincSelection(uint64_t lowDelta,
 	uint64_t middleDelta, uint64_t highDelta);
@@ -166,6 +185,16 @@ bool tapeheadTestRouteSyntheticSampleLauncherVoice(uint8_t outputBus,
 	float *peakBusA, float *peakBusB);
 bool tapeheadTestRenderOneShot(bool reverse, float *samples,
 	uint8_t sampleCount);
+#endif
+#ifdef TAPEHEAD_AUDIO_HARDENING_TEST
+typedef bool (*tapeheadTestAudioOpenAttempt_t)(const char *device,
+	uint8_t channels, void *context);
+bool tapeheadTestTryOpenSelectedOutput(const char *device,
+	uint8_t requestedChannels, tapeheadTestAudioOpenAttempt_t attempt,
+	void *context, bool *stereoFallback);
+uint8_t tapeheadTestClassifyAudioDeviceEvent(uint32_t eventType,
+	bool capture, SDL_AudioDeviceID eventDevice,
+	SDL_AudioDeviceID activeOutput, bool outputLost);
 #endif
 void closeAudio(void);
 void pauseAudio(void);

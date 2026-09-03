@@ -202,6 +202,13 @@ bool setNewAudioSettings(void) // only call this from the main input/video threa
 
 	if (!setupAudio(CONFIG_HIDE_ERRORS))
 	{
+		char failedDevice[AUDIO_DIAGNOSTIC_DEVICE_NAME_LEN];
+		char failedReason[AUDIO_DIAGNOSTIC_ERROR_LEN];
+		snprintf(failedDevice, sizeof (failedDevice), "%s",
+			audioGetLastFailedOutputDevice());
+		snprintf(failedReason, sizeof (failedReason), "%s",
+			audioGetLastOpenError());
+
 		// set back old known working settings
 
 		config.audioFreq = audio.lastWorkingAudioFreq;
@@ -226,6 +233,13 @@ bool setNewAudioSettings(void) // only call this from the main input/video threa
 		// if it didn't work to use the old settings again, then something is seriously wrong...
 		if (!setupAudio(CONFIG_HIDE_ERRORS))
 			okBox(0, "System message", "Couldn't find a working audio mode... You'll get no sound / replayer timer!", NULL);
+		else
+		{
+			snprintf(audio.lastFailedOutputDevice,
+				sizeof (audio.lastFailedOutputDevice), "%s", failedDevice);
+			snprintf(audio.lastOpenError, sizeof (audio.lastOpenError), "%s",
+				failedReason);
+		}
 
 		resumeAudio();
 		return false;
@@ -1910,6 +1924,106 @@ static void calcAudioLatencyVars(int32_t audioBufferSize, int32_t audioFreq)
 	audio.audLatencyPerfValFrac = (uint64_t)(dAudioLatencyTimeFrac * TICK_TIME_FRAC_SCALE);
 }
 
+typedef bool (*audioOpenAttempt_t)(const char *device, uint8_t channels,
+	void *context);
+
+static bool tryOpenSelectedOutput(const char *device, uint8_t requestedChannels,
+	audioOpenAttempt_t attempt, void *context, bool *stereoFallback)
+{
+	*stereoFallback = false;
+	if (attempt(device, requestedChannels, context))
+		return true;
+
+	if (requestedChannels > 2 && attempt(device, 2, context))
+	{
+		*stereoFallback = true;
+		return true;
+	}
+
+	return false;
+}
+
+#ifdef TAPEHEAD_AUDIO_HARDENING_TEST
+bool tapeheadTestTryOpenSelectedOutput(const char *device,
+	uint8_t requestedChannels, tapeheadTestAudioOpenAttempt_t attempt,
+	void *context, bool *stereoFallback)
+{
+	return tryOpenSelectedOutput(device, requestedChannels, attempt, context,
+		stereoFallback);
+}
+#endif
+
+typedef struct sdlAudioOpenContext_t
+{
+	SDL_AudioSpec *want, *have;
+} sdlAudioOpenContext_t;
+
+static bool openSDLAudioOutput(const char *device, uint8_t channels,
+	void *context)
+{
+	sdlAudioOpenContext_t *openContext = (sdlAudioOpenContext_t *)context;
+	openContext->want->channels = channels;
+	audio.dev = SDL_OpenAudioDevice(device, 0, openContext->want,
+		openContext->have, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE);
+	return audio.dev != 0;
+}
+
+static void setAudioOpenFailure(const char *device, const char *reason)
+{
+	if (device == NULL || *device == '\0')
+		device = DEFAULT_AUDIO_DEV_STR;
+	if (reason == NULL || *reason == '\0')
+		reason = "Unknown audio-device error";
+
+	snprintf(audio.lastFailedOutputDevice,
+		sizeof (audio.lastFailedOutputDevice), "%s", device);
+	snprintf(audio.lastOpenError, sizeof (audio.lastOpenError), "%s", reason);
+	fprintf(stderr, "Tapehead audio: failed to open \"%s\": %s\n",
+		audio.lastFailedOutputDevice, audio.lastOpenError);
+}
+
+const char *audioGetActiveOutputDevice(void)
+{
+	return audio.activeOutputDevice[0] != '\0'
+		? audio.activeOutputDevice : "(No Audio Output)";
+}
+
+const char *audioGetLastFailedOutputDevice(void)
+{
+	return audio.lastFailedOutputDevice[0] != '\0'
+		? audio.lastFailedOutputDevice : "(Unknown Audio Device)";
+}
+
+const char *audioGetLastOpenError(void)
+{
+	return audio.lastOpenError[0] != '\0'
+		? audio.lastOpenError : "Unknown audio-device error";
+}
+
+const char *audioGetOutputFormatName(void)
+{
+	if (audio.outputFormat == AUDIO_F32)
+		return "F32";
+	if (audio.outputFormat == AUDIO_S16)
+		return "S16";
+	return "none";
+}
+
+static void logActiveAudioState(void)
+{
+	const char *driver = tapeheadJackIsOpen()
+		? "jack-native" : SDL_GetCurrentAudioDriver();
+	fprintf(stderr,
+		"Tapehead audio: backend=%s, device=\"%s\", rate=%u Hz, "
+		"format=%s, channels=%u, buffer=%u frames%s.\n",
+		driver != NULL ? driver : "unknown", audioGetActiveOutputDevice(),
+		audio.haveFreq, audioGetOutputFormatName(), audio.outputChannels,
+		audio.haveSamples,
+		audio.multichannelFallback ? ", multichannel folded to stereo" : "");
+	if (audio.startupDefaultFallback)
+		fprintf(stderr, "Tapehead audio: system-default output was explicitly approved after startup failure.\n");
+}
+
 static void setLastWorkingAudioDevName(void)
 {
 	if (audio.lastWorkingAudioDeviceName != NULL)
@@ -1927,6 +2041,8 @@ bool setupAudio(bool showErrorMsg)
 	SDL_AudioSpec want, have;
 
 	closeAudio();
+	audio.lastFailedOutputDevice[0] = '\0';
+	audio.lastOpenError[0] = '\0';
 
 	if (config.audioFreq < MIN_AUDIO_FREQ || config.audioFreq > MAX_AUDIO_FREQ)
 		config.audioFreq = DEFAULT_AUDIO_FREQ;
@@ -1955,6 +2071,8 @@ bool setupAudio(bool showErrorMsg)
 		if (!tapeheadJackOpen(tapeheadConfig.outputBuses, jackAudioCallback, NULL,
 			&openedFreq, &openedSamples))
 		{
+			setAudioOpenFailure(TAPEHEAD_JACK_DEVICE_NAME,
+				tapeheadJackGetLastError());
 			if (showErrorMsg)
 			{
 				showErrorMsgBox(
@@ -1966,6 +2084,8 @@ bool setupAudio(bool showErrorMsg)
 
 		openedChannels = requestedOutputChannels;
 		openedFormat = AUDIO_F32;
+		snprintf(audio.activeOutputDevice, sizeof (audio.activeOutputDevice),
+			"%s", TAPEHEAD_JACK_DEVICE_NAME);
 	}
 	else
 	{
@@ -1981,44 +2101,19 @@ bool setupAudio(bool showErrorMsg)
 		if (device != NULL && strcmp(device, DEFAULT_AUDIO_DEV_STR) == 0)
 			device = NULL; // force default device
 
-		audio.dev = SDL_OpenAudioDevice(device, 0, &want, &have, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE);
-		if (audio.dev == 0 && requestedOutputChannels > 2)
+		sdlAudioOpenContext_t openContext = { &want, &have };
+		if (!tryOpenSelectedOutput(device, requestedOutputChannels,
+			openSDLAudioOutput, &openContext, &audio.multichannelFallback))
 		{
-			/*
-			** Preserve the logical routing even when this device cannot expose the
-			** requested channel count. The mixer folds all buses to ordinary stereo.
-			*/
-			want.channels = 2;
-			audio.dev = SDL_OpenAudioDevice(device, 0, &want, &have, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE);
-			audio.multichannelFallback = audio.dev != 0;
+			setAudioOpenFailure(device, SDL_GetError());
+			if (showErrorMsg)
+				showErrorMsgBox("Couldn't open audio device:\n\"%s\"\n\n%s",
+					audioGetLastFailedOutputDevice(), audioGetLastOpenError());
+			return false;
 		}
 
-		if (audio.dev == 0)
-		{
-			want.channels = requestedOutputChannels;
-			audio.dev = SDL_OpenAudioDevice(NULL, 0, &want, &have, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE);
-			if (audio.dev == 0 && requestedOutputChannels > 2)
-			{
-				want.channels = 2;
-				audio.dev = SDL_OpenAudioDevice(NULL, 0, &want, &have, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE);
-				audio.multichannelFallback = audio.dev != 0;
-			}
-
-			if (audio.currOutputDevice != NULL)
-			{
-				free(audio.currOutputDevice);
-				audio.currOutputDevice = NULL;
-			}
-			audio.currOutputDevice = strdup(DEFAULT_AUDIO_DEV_STR);
-
-			if (audio.dev == 0)
-			{
-				if (showErrorMsg)
-					showErrorMsgBox("Couldn't open audio device:\n\"%s\"\n\nDo you have an audio device enabled and plugged in?", SDL_GetError());
-
-				return false;
-			}
-		}
+		snprintf(audio.activeOutputDevice, sizeof (audio.activeOutputDevice),
+			"%s", device != NULL ? device : DEFAULT_AUDIO_DEV_STR);
 
 		openedFreq = have.freq;
 		openedSamples = have.samples;
@@ -2029,6 +2124,8 @@ bool setupAudio(bool showErrorMsg)
 	// test if the received audio format is compatible
 	if (openedFormat != AUDIO_S16 && openedFormat != AUDIO_F32)
 	{
+		setAudioOpenFailure(audioGetActiveOutputDevice(),
+			"The device returned an unsupported audio format");
 		if (showErrorMsg)
 			showErrorMsgBox("Couldn't open audio device:\nThis program only supports 16-bit or 32-bit float audio streams. Sorry!");
 
@@ -2041,6 +2138,8 @@ bool setupAudio(bool showErrorMsg)
 	if (openedChannels < 2 || openedChannels > TAPEHEAD_MAX_OUTPUT_BUSES * 2 ||
 		(openedChannels & 1))
 	{
+		setAudioOpenFailure(audioGetActiveOutputDevice(),
+			"The device returned an unsupported channel count");
 		if (showErrorMsg)
 		{
 			showErrorMsgBox(
@@ -2066,6 +2165,8 @@ bool setupAudio(bool showErrorMsg)
 
 	if (!setupAudioBuffers(openedSamples))
 	{
+		setAudioOpenFailure(audioGetActiveOutputDevice(),
+			"Not enough memory for the requested audio buffers");
 		if (showErrorMsg)
 			showErrorMsgBox("Not enough memory!");
 
@@ -2086,6 +2187,7 @@ bool setupAudio(bool showErrorMsg)
 
 	audio.haveFreq = openedFreq;
 	audio.haveSamples = openedSamples;
+	audio.outputFormat = openedFormat;
 	audio.outputChannels = openedChannels;
 	audio.outputBusCount = openedChannels / 2;
 	audio.monoOutputMode = tapeheadConfig.monoOutputs;
@@ -2094,6 +2196,7 @@ bool setupAudio(bool showErrorMsg)
 	audio.bytesPerFrame = openedChannels *
 		((openedFormat == AUDIO_F32) ? sizeof (float) : sizeof (int16_t));
 	config.audioFreq = audio.freq = openedFreq;
+	audio.outputDeviceLost = false;
 
 	calcAudioLatencyVars(openedSamples, openedFreq);
 
@@ -2104,6 +2207,8 @@ bool setupAudio(bool showErrorMsg)
 			"device opened in stereo. Logical buses are folded to Bus A.\n",
 			tapeheadConfig.outputBuses);
 	}
+
+	logActiveAudioState();
 
 	// make a copy of the new known working audio settings
 
@@ -2157,4 +2262,98 @@ void closeAudio(void)
 	freeAudioBuffers();
 
 	audio.callbackOngoing = false;
+	audio.haveFreq = 0;
+	audio.haveSamples = 0;
+	audio.outputChannels = 0;
+	audio.outputBusCount = 0;
+	audio.outputFormat = 0;
+	audio.activeOutputDevice[0] = '\0';
+}
+
+static bool recoverLostAudioOutput(void)
+{
+	if (!audio.outputDeviceLost)
+		return false;
+
+	if (!setupAudio(CONFIG_HIDE_ERRORS))
+	{
+		fprintf(stderr,
+			"Tapehead audio: output remains disconnected; waiting for a device-add event.\n");
+		return false;
+	}
+
+	resumeAudio();
+	fprintf(stderr, "Tapehead audio: output reconnected.\n");
+	return true;
+}
+
+static uint8_t classifyAudioDeviceEvent(uint32_t eventType, bool capture,
+	SDL_AudioDeviceID eventDevice, SDL_AudioDeviceID activeOutput,
+	bool outputLost)
+{
+	if (eventType != SDL_AUDIODEVICEADDED &&
+		eventType != SDL_AUDIODEVICEREMOVED)
+	{
+		return 0;
+	}
+
+	uint8_t action = TAPEHEAD_AUDIO_EVENT_RESCAN;
+	if (eventType == SDL_AUDIODEVICEREMOVED && !capture &&
+		activeOutput != 0 && eventDevice == activeOutput)
+	{
+		action |= TAPEHEAD_AUDIO_EVENT_ACTIVE_OUTPUT_REMOVED;
+	}
+	else if (eventType == SDL_AUDIODEVICEADDED && !capture && outputLost)
+	{
+		action |= TAPEHEAD_AUDIO_EVENT_RETRY_OUTPUT;
+	}
+
+	return action;
+}
+
+#ifdef TAPEHEAD_AUDIO_HARDENING_TEST
+uint8_t tapeheadTestClassifyAudioDeviceEvent(uint32_t eventType,
+	bool capture, SDL_AudioDeviceID eventDevice,
+	SDL_AudioDeviceID activeOutput, bool outputLost)
+{
+	return classifyAudioDeviceEvent(eventType, capture, eventDevice,
+		activeOutput, outputLost);
+}
+#endif
+
+void handleAudioDeviceEvent(const SDL_AudioDeviceEvent *event)
+{
+	if (event == NULL)
+		return;
+
+	const uint8_t action = classifyAudioDeviceEvent(event->type,
+		event->iscapture != 0, event->which, audio.dev,
+		audio.outputDeviceLost);
+	if (!(action & TAPEHEAD_AUDIO_EVENT_RESCAN))
+		return;
+
+	rescanAudioDevices();
+
+	if (action & TAPEHEAD_AUDIO_EVENT_ACTIVE_OUTPUT_REMOVED)
+	{
+		char removedDevice[AUDIO_DIAGNOSTIC_DEVICE_NAME_LEN];
+		snprintf(removedDevice, sizeof (removedDevice), "%s",
+			audioGetActiveOutputDevice());
+		fprintf(stderr, "Tapehead audio: output device removed: \"%s\".\n",
+			removedDevice);
+
+		closeAudio();
+		audio.outputDeviceLost = true;
+		recoverLostAudioOutput();
+		if (video.window != NULL)
+			updateWindowTitle(true);
+		return;
+	}
+
+	if (action & TAPEHEAD_AUDIO_EVENT_RETRY_OUTPUT)
+	{
+		recoverLostAudioOutput();
+		if (video.window != NULL)
+			updateWindowTitle(true);
+	}
 }
