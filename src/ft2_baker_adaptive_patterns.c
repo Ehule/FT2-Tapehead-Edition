@@ -26,6 +26,7 @@ void bakerAdaptivePatternSetFree(bakerAdaptivePatternSet_t *patternSet)
 
 bool bakerAdaptivePatternSetAnchorEmptyPatterns(
 	bakerAdaptivePatternSet_t *patternSet, uint8_t initialTPL,
+	uint8_t timingChannel,
 	uint16_t *anchorCount)
 {
 	if (anchorCount != NULL)
@@ -33,6 +34,7 @@ bool bakerAdaptivePatternSetAnchorEmptyPatterns(
 	if (patternSet == NULL || initialTPL == 0 || initialTPL > 31 ||
 		patternSet->channels == 0 ||
 		patternSet->channels > BAKER_ADAPTIVE_XM_MAX_CHANNELS ||
+		timingChannel >= patternSet->channels ||
 		patternSet->orderCount == 0 ||
 		patternSet->orderCount > BAKER_ADAPTIVE_PATTERN_MAX_COUNT ||
 		patternSet->patternCount != patternSet->orderCount)
@@ -76,7 +78,7 @@ bool bakerAdaptivePatternSetAnchorEmptyPatterns(
 		if (empty)
 		{
 			bakerAdaptiveXMCell_t *anchor =
-				patternSet->pattern[pattern];
+				&patternSet->pattern[pattern][timingChannel];
 			anchor->efx = 0x0F;
 			anchor->efxData = currentTPL;
 			inserted++;

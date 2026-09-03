@@ -41,9 +41,9 @@ static char tapeSisterSwatchStatus[8] = "";
 #define PAL_LIST_VISIBLE_ROWS 6
 #define TAPESISTER_SWATCH_X 428
 #define TAPESISTER_SWATCH_Y 158
-#define TAPESISTER_SWATCH_W 8
+#define TAPESISTER_SWATCH_W 6
 #define TAPESISTER_SWATCH_H 9
-#define TAPESISTER_SWATCH_STEP_X 10
+#define TAPESISTER_SWATCH_STEP_X 7
 #define UNIVERSAL_PALETTE_PATH_CAPACITY (TAPEHEAD_CONFIG_PATH_CAPACITY * 4 + 64)
 
 static const uint8_t FTC_EditOrder[TAPEHEAD_PALETTE_EDIT_COUNT] =
@@ -51,7 +51,8 @@ static const uint8_t FTC_EditOrder[TAPEHEAD_PALETTE_EDIT_COUNT] =
 	PAL_PATTEXT, PAL_BLCKMRK, PAL_BLCKTXT, PAL_MOUSEPT, PAL_DESKTOP,
 	PAL_BUTTONS, PAL_PATTERN_NOTE, PAL_PATTERN_INSTRUMENT,
 	PAL_PATTERN_VOLUME, PAL_PATTERN_TUNING, PAL_PATTERN_EFFECT,
-	PAL_PATTERN_EMPTY, PAL_TRACK_LENGTH_PLAYHEAD, PAL_FASTTRACKS_PLAYHEAD,
+	PAL_PATTERN_EMPTY, PAL_WAVE_SELECTION, PAL_TRACK_LENGTH_PLAYHEAD,
+	PAL_FASTTRACKS_PLAYHEAD,
 	PAL_CONTROL_PLAYHEAD, PAL_FASTTRACKS_SYNC, PAL_FASTTRACKS_PHASE,
 	PAL_FASTTRACKS_SONG, PAL_FASTTRACKS_LENGTH_PLAYHEAD
 };
@@ -59,8 +60,8 @@ static const uint8_t scaleOrder[3] = { 8, 4, 9 };
 static const char *paletteEntryNames[TAPEHEAD_PALETTE_EDIT_COUNT] =
 {
 	"PAT Text", "Block Mark", "Block Text", "Mouse", "Desktop", "Buttons",
-	"PAT Note", "PAT Inst.", "PAT Volume", "PAT Tuning", "PAT Effect",
-	"PAT Empty", "LEN Head", "FT Head", "CONTROL Head", "FT Sync LED",
+	"Note / Wave", "PAT Inst.", "PAT Volume", "PAT Tuning", "PAT Effect",
+	"PAT Empty", "Wave Select", "LEN Head", "FT Head", "CONTROL Head", "FT Sync LED",
 	"FT Phase LED", "FT Song Badge", "FT+LEN Head"
 };
 
@@ -81,6 +82,9 @@ static void initPatternColors(void)
 			patternColors[layout][field].b = (uint8_t)CLAMP((int32_t)text.b + d[2], 0, 63);
 		}
 
+		patternColors[layout][TAPEHEAD_PATTERN_FIELD_COLOR_COUNT] =
+			palTable[layout][PAL_BLCKMRK];
+
 		static const uint32_t transportDefaults[TAPEHEAD_TRANSPORT_COLOR_COUNT] =
 		{
 			0x40D8FF, 0xFFB020, 0xFF3030,
@@ -90,7 +94,8 @@ static void initPatternColors(void)
 		{
 			const uint32_t rgb = transportDefaults[field];
 			pal16 *dst = &patternColors[layout]
-				[TAPEHEAD_PATTERN_FIELD_COLOR_COUNT + field];
+				[TAPEHEAD_PATTERN_FIELD_COLOR_COUNT +
+				 TAPEHEAD_WAVE_SELECTION_COLOR_COUNT + field];
 			dst->r = color8To6(RGB32_R(rgb));
 			dst->g = color8To6(RGB32_G(rgb));
 			dst->b = color8To6(RGB32_B(rgb));
@@ -219,6 +224,19 @@ static uint8_t color8To6(uint8_t color)
 	return (uint8_t)(((uint32_t)color * 63 + 127) / 255);
 }
 
+uint32_t paletteSampleSelectionPixel(uint8_t paletteIndex)
+{
+	/* A 3/8 tint keeps the waveform and zero line legible while making the
+	** selected interval unmistakable on both light and dark themes. */
+	const uint32_t base = video.palette[paletteIndex];
+	const uint32_t tint = video.palette[PAL_WAVE_SELECTION];
+	const uint32_t r = (RGB32_R(base) * 5 + RGB32_R(tint) * 3 + 4) >> 3;
+	const uint32_t g = (RGB32_G(base) * 5 + RGB32_G(tint) * 3 + 4) >> 3;
+	const uint32_t b = (RGB32_B(base) * 5 + RGB32_B(tint) * 3 + 4) >> 3;
+	return ((uint32_t)(PAL_SAMPLE_SELECTION_FLAG | paletteIndex) << 24) |
+		RGB32(r, g, b);
+}
+
 void setPalette(pal16 *p, bool redrawScreen)
 {
 #define LOOP_PIN_COL_SUB 96
@@ -296,7 +314,14 @@ void setPalette(pal16 *p, bool redrawScreen)
 			const uint8_t paletteIndex = (uint8_t)(video.frameBuffer[i] >> 24);
 			/* Index zero is valid. Values outside our tagged palette are true-color
 			** pixels and must not be interpreted as palette offsets. */
-			if (paletteIndex < PAL_NUM)
+			if ((paletteIndex & PAL_SAMPLE_SELECTION_FLAG) != 0)
+			{
+				const uint8_t baseIndex = paletteIndex &
+					PAL_FRAMEBUFFER_INDEX_MASK;
+				if (baseIndex < PAL_NUM)
+					video.frameBuffer[i] = paletteSampleSelectionPixel(baseIndex);
+			}
+			else if (paletteIndex < PAL_NUM)
 				video.frameBuffer[i] = video.palette[paletteIndex];
 		}
 
@@ -597,7 +622,7 @@ static void drawTapeSisterSwatches(void)
 			}
 		}
 	}
-	textOutClipX(574, 159, PAL_FORGRND, tapeSisterSwatchStatus, 630);
+	textOutClipX(566, 159, PAL_FORGRND, tapeSisterSwatchStatus, 630);
 }
 
 static int32_t tapeSisterSwatchFromPoint(int32_t x, int32_t y)

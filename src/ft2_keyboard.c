@@ -1325,6 +1325,9 @@ static bool checkModifiedKeys(SDL_Keycode keycode)
 
 		case SDLK_t:
 		{
+			if (keyb.leftCtrlPressed && keyb.leftShiftPressed)
+				return interpolationBegin(INTERPOLATE_TUNING);
+
 			if (keyb.leftAltPressed)
 			{
 				jumpToChannel(4);

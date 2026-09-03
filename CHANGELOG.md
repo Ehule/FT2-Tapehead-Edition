@@ -9,6 +9,24 @@ milestones and may contain limitations or planned work that later entries
 supersede. See [`docs/README.md`](docs/README.md) for the current documentation
 map.
 
+## Focused Tapehead UX completion — 2026-09-02
+
+- Replaced the Sample Editor's opaque palette swap with a reversible 3/8
+  selection tint, preserving waveform and zero-line detail during selection,
+  playback-cursor movement, and live palette changes.
+- Split the palette roles into `Note / Wave` and `Wave Select`, expanded the
+  Tapehead editor to 20 destinations, and updated reciprocal preservation to
+  TapeSister's current 26-key palette with 19 source swatches.
+- Added previewable `Mxx`/`Nxx` Tuning/Drift interpolation on `Ctrl+Shift+T`,
+  including descending ramps, endpoint validation, Undo/Redo, and protection
+  for the ordinary effect column.
+- Moved Adaptive XM's synthesized `F01`–`F1F` clock commands and empty-pattern
+  anchors to an appended timing track. The 32-musical-channel limit case keeps
+  all source data and uses otherwise empty channel-1 timing rows.
+- Re-audited the F8 family: plain extraction, Shift/Ctrl/Alt transpose variants,
+  configurable legacy octave behavior, and key-repeat suppression remain
+  covered by the native regression suite.
+
 ## Universal TapeSister/Tapehead palette — 2026-08-21
 
 - Replaced the split palette workflow with canonical `palette.pal` and the

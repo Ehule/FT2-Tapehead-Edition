@@ -27,14 +27,16 @@ static void publishStats(bakerAdaptiveXMStats_t *destination,
 
 bakerAdaptiveXMResult_t bakerAdaptiveXMBuild(
 	const bakerAdaptiveXMCell_t *source, uint32_t sourceTickCount,
-	uint8_t channels, bakerAdaptiveXMCell_t *destination,
+	uint8_t channels, uint8_t timingChannel,
+	bakerAdaptiveXMCell_t *destination,
 	uint32_t rowCapacity, bakerAdaptiveXMStats_t *stats)
 {
 	bakerAdaptiveXMStats_t resultStats = { 0 };
 	resultStats.sourceTicks = sourceTickCount;
 	resultStats.initialTPL = 1;
 
-	if (channels == 0 || channels > BAKER_ADAPTIVE_XM_MAX_CHANNELS)
+	if (channels == 0 || channels > BAKER_ADAPTIVE_XM_MAX_CHANNELS ||
+		timingChannel >= channels)
 	{
 		publishStats(stats, &resultStats);
 		return BAKER_ADAPTIVE_XM_INVALID_ARGUMENT;
@@ -178,8 +180,8 @@ bakerAdaptiveXMResult_t bakerAdaptiveXMBuild(
 			resultStats.timingRows++;
 			if (planned->tpl != currentTPL)
 			{
-				output[0].efx = 0x0F;
-				output[0].efxData = planned->tpl;
+				output[timingChannel].efx = 0x0F;
+				output[timingChannel].efxData = planned->tpl;
 				currentTPL = planned->tpl;
 				resultStats.speedCommands++;
 			}

@@ -10,6 +10,7 @@
 #include "ft2_gui.h"
 #include "ft2_keyboard.h"
 #include "ft2_interpolation.h"
+#include "ft2_interpolation_math.h"
 #include "ft2_undo.h"
 
 static bool previewActive, scaleKeyChosen;
@@ -198,7 +199,7 @@ static bool validateSelection(uint8_t type, int32_t x1, int32_t x2, int32_t y1, 
 				if (p[(row * MAX_CHANNELS) + ch].vol != 0)
 					return false;
 		}
-		else
+		else if (type == INTERPOLATE_EFFECT)
 		{
 			if (a->efx != b->efx || !effectIsSupported(a->efx))
 				return false;
@@ -206,6 +207,20 @@ static bool validateSelection(uint8_t type, int32_t x1, int32_t x2, int32_t y1, 
 			{
 				const note_t *n = &p[(row * MAX_CHANNELS) + ch];
 				if (n->efx != 0 || n->efxData != 0)
+					return false;
+			}
+		}
+		else
+		{
+			if (a->tuneType != b->tuneType ||
+				!microtonalLaneTypeIsValid(a->tuneType))
+			{
+				return false;
+			}
+			for (int32_t row = y1 + 1; row < y2 - 1; row++)
+			{
+				const note_t *n = &p[(row * MAX_CHANNELS) + ch];
+				if (n->tuneType != 0 || n->tuneData != 0)
 					return false;
 			}
 		}
@@ -369,19 +384,26 @@ static void renderPreview(void)
 		const note_t *a = &patternSnapshot[(y1 * MAX_CHANNELS) + ch];
 		const note_t *b = &patternSnapshot[((y2 - 1) * MAX_CHANNELS) + ch];
 		const int32_t span = y2 - 1 - y1;
-		const int32_t start = previewType == INTERPOLATE_VOLUME ? a->vol : a->efxData;
-		const int32_t end = previewType == INTERPOLATE_VOLUME ? b->vol : b->efxData;
+		const int32_t start = previewType == INTERPOLATE_VOLUME ? a->vol :
+			previewType == INTERPOLATE_EFFECT ? a->efxData : a->tuneData;
+		const int32_t end = previewType == INTERPOLATE_VOLUME ? b->vol :
+			previewType == INTERPOLATE_EFFECT ? b->efxData : b->tuneData;
 		for (int32_t row = y1 + 1; row < y2 - 1; row++)
 		{
-			const int32_t numerator = (end - start) * (row - y1);
-			const int32_t value = start + (numerator >= 0 ? (numerator + span/2) / span : (numerator - span/2) / span);
+			const uint8_t value = interpolationLinearByte((uint8_t)start,
+				(uint8_t)end, row - y1, span);
 			note_t *n = &p[(row * MAX_CHANNELS) + ch];
 			if (previewType == INTERPOLATE_VOLUME)
-				n->vol = (uint8_t)value;
-			else
+				n->vol = value;
+			else if (previewType == INTERPOLATE_EFFECT)
 			{
 				n->efx = a->efx;
-				n->efxData = (uint8_t)value;
+				n->efxData = value;
+			}
+			else
+			{
+				n->tuneType = a->tuneType;
+				n->tuneData = value;
 			}
 		}
 	}
@@ -441,7 +463,9 @@ bool interpolationHandlePreviewKey(SDL_Scancode scancode, SDL_Keycode keycode, b
 		memcpy(acceptedPattern, pattern[previewPattern], sizeof (acceptedPattern));
 		memcpy(pattern[previewPattern], patternSnapshot, sizeof (patternSnapshot));
 		if (!undoPatternBegin(previewPattern, previewType == INTERPOLATE_NOTES ? "Melodic walk" :
-			(previewType == INTERPOLATE_VOLUME ? "Volume interpolation" : "Effect interpolation")))
+			previewType == INTERPOLATE_VOLUME ? "Volume interpolation" :
+			previewType == INTERPOLATE_TUNING ? "Tuning interpolation" :
+			"Effect interpolation"))
 		{
 			memcpy(pattern[previewPattern], acceptedPattern, sizeof (acceptedPattern));
 			previewActive = false;

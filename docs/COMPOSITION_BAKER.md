@@ -98,11 +98,13 @@ Standard output receives `-BAKED.xm`. Tapehead output receives
 **Adaptive XM** is the separate experimental timing path. It preserves the
 Tapehead M/N extension, keeps every event-bearing canonical tick at TPL 1, and
 compresses only completely empty tick spans with ordinary XM `F01`–`F1F`
-commands. It never replaces or changes the existing Standard XM or Tapehead XM
-paths. Its final pattern uses the exact captured row count instead of adding a
-padded tail. FT2 normally rewrites all-zero XM patterns to 64 rows, so a
-repeated current TPL command anchors each otherwise empty adaptive pattern in
-the serialized XM without changing its timing.
+commands. Those synthesized clock commands occupy a dedicated final timing
+track, leaving the musical tracks' effect columns free. It never replaces or
+changes the existing Standard XM or Tapehead XM paths. Its final pattern uses
+the exact captured row count instead of adding a padded tail. FT2 normally
+rewrites all-zero XM patterns to 64 rows, so a repeated current TPL command
+anchors each otherwise empty adaptive pattern on that same timing track in the
+serialized XM without changing its timing.
 
 The window has a compact **Pattern Rows** cycling control with 16, 32, 64, 128, and 256-row choices. Standard XM and Tapehead XM give every generated pattern, including the final one, that length, making each pattern a predictable Deck Matrix loop unit. Adaptive XM uses that length as its pattern maximum but shortens its final pattern to the exact captured endpoint. The nearby approximate Pattern and Maximum durations use the BPM active when the dialog opens; timing commands encountered later remain part of the baked performance. The selection is retained in `tapehead.ini`, with 256 as the compatibility-safe default.
 
@@ -140,7 +142,10 @@ Adaptive XM begins at TPL 1, preserves those same canonical event ticks at TPL
 1, and combines only empty spans using TPL values up to 31. A one-tick empty
 reset row restores TPL 1 before every later event row, so continuous effects,
 retriggers, BPM changes, strumming, and M/N data retain their canonical Baker
-behavior.
+behavior. The timing track is appended after channel compaction. In the XM
+limit case where all 32 compacted channels contain music, Adaptive XM retains
+all source data and places the clock commands on otherwise empty rows of
+channel 1 because a 33rd XM channel cannot be represented.
 
 ## Live Bake
 
@@ -198,7 +203,8 @@ counts.
   is approximately 21:51 (it is not 21:51 at every tempo)
 - Original BPM at the beginning; resolved BPM changes remain in the pattern
 - TPL 1 for tick-resolution bakes
-- Smallest compacted output channel count
+- Smallest compacted musical channel count; Adaptive XM normally appends one
+  dedicated timing track
 - Standard XM instruments and sample payload
 - Tapehead output preserves `Mxx` and `Nxx`; Standard output removes them
 - Tapehead `Zxx`, resolved `Bxx`/`Dxx`/`E6x` flow instructions, and resolved

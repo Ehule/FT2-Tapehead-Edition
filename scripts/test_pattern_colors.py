@@ -6,6 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 palette = (ROOT / "src/ft2_palette.c").read_text()
 draw = (ROOT / "src/ft2_pattern_draw.c").read_text()
+sample = (ROOT / "src/ft2_sample_ed.c").read_text()
 config = (ROOT / "src/ft2_config.c").read_text()
 header = (ROOT / "src/ft2_palette.h").read_text()
 radios = (ROOT / "src/ft2_radiobuttons.c").read_text()
@@ -20,6 +21,8 @@ for name in ("TRACK_LENGTH_PLAYHEAD", "FASTTRACKS_PLAYHEAD", "CONTROL_PLAYHEAD",
              "FASTTRACKS_SYNC", "FASTTRACKS_PHASE", "FASTTRACKS_SONG",
              "FASTTRACKS_LENGTH_PLAYHEAD"):
     assert f"PAL_{name}" in header
+assert "PAL_WAVE_SELECTION" in header
+assert "PAL_SAMPLE_SELECTION_FLAG" in header
 
 helper = palette[palette.index("bool patternFieldColorsActive"):
                  palette.index("bool paletteListMouseWheel")]
@@ -72,20 +75,34 @@ assert "tapeSisterSuggestions" in palette
 assert "tapeheadUniversalPaletteSampleTapeSisterFrom" in palette
 assert '"UNSET"' in palette and '"SAVED"' in palette
 assert "TAPESISTER_SWATCH_X 428" in palette
-assert "textOutClipX(574" in palette
+assert "textOutClipX(566" in palette
 assert '"SHARED SAVED"' not in palette
 assert '"Load"' in pushbuttons and "configPalLoadShared" in pushbuttons
 assert '"Save"' in pushbuttons and "configPalSaveShared" in pushbuttons
 assert '"[Palette]\\n"' in universal
 assert 'equalNoCase(text + 1, "TapeheadPalette")' in universal
-assert "TAPEHEAD_UNIVERSAL_TAPEHEAD_COLOR_COUNT 19" in universal_header
+assert "TAPEHEAD_UNIVERSAL_COLOR_COUNT 26" in universal_header
+assert "TAPEHEAD_UNIVERSAL_TAPEHEAD_COLOR_COUNT 20" in universal_header
+assert '"Note / Wave"' in palette and '"Wave Select"' in palette
+assert "paletteSampleSelectionPixel" in palette
+sample_range = sample[sample.index("static void writeRange"):
+                      sample.index("static int32_t getScaledSample")]
+assert "paletteSampleSelectionPixel" in sample_range
+assert "PAL_SAMPLE_SELECTION_FLAG" in sample_range
+assert "^ 2" not in sample_range
+sample_line = sample[sample.index("void sampleLine"):
+                     sample.index("static void getSampleDataPeak")]
+assert "PAL_PATTERN_NOTE" in sample_line
 assert asset.startswith("; Shared TapeSister / Tapehead palette")
-for key in ("WaveSelection", "ActiveTile", "TrackLengthPlayhead",
+for key in ("WaveSelection", "ActiveTile", "StereoWaveLeft",
+            "StereoWaveRight", "StereoWaveSum", "SisterSourceHorizontal",
+            "SisterSourceVertical", "TrackLengthPlayhead",
             "FastTracksLengthPlayhead", "DesktopContrast", "ButtonsContrast"):
     assert f"{key}=" in asset
 
 for key in ("PatternNoteColor", "PatternInstrumentColor", "PatternVolumeColor",
-            "PatternTuningColor", "PatternEffectColor", "PatternEmptyColor"):
+            "PatternTuningColor", "PatternEffectColor", "PatternEmptyColor",
+            "WaveSelectionColor"):
     assert key in config
 for key in ("TrackLengthPlayheadColor", "FastTracksPlayheadColor",
             "ControlPlayheadColor", "FastTracksSyncColor",

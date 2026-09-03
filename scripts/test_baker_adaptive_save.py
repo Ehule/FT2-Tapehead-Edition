@@ -26,6 +26,9 @@ def main() -> None:
     assert "bakerAdaptiveXMBuild(" in baker
     assert "bakerAdaptivePatternSetBuild(" in baker
     assert "bakerAdaptivePatternSetAnchorEmptyPatterns(" in baker
+    assert "adaptiveChannels = outputChannels < MAX_CHANNELS" in baker
+    assert "timingChannel" in baker
+    assert "song.numChannels = adaptiveChannels" in baker
     assert "saveXM(bakeFilenameU)" in baker
     assert "memcpy(pattern, savedPatterns" in baker
     assert "song = savedSong" in baker
@@ -44,7 +47,8 @@ def main() -> None:
     assert "if (bakeOutputTarget == BAKER_OUTPUT_ADAPTIVE_XM)" in baker
     assert "bakeOutputTarget == BAKER_OUTPUT_TAPEHEAD_XM ?" in baker
     assert "saveXM(bakeFilenameU) : saveStandardXM(bakeFilenameU)" in baker
-    assert "It never replaces or changes the existing Standard XM" in docs
+    assert "It never replaces or" in docs
+    assert "changes the existing Standard XM" in docs
 
     print("Adaptive XM save-path wiring checks passed.")
 

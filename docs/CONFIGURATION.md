@@ -98,17 +98,18 @@ default exposes all 256 rows; a lower ceiling gives the absolute hardware more
 precision. Existing module LEN values above the ceiling remain valid until
 edited.
 
-The scrollable **Configuration → Layout** palette includes seven transport
-entries in addition to the pattern-field colors: `LEN Head`, `FT Head`,
+The scrollable **Configuration → Layout** palette includes `Wave Select` and
+seven transport entries in addition to the pattern-field colors: `LEN Head`, `FT Head`,
 `CONTROL Head`, `FT Sync LED`, `FT Phase LED`, `FT Song Badge`, and `FT+LEN
 Head`. Saving the configuration writes their corresponding `*Color=#RRGGBB`
 keys under `[Pattern]`.
 
-The Layout **Load**/**Save** controls read and write the complete shared
-`palette.pal`, including TapeSister's retained `WaveSelection` and `ActiveTile`
-fields. Fourteen tiny TapeSister swatches form a source-only eyedropper strip;
-they never add destinations to Tapehead's 19-color selector. Legacy
-`tapehead.pal` and `[TapeheadPalette]` files still load without being rewritten.
+The Layout **Load**/**Save** controls read and write the complete 26-color
+shared `palette.pal`. `WaveSelection` drives Tapehead's translucent Sample
+Editor range tint; the six remaining TapeSister-only fields are retained.
+Nineteen tiny TapeSister swatches form a source-only eyedropper strip beside
+Tapehead's 20-color selector. Legacy `tapehead.pal` and
+`[TapeheadPalette]` files still load without being rewritten.
 
 ## Launcher
 
