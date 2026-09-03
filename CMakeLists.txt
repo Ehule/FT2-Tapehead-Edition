@@ -1,48 +1,42 @@
 cmake_minimum_required(VERSION 3.7)
 
-project(ft2-clone)
+project(Tapehead)
 
 find_package(SDL2 REQUIRED)
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${ft2-clone_SOURCE_DIR}/release/other/")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/release/other/")
 
 if((CMAKE_CXX_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "GNU"))
     add_compile_options(-O3)
     add_compile_options(-ffast-math)
 endif()
 
-file(GLOB ft2-clone_SRC
-    "${ft2-clone_SOURCE_DIR}/src/rtmidi/*.cpp"
-    "${ft2-clone_SOURCE_DIR}/src/*.c"
-    "${ft2-clone_SOURCE_DIR}/src/gfxdata/*.c"
-    "${ft2-clone_SOURCE_DIR}/src/mixer/*.c"
-    "${ft2-clone_SOURCE_DIR}/src/scopes/*.c"
-    "${ft2-clone_SOURCE_DIR}/src/modloaders/*.c"
-    "${ft2-clone_SOURCE_DIR}/src/smploaders/*.c"
+file(GLOB TAPEHEAD_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/rtmidi/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/gfxdata/*.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/mixer/*.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/scopes/*.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/modloaders/*.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/smploaders/*.c"
 )
 
-add_executable(ft2-clone ${ft2-clone_SRC})
+add_executable(Tapehead ${TAPEHEAD_SOURCES})
 
 if(WIN32)
-    target_sources(ft2-clone PRIVATE
-        "${ft2-clone_SOURCE_DIR}/src/ft2-clone.rc")
-
-    if(EXISTS "${ft2-clone_SOURCE_DIR}/src/gfxdata/icon/tapehead/tapehead.ico")
-        set_source_files_properties(
-            "${ft2-clone_SOURCE_DIR}/src/ft2-clone.rc"
-            PROPERTIES COMPILE_DEFINITIONS TAPEHEAD_ICON_AVAILABLE)
-    endif()
+    target_sources(Tapehead PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/ft2-clone.rc")
 endif()
 
 set(TAPEHEAD_RUNTIME_ASSETS
-    "${ft2-clone_SOURCE_DIR}/release/other/FT2.CFG"
-    "${ft2-clone_SOURCE_DIR}/release/other/tapehead.ini"
-    "${ft2-clone_SOURCE_DIR}/release/other/palette.pal"
-    "${ft2-clone_SOURCE_DIR}/release/other/fastTracksLogoBadges.bmp"
-    "${ft2-clone_SOURCE_DIR}/release/other/tapeheadSplash.png"
+    "${CMAKE_CURRENT_SOURCE_DIR}/release/other/FT2.CFG"
+    "${CMAKE_CURRENT_SOURCE_DIR}/release/other/tapehead.ini"
+    "${CMAKE_CURRENT_SOURCE_DIR}/release/other/palette.pal"
+    "${CMAKE_CURRENT_SOURCE_DIR}/release/other/fastTracksLogoBadges.bmp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/release/other/tapeheadSplash.png"
 )
 
 set(TAPEHEAD_OPTIONAL_APP_ICON
-    "${ft2-clone_SOURCE_DIR}/src/gfxdata/icon/tapehead/tapehead-icon.bmp")
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/gfxdata/icon/tapehead/tapehead-icon.bmp")
 
 foreach(asset IN LISTS TAPEHEAD_RUNTIME_ASSETS)
     if(NOT EXISTS "${asset}")
@@ -50,23 +44,41 @@ foreach(asset IN LISTS TAPEHEAD_RUNTIME_ASSETS)
     endif()
 endforeach()
 
-add_custom_command(TARGET ft2-clone POST_BUILD
+add_custom_command(TARGET Tapehead POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         ${TAPEHEAD_RUNTIME_ASSETS}
-        "$<TARGET_FILE_DIR:ft2-clone>"
-    COMMENT "Copying Tapehead Edition runtime assets"
+        "$<TARGET_FILE_DIR:Tapehead>"
+    COMMENT "Copying Tapehead runtime assets"
 )
 
 if((WIN32 OR (UNIX AND NOT APPLE)) AND EXISTS "${TAPEHEAD_OPTIONAL_APP_ICON}")
-    add_custom_command(TARGET ft2-clone POST_BUILD
+    add_custom_command(TARGET Tapehead POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${TAPEHEAD_OPTIONAL_APP_ICON}"
-            "$<TARGET_FILE_DIR:ft2-clone>"
+            "$<TARGET_FILE_DIR:Tapehead>"
         COMMENT "Copying optional Tapehead application icon"
     )
 endif()
 
-target_include_directories(ft2-clone SYSTEM
+if(WIN32)
+    if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+        set(TAPEHEAD_SDL_RUNTIME
+            "${CMAKE_CURRENT_SOURCE_DIR}/release/win64/SDL2.dll")
+    else()
+        set(TAPEHEAD_SDL_RUNTIME
+            "${CMAKE_CURRENT_SOURCE_DIR}/release/win32/SDL2.dll")
+    endif()
+
+    if(EXISTS "${TAPEHEAD_SDL_RUNTIME}")
+        add_custom_command(TARGET Tapehead POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${TAPEHEAD_SDL_RUNTIME}"
+                "$<TARGET_FILE_DIR:Tapehead>"
+            COMMENT "Copying SDL2 runtime for portable Windows use")
+    endif()
+endif()
+
+target_include_directories(Tapehead SYSTEM
     PRIVATE ${SDL2_INCLUDE_DIRS})
 
 if("${SDL2_LIBRARIES}" STREQUAL "")
@@ -76,10 +88,10 @@ endif()
 
 find_package(Threads REQUIRED)
 
-target_link_libraries(ft2-clone
+target_link_libraries(Tapehead
     PRIVATE m Threads::Threads ${SDL2_LIBRARIES})
 
-target_compile_definitions(ft2-clone
+target_compile_definitions(Tapehead
     PRIVATE HAS_MIDI)
 
 if(UNIX)
@@ -88,24 +100,24 @@ if(UNIX)
         find_library(COREFOUNDATION CoreFoundation REQUIRED)
         find_library(COREMIDI CoreMIDI REQUIRED)
         find_library(ICONV iconv REQUIRED)
-        target_link_libraries(ft2-clone
+        target_link_libraries(Tapehead
             PRIVATE ${COREAUDIO} ${COREMIDI} ${COREFOUNDATION} ${ICONV})
-        target_compile_definitions(ft2-clone
+        target_compile_definitions(Tapehead
             PRIVATE __MACOSX_CORE__)
     else()
         # musl systems need musl-fts installed, others have it with glibc
         find_library(FTS fts)
         if (FTS)
-            target_link_libraries(ft2-clone PRIVATE fts)
+            target_link_libraries(Tapehead PRIVATE fts)
         endif()
-        target_link_libraries(ft2-clone
+        target_link_libraries(Tapehead
             PRIVATE asound dl)
-        target_compile_definitions(ft2-clone
+        target_compile_definitions(Tapehead
             PRIVATE __LINUX_ALSA__)
     endif()
 endif()
 
-install(TARGETS ft2-clone
+install(TARGETS Tapehead
     RUNTIME DESTINATION bin)
 
 install(FILES ${TAPEHEAD_RUNTIME_ASSETS}
@@ -118,14 +130,14 @@ endif()
 
 if(UNIX AND NOT APPLE)
     install(FILES
-        "${ft2-clone_SOURCE_DIR}/release/other/Freedesktop.org Resources/Fasttracker II clone.desktop"
+        "${CMAKE_CURRENT_SOURCE_DIR}/release/other/tapehead.desktop"
         DESTINATION share/applications
-        RENAME ft2-clone.desktop)
+        RENAME tapehead.desktop)
 
-    if(EXISTS "${ft2-clone_SOURCE_DIR}/src/gfxdata/icon/tapehead/png/tapehead-512.png")
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/gfxdata/icon/tapehead/png/tapehead-512.png")
         install(FILES
-            "${ft2-clone_SOURCE_DIR}/src/gfxdata/icon/tapehead/png/tapehead-512.png"
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/gfxdata/icon/tapehead/png/tapehead-512.png"
             DESTINATION share/icons/hicolor/512x512/apps
-            RENAME ft2-clone.png)
+            RENAME tapehead.png)
     endif()
 endif()

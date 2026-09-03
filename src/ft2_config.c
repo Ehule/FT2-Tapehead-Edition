@@ -1438,6 +1438,35 @@ void loadTapeheadConfig(void)
 
 static bool setPortableConfigFileLocation(void)
 {
+#ifndef _WIN32
+	/* AppImage's mounted filesystem is read-only. Its AppRun wrapper points this
+	** variable at the writable Tapehead-data directory beside the AppImage.
+	*/
+	const char *portableDirectory = getenv("TAPEHEAD_PORTABLE_DIR");
+	if (portableDirectory != NULL && portableDirectory[0] != '\0')
+	{
+		const size_t directoryLength = strlen(portableDirectory);
+		const bool hasSeparator = portableDirectory[directoryLength-1] == '/';
+		const size_t pathLength = directoryLength +
+			(hasSeparator ? 0 : 1) + strlen("FT2.CFG") + 1;
+		UNICHAR *filePathU = (UNICHAR *)malloc(pathLength);
+		if (filePathU != NULL)
+		{
+			snprintf(filePathU, pathLength, hasSeparator ? "%sFT2.CFG" :
+				"%s/FT2.CFG", portableDirectory);
+
+			FILE *f = UNICHAR_FOPEN(filePathU, "rb");
+			if (f != NULL)
+			{
+				fclose(f);
+				editor.configFileLocationU = filePathU;
+				return true;
+			}
+			free(filePathU);
+		}
+	}
+#endif
+
 	char *basePath = SDL_GetBasePath();
 	if (basePath == NULL)
 		return false;

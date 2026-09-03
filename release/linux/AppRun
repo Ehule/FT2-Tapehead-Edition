@@ -1,0 +1,28 @@
+#!/bin/sh
+
+set -eu
+
+if [ -z "${APPDIR:-}" ]; then
+    echo "Tapehead AppImage error: APPDIR is not set." >&2
+    exit 1
+fi
+
+if [ -n "${APPIMAGE:-}" ]; then
+    APPIMAGE_DIR=$(CDPATH= cd -- "$(dirname -- "$APPIMAGE")" && pwd)
+else
+    APPIMAGE_DIR=$(pwd)
+fi
+
+DATA_DIR=${TAPEHEAD_DATA_DIR:-"$APPIMAGE_DIR/Tapehead-data"}
+DEFAULTS_DIR="$APPDIR/usr/share/tapehead/defaults"
+ASSETS="FT2.CFG tapehead.ini palette.pal fastTracksLogoBadges.bmp tapeheadSplash.png"
+
+mkdir -p "$DATA_DIR"
+for asset in $ASSETS; do
+    if [ ! -f "$DATA_DIR/$asset" ]; then
+        cp "$DEFAULTS_DIR/$asset" "$DATA_DIR/$asset"
+    fi
+done
+
+export TAPEHEAD_PORTABLE_DIR="$DATA_DIR"
+exec "$APPDIR/usr/bin/Tapehead" "$@"

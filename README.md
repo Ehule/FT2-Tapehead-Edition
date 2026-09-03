@@ -11,15 +11,13 @@ turning performed timing back into an ordinary XM.
 
 ## Project status
 
-- Current documented checkpoint: **CP04.6**
-- Git branch: **`baker-experimental`**
-- Frozen tag: **`cp04.6`**
+- Canonical development branch: **`main`**
+- Current application identity: **Tapehead 2.21**
+- Portable release targets: **Windows x64/x86 ZIP** and **Linux AppImage**
 
-CP04.6 is the first proven tick-resolution Composition Baker checkpoint. Its
-Fast Bake and Live Bake paths have produced conventional XM files from
-synchronized, mixed-ratio, high-ratio, and deliberately pathological Fast
-Tracks performances. The checkpoint also contains the full Deck Matrix and
-Sample Matrix Editor developed after RC1.
+The current source includes the proven tick-resolution Composition Baker,
+Deck Matrix, Sample Matrix, TapeSister exchange, adaptive timing track, and
+Windows audio coexistence work developed after RC1.
 
 RC1 remains the older frozen baseline. Documents bearing RC1, structural
 checkpoint, launcher checkpoint, Deck Matrix CP, or multichannel pass numbers
@@ -116,6 +114,18 @@ Select **TRACKER** in Deck Matrix to return to the ordinary editor. See the
 [Deck Matrix guide](docs/DECK_MATRIX.md) for its mouse gestures and transport
 boundaries.
 
+## Portable releases
+
+Tapehead distributions do not use an installer. On Windows, extract the entire
+ZIP and double-click `Tapehead.exe`; its SDL2 runtime, configuration, palette,
+and visual assets remain beside it. Visual Studio release builds stage those
+files automatically, and `scripts/package-windows-portable.ps1` creates the
+final archive.
+
+The Linux AppImage creates a writable `Tapehead-data` folder beside itself on
+first launch. Moving the AppImage and that folder together preserves the
+complete configuration. See [`release/PORTABLE_README.txt`](release/PORTABLE_README.txt).
+
 ## Building and testing
 
 ### Linux Mint / Ubuntu quick start
@@ -136,11 +146,10 @@ The packages are used for:
 - `git` — downloading and updating the repository
 - `python3` — running Tapehead's regression tests
 
-Download the MIDI performance surface branch and enter its directory:
+Download the canonical `main` branch and enter its directory:
 
 ```bash
-git clone --branch midi-performance-surface --single-branch \
-  https://github.com/Ehule/FT2-Tapehead-Edition.git
+git clone https://github.com/Ehule/FT2-Tapehead-Edition.git
 cd FT2-Tapehead-Edition
 ```
 
@@ -154,7 +163,7 @@ The executable is written to `release/other`. Run it from the repository
 root with:
 
 ```bash
-./release/other/ft2-clone
+./release/other/Tapehead
 ```
 
 If the shell reports `Permission denied` for the build script, make it
@@ -173,6 +182,11 @@ For a build without MIDI functionality, use:
 
 The no-MIDI build does not use ALSA, but it also disables MIDI controllers and
 the APC40 performance surface.
+
+For a redistributable AppImage, use `./make-linux-appimage.sh` or the no-MIDI
+variant. The ordinary shell build is portable between compatible Linux systems
+but still expects their SDL2 runtime; the AppImage bundles its runtime
+dependencies.
 
 ### Linux desktop shortcut conflicts
 

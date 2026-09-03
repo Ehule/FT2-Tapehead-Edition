@@ -378,7 +378,7 @@ bool openMidiInDevice(uint32_t deviceID)
 	if (isMidiDubInputDevice(deviceID))
 		return false;
 
-	rtmidi_open_port(midiInDev, deviceID, "FT2 Clone MIDI Port");
+	rtmidi_open_port(midiInDev, deviceID, "Tapehead MIDI Port");
 	if (!midiInDev->ok)
 		return false;
 

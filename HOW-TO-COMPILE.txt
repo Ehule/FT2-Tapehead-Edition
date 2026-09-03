@@ -1,25 +1,27 @@
----- Guide on how to compile the FT2 clone for Windows/macOS/Linux ---
+---- Guide to building Tapehead for Windows, macOS, and Linux ----
   LINUX NOTE: The program source code is NOT big-endian compatible!
-
-Compiled Windows/macOS binaries are always available at 16-bits.org/ft2.php
-
 
 == COMPILING ON LINUX ==
  1. Install the following packages:
     Ubuntu/Debian and similar: build-essential libsdl2-dev
     Fedora: gcc gcc-c++ alsa-lib-devel SDL2-devel
     Others: www.google.com (you want gcc, g++ (or c++), alsa dev and SDL2 dev)
- 2. Compile the FT2 clone for command line:     (folder: "ft2-clone")
+ 2. Compile Tapehead for command-line launch:
     chmod +x make-linux.sh                      (only needed once)
     ./make-linux.sh
-    Compile the FT2 clone as an AppImage:
+    Run the result as: ./release/other/Tapehead
+
+    Compile the portable Tapehead AppImage:
     chmod +x make-linux-appimage.sh
     ./make-linux-appimage.sh
 
  Note: If you don't have libstdc++ and/or can't compile rtmidi, try running
        make-linux-nomidi.sh or make-linux-appimage-nomidi.sh
        instead.
-       
+
+ The AppImage creates Tapehead-data beside itself on first launch. Keep the
+ AppImage and that folder together when moving or backing up the program.
+
  Known issues: Audio recording (sampling) can update VERY slowly or not work at
                all... I have no idea why, it works really well on Windows/maCOS.
 
@@ -27,16 +29,28 @@ Compiled Windows/macOS binaries are always available at 16-bits.org/ft2.php
  1. Download Visual Studio 2026 (it's free)
  2. Start the installer and select the "Desktop development with C++" package
  3. Install and wait for it to finish...
- 4. Open "ft2-clone\vs2026_project\ft2-clone.slnx"
+ 4. Open "vs2026_project\ft2-clone.slnx"
  5. If you're missing the Windows 10 SDK, then you need to change the Windows
     SDK version used in the project settings for both debug and release x86/x64.
- 6. Compile (make sure it's in Release mode. Also note x86/x64)
+ 6. Compile in Release mode and select x86 or x64.
+
+ The result is release\win32\Tapehead.exe or release\win64\Tapehead.exe. The
+ build automatically copies SDL2 and every required runtime asset beside it.
+
+ To create the final ZIP from the repository root, run:
+
+ powershell -NoProfile -ExecutionPolicy Bypass -File `
+   scripts\package-windows-portable.ps1 -Architecture x64
+
+ The archive is written to dist\Tapehead-Windows-x64.zip. An end user only
+ needs to extract that archive and double-click Tapehead.exe; Visual Studio is
+ not required to run it.
 
 
 == COMPILING ON MAC OS X 10.15 OR NEWER ==
  1. Download and install the "Command Line Tools" XCode package (google it)
  2. Download the SDL 2 framework at https://www.libsdl.org
  3. Inside the package, copy SDL2.framework to /Library/Frameworks/
- 4. Compile the FT2 clone:      (folder: "ft2-clone")
+ 4. Compile Tapehead:
     chmod +x make-macos.sh      (only needed once)
-   ./make-macos.sh
+    ./make-macos.sh

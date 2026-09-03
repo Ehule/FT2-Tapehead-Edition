@@ -21,8 +21,8 @@
   <PropertyGroup Label="Globals">
     <VCProjectVersion>18.0</VCProjectVersion>
     <ProjectGuid>{6C633792-F87D-4F1C-AB02-C25202FFEDE6}</ProjectGuid>
-    <RootNamespace>ft2-clone</RootNamespace>
-    <ProjectName>ft2-clone</ProjectName>
+    <RootNamespace>Tapehead</RootNamespace>
+    <ProjectName>Tapehead</ProjectName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
@@ -66,12 +66,12 @@
     <IncludePath>sdl\include;$(VCInstallDir)include;$(IncludePath)</IncludePath>
     <OutDir>..\..\release\win32\</OutDir>
     <LinkIncremental>false</LinkIncremental>
-    <TargetName>ft2-clone-win32</TargetName>
+    <TargetName>Tapehead</TargetName>
     <CodeAnalysisRuleSet>AllRules.ruleset</CodeAnalysisRuleSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
-    <TargetName>ft2-clone-win64</TargetName>
+    <TargetName>Tapehead</TargetName>
     <CodeAnalysisRuleSet>AllRules.ruleset</CodeAnalysisRuleSet>
     <LibraryPath>sdl\lib64;$(VCInstallDir)lib;$(LibraryPath)</LibraryPath>
     <IncludePath>sdl\include;$(VCInstallDir)include;$(IncludePath)</IncludePath>
@@ -129,7 +129,10 @@
       <FixedBaseAddress>false</FixedBaseAddress>
       <AdditionalManifestDependencies>"type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'";%(AdditionalManifestDependencies)</AdditionalManifestDependencies>
     </Link>
-    <PostBuildEvent />
+    <PostBuildEvent>
+      <Message>Staging Tapehead portable runtime files</Message>
+      <Command>powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(ProjectDir)..\..\scripts\stage-windows-portable.ps1" -Architecture win32 -Destination "$(TargetDir)."</Command>
+    </PostBuildEvent>
     <Manifest />
     <Manifest>
       <EnableDpiAwareness>PerMonitorHighDPIAware</EnableDpiAwareness>
@@ -185,10 +188,8 @@
       <AdditionalManifestDependencies>"type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'";%(AdditionalManifestDependencies)</AdditionalManifestDependencies>
     </Link>
     <PostBuildEvent>
-      <Message>
-      </Message>
-      <Command>
-      </Command>
+      <Message>Staging Tapehead portable runtime files</Message>
+      <Command>powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(ProjectDir)..\..\scripts\stage-windows-portable.ps1" -Architecture x64 -Destination "$(TargetDir)."</Command>
     </PostBuildEvent>
     <Manifest />
     <ResourceCompile />
@@ -508,9 +509,7 @@
     <ClInclude Include="..\..\src\smploaders\minivorbis.h" />
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="..\..\src\ft2-clone.rc">
-      <PreprocessorDefinitions Condition="Exists('$(ProjectDir)..\..\src\gfxdata\icon\tapehead\tapehead.ico')">TAPEHEAD_ICON_AVAILABLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-    </ResourceCompile>
+    <ResourceCompile Include="..\..\src\ft2-clone.rc" />
   </ItemGroup>
   <ItemGroup>
     <TapeheadRuntimeAsset Include="$(ProjectDir)..\..\release\other\FT2.CFG" />

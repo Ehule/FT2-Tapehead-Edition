@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Tapehead
+GenericName=Tracker and performance instrument
+Comment=FastTracker II-based composition and performance instrument
+Exec=Tapehead
+Icon=tapehead
+Terminal=false
+StartupNotify=false
+Categories=AudioVideo;Audio;AudioVideoEditing;Sequencer;

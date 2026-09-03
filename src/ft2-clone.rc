@@ -2,7 +2,7 @@
 #include "ft2_header.h" // PROG_VER_STR
 
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION     1,0,0,0
+FILEVERSION     2,21,0,0
 FILETYPE        VFT_APP
 
 BEGIN
@@ -10,17 +10,12 @@ BEGIN
 	BEGIN
 		BLOCK "040904b0"
 		BEGIN
-			VALUE "FileDescription",  "Fasttracker II clone for Windows"
-			VALUE "ProductName",      "Fasttracker II clone"
+			VALUE "FileDescription",  "Tapehead tracker and performance instrument"
+			VALUE "ProductName",      "Tapehead"
 			VALUE "ProductVersion",   PROG_VER_STR
-#ifdef _WIN64
-			VALUE "InternalName",     "ft2-clone-win64"
-			VALUE "OriginalFilename", "ft2-clone-win64.exe"
-#else
-			VALUE "InternalName",     "ft2-clone-win32"
-			VALUE "OriginalFilename", "ft2-clone-win32.exe"
-#endif
-			VALUE "LegalCopyright",   "Copyright © Olav ""8bitbubsy"" Sørensen"
+			VALUE "InternalName",     "Tapehead"
+			VALUE "OriginalFilename", "Tapehead.exe"
+			VALUE "LegalCopyright",   "Copyright (c) Olav ""8bitbubsy"" Sorensen"
 		END
 	END
 
@@ -30,8 +25,4 @@ BEGIN
 	END
 END
 
-#ifdef TAPEHEAD_ICON_AVAILABLE
 IDI_MAIN_ICON ICON "gfxdata\\icon\\tapehead\\tapehead.ico"
-#else
-IDI_MAIN_ICON ICON "gfxdata\\icon\\ft2-clone.ico"
-#endif
