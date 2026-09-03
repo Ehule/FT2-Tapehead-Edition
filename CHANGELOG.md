@@ -9,6 +9,25 @@ milestones and may contain limitations or planned work that later entries
 supersede. See [`docs/README.md`](docs/README.md) for the current documentation
 map.
 
+## Tapehead identity and portable packaging — 2026-09-03
+
+- Renamed the Linux, Windows, CMake, Visual Studio, desktop, MIDI-port, window,
+  crash-dialog, and exported-file identity from ft2-clone to Tapehead while
+  retaining upstream attribution and compatibility-sensitive source paths.
+- Made Visual Studio release builds stage a complete portable folder and added
+  a PowerShell packager that produces `Tapehead-Windows-x64.zip` or the x86
+  equivalent with SDL2, settings, palettes, visual assets, licenses, and
+  first-run guidance included.
+- Reworked the Linux AppImage around a writable `Tapehead-data` sidecar folder,
+  preventing the read-only AppImage mount from trapping `FT2.CFG` and the other
+  mutable runtime files.
+- Removed CPU-specific `-march=native` flags from ordinary Linux builds so the
+  resulting executable is not tied to the processor that compiled it.
+- Removed the obsolete embedded TapeSister prototype. Tapehead's current
+  `src/ft2_tapesister_*` exchange implementation remains intact.
+- Removed tracked compiled binaries, machine-specific audio/MIDI selections,
+  and obsolete upstream desktop resources from the source tree.
+
 ## Focused Tapehead UX completion — 2026-09-02
 
 - Replaced the Sample Editor's opaque palette swap with a reversible 3/8

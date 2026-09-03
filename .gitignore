@@ -27,8 +27,10 @@ release/macos/ft2-clone-macos.app/Contents/MacOS/ft2-clone-macos
 
 # Local build and runtime state
 build*/
+dist/
 release/other/audiodev.ini
 release/other/mididev.ini
+release/other/Tapehead
 
 # Patch and editor leftovers
 *.orig

@@ -68,7 +68,7 @@ enum
 #define INSTR_XI_HEADER_SIZE 298
 #define MAX_SAMPLE_LEN 0x3FFFFFFF
 #define FT2_QUICK_VOLRAMP_MILLISECONDS 5
-#define PROG_NAME_STR "Fasttracker II clone"
+#define PROG_NAME_STR "Tapehead"
 
 #include "ft2_fasttracks.h"
 #include "ft2_pattern_launcher.h"
