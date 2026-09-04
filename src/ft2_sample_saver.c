@@ -19,6 +19,7 @@
 #include "ft2_gui.h"
 #include "ft2_sample_ed.h"
 #include "ft2_diskop.h"
+#include "ft2_exs_manifest.h"
 #include "ft2_mouse.h"
 #include "ft2_structs.h"
 
@@ -692,6 +693,9 @@ static void exsSampleFilename(int32_t instrNum, int32_t sampleNum,
 {
 	char name[64];
 	exsSafeName(smp->name, name, sizeof (name), "Unnamed");
+	exsStripKnownSampleExtension(name);
+	if (name[0] == '\0')
+		strcpy(name, "Unnamed");
 	snprintf(dst, dstSize, "I%02d_S%02d_%s.wav", instrNum, sampleNum, name);
 }
 

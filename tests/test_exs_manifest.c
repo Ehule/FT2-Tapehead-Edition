@@ -86,6 +86,25 @@ static void testUnsafePaths(void)
 	assert(!exsManifestRelativePathIsSafe("instrument//I01.wav"));
 }
 
+static void testSampleExtensionNormalization(void)
+{
+	char wav[] = "terra01.wav";
+	exsStripKnownSampleExtension(wav);
+	assert(!strcmp(wav, "terra01"));
+
+	char upper[] = "Texture.WAV";
+	exsStripKnownSampleExtension(upper);
+	assert(!strcmp(upper, "Texture"));
+
+	char otherAudio[] = "grain.aiff";
+	exsStripKnownSampleExtension(otherAudio);
+	assert(!strcmp(otherAudio, "grain"));
+
+	char descriptiveDot[] = "take.v2";
+	exsStripKnownSampleExtension(descriptiveDot);
+	assert(!strcmp(descriptiveDot, "take.v2"));
+}
+
 static void testMalformedAndUnsafeManifests(void)
 {
 	char text[4096];
@@ -136,6 +155,7 @@ int main(void)
 {
 	testValidManifest();
 	testUnsafePaths();
+	testSampleExtensionNormalization();
 	testMalformedAndUnsafeManifests();
 	testDuplicateDestination();
 	puts("EXS manifest contract tests passed.");

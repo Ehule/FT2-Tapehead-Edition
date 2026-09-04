@@ -30,6 +30,8 @@ def main() -> None:
     ):
         require(saver, field, "EXS exporter")
 
+    require(saver, "exsStripKnownSampleExtension(name);", "EXS filename normalization")
+
     for token in (
         "SAMPLE_FOLDER_IMPORT_EXS",
         "prepareEXSSample",
@@ -49,6 +51,9 @@ def main() -> None:
 
     require(diskop, "replaceSamplesFromEXSFolder", "Disk Op")
     require(diskop, "keycode == SDLK_r && keyb.leftCtrlPressed", "Disk Op shortcut")
+    require(diskop, "_wfullpath(fullPath, strU, PATH_MAX+1)", "Windows folder deletion")
+    require(diskop, "fullPath[pathLength+1] = L'\\0';", "Windows path-list termination")
+    require(diskop, "editor.sampleSaveMode == SMP_SAVE_MODE_EXS", "EXS directory-name retention")
     require(mouse, "replaceSamplesFromEXSFolder();", "EXS mouse gesture")
     require(guide, "One **Undo**", "EXS guide")
     require(project, "ft2_exs_manifest.c", "Visual Studio project")

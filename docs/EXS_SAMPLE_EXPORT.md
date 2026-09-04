@@ -2,12 +2,14 @@
 
 EXS exports populated samples from the loaded module as uncompressed mono WAV files without normalizing, resampling, applying envelopes, or changing the module. Open Disk Op, select **Sample**, select **EXS**, choose the destination name, and press **Save**.
 
-The export dialog offers two modes:
+The filename field names the new export directory. Selecting or auditioning a
+sample while EXS mode is active does not change that directory name. The export
+dialog offers two modes:
 
 - **Used only** scans only patterns reached through the active song order list. An instrument-number event counts even without a note. Every populated sample slot in each used instrument is exported so multisample instruments remain complete.
 - **All** exports every populated sample slot in every instrument, including instruments not referenced by the song.
 
-EXS creates a numbered destination when necessary (`SongName_EXS`, `SongName_EXS_02`, and so on). A single-sample instrument is written directly in the export root so it is immediately available in the file list. Only instruments with two or more populated samples receive their own instrument folder. WAV names always begin with a stable instrument/sample identity such as `I01_S00_`; the sample slot is intentionally zero-based.
+EXS creates a numbered destination when necessary (`SongName_EXS`, `SongName_EXS_02`, and so on). A single-sample instrument is written directly in the export root so it is immediately available in the file list. Only instruments with two or more populated samples receive their own instrument folder. WAV names always begin with a stable instrument/sample identity such as `I01_S00_`; the sample slot is intentionally zero-based. A recognized source-audio extension already present in an XM sample name is removed before the single output `.wav` extension is added.
 
 `EXS_manifest.ini` records format version 1, export mode, authoritative instrument and sample indexes, original names, relative WAV paths, source precision, length, tuning, volume, panning, loop information, and original sample flags. Instrument and sample indexes—not filenames or display names—are the authoritative round-trip identities.
 

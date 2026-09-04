@@ -33,6 +33,42 @@ enum
 	SAMPLE_REQUIRED = (1 << 16) - 1
 };
 
+static bool asciiEqualIgnoreCase(const char *a, const char *b)
+{
+	while (*a != '\0' && *b != '\0')
+	{
+		if (tolower((unsigned char)*a++) != tolower((unsigned char)*b++))
+			return false;
+	}
+	return *a == '\0' && *b == '\0';
+}
+
+void exsStripKnownSampleExtension(char *name)
+{
+	static const char *extensions[] =
+	{
+		"iff", "raw", "wav", "snd", "smp", "sam", "aif", "pat",
+		"aiff", "flac", "ogg", "mp3", "brr"
+	};
+	if (name == NULL)
+		return;
+
+	char *dot = strrchr(name, '.');
+	if (dot == NULL || dot == name || dot[1] == '\0')
+		return;
+
+	for (size_t i = 0; i < sizeof (extensions) / sizeof (extensions[0]); i++)
+	{
+		if (asciiEqualIgnoreCase(dot+1, extensions[i]))
+		{
+			*dot = '\0';
+			while (dot > name && (dot[-1] == ' ' || dot[-1] == '.'))
+				*--dot = '\0';
+			return;
+		}
+	}
+}
+
 static void setError(char *error, size_t errorSize, const char *format, ...)
 {
 	if (error == NULL || errorSize == 0)

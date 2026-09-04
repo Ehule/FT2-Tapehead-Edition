@@ -45,3 +45,4 @@ void exsManifestFree(exsManifest_t *manifest);
 bool exsManifestParse(FILE *file, exsManifest_t *manifest, char *error,
 	size_t errorSize);
 bool exsManifestRelativePathIsSafe(const char *path);
+void exsStripKnownSampleExtension(char *name);

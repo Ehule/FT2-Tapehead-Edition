@@ -11,6 +11,13 @@ map.
 
 ## EXS extraction and round-trip replacement — 2026-09-04
 
+- Kept the EXS destination field independent from sample audition selections,
+  removed recognized source-audio extensions before adding the exported WAV
+  extension, and repaired populated-folder deletion on Windows by supplying
+  the Shell API with its required absolute double-NUL-terminated path list.
+- Clarified the EXS choice dialog: **Used only** means every populated sample
+  from song-referenced instruments, while **All** means every populated sample
+  in the module.
 - Completed EXS as a two-way, DAW-agnostic sample workflow: export an XM's
   populated samples and replace them later from the same manifest folder with
   `Ctrl+R` or a right-click on Disk Op's **EXS** row.
