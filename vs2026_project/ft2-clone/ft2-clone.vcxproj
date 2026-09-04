@@ -312,6 +312,7 @@
     <ClCompile Include="..\..\src\ft2_diskop.c" />
     <ClCompile Include="..\..\src\ft2_diskop_browser.c" />
     <ClCompile Include="..\..\src\ft2_diskop_preview.c" />
+    <ClCompile Include="..\..\src\ft2_exs_manifest.c" />
     <ClCompile Include="..\..\src\ft2_edit.c" />
     <ClCompile Include="..\..\src\ft2_events.c" />
     <ClCompile Include="..\..\src\ft2_fasttracks.c" />
@@ -434,6 +435,7 @@
     <ClInclude Include="..\..\src\ft2_diskop.h" />
     <ClInclude Include="..\..\src\ft2_diskop_browser.h" />
     <ClInclude Include="..\..\src\ft2_diskop_preview.h" />
+    <ClInclude Include="..\..\src\ft2_exs_manifest.h" />
     <ClInclude Include="..\..\src\ft2_edit.h" />
     <ClInclude Include="..\..\src\ft2_events.h" />
     <ClInclude Include="..\..\src\ft2_gfxdata.h" />

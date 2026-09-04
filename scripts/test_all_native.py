@@ -23,6 +23,8 @@ TEST_SCRIPTS = (
 	"test_baker_timeline_planner.py",
 	"test_baker_adaptive_xm.py",
 	"test_baker_adaptive_patterns.py",
+	"test_exs_manifest.py",
+	"test_exs_roundtrip_wiring.py",
 	"test_tapesister_protocol.py",
 	"test_tapesister_render.py",
 	"test_block_loop_capture.py",

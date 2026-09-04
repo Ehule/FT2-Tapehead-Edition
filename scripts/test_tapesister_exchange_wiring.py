@@ -117,7 +117,7 @@ def main() -> None:
             "decodeFolderSample(", "commitTapeSisterExchange(")
     decode = loader[loader.index("static bool decodeFolderSample"):loader.index("static void freeDecodedFolderSamples")]
     assert "requireWav && format != FORMAT_WAV" in decode
-    commit = loader[loader.index("static bool commitTapeSisterExchange"):loader.index("static instr_t *makeLauncherBankInstrument")]
+    commit = loader[loader.index("static bool commitTapeSisterExchange"):loader.index("static bool prepareEXSSample")]
     ordered(commit, "findOrCreateExchangeInstrument(",
             'undoTransactionBegin("Import TapeSister Transfer")',
             "undoTransactionAddInstrument(",

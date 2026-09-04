@@ -9,6 +9,26 @@ milestones and may contain limitations or planned work that later entries
 supersede. See [`docs/README.md`](docs/README.md) for the current documentation
 map.
 
+## EXS extraction and round-trip replacement — 2026-09-04
+
+- Completed EXS as a two-way, DAW-agnostic sample workflow: export an XM's
+  populated samples and replace them later from the same manifest folder with
+  `Ctrl+R` or a right-click on Disk Op's **EXS** row.
+- Added a strict version-1 manifest parser with authoritative instrument/sample
+  identities, duplicate detection, bounded values, and relative-path traversal
+  rejection.
+- Decode and validate every manifest WAV before confirmation, show exact
+  destination slots and old/new frame lengths, and preserve all unlisted
+  instruments, samples, note maps, envelopes, and instrument settings.
+- Apply every accepted replacement as one preflighted Undo transaction under
+  the mixer lock. Cancellation, bad/missing audio, allocation failure, or an
+  import beyond the Undo memory limit leaves the module unchanged.
+- Restore XM names, default volume/panning, and valid original loops while
+  adopting edited WAV precision and sample-rate tuning. Loops that no longer
+  fit are explicitly warned about and disabled rather than clamped.
+- Added portable parser contract tests and wired the new source into CMake's
+  source glob, the Visual Studio project, and the complete native test runner.
+
 ## Render tracker audio to TapeSister — 2026-09-04
 
 - Added seam-quantized Block Loop performance capture on plain `F7`. The first

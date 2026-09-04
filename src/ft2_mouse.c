@@ -908,6 +908,17 @@ void mouseButtonDownHandler(uint8_t mouseButton)
 	if (handleControlTrackHeaderClick(mouseButton)) return;
 	if (handleFastTracksHeaderRightClick(mouseButton)) return;
 
+	/* EXS is a two-way file workflow: left-click selects export as before;
+	** right-click its format row replaces the manifest's exact slots from the
+	** WAV files in the currently open EXS folder. */
+	if (mouseButton == SDL_BUTTON_RIGHT && ui.diskOpShown &&
+		getDiskOpItem() == DISKOP_ITEM_SAMPLE && tapeheadConfig.sampleExportEXS &&
+		mouse.x >= 4 && mouse.x < 44 && mouse.y >= 114 && mouse.y < 128)
+	{
+		replaceSamplesFromEXSFolder();
+		return;
+	}
+
 	/* Tapehead Edition: Shift-click the Disk Op. Sample selector to import
 	** supported samples from the current folder or its complete subtree.
 	** Ctrl+Shift sends the chosen scope directly to the Sample Matrix.

@@ -5,6 +5,7 @@
 #include "ft2_header.h"
 #include "ft2_unicode.h"
 #include "ft2_tapesister_protocol.h"
+#include "ft2_exs_manifest.h"
 
 enum
 {
@@ -33,7 +34,8 @@ enum
 	SAMPLE_FOLDER_IMPORT_CURRENT_INSTRUMENT = 1,
 	SAMPLE_FOLDER_IMPORT_LAUNCHER = 2,
 	SAMPLE_FOLDER_IMPORT_MATRIX_OPEN = 3,
-	SAMPLE_FOLDER_IMPORT_TAPESISTER = 4
+	SAMPLE_FOLDER_IMPORT_TAPESISTER = 4,
+	SAMPLE_FOLDER_IMPORT_EXS = 5
 };
 
 bool loadSampleFolder(const UNICHAR *folderPathU, const UNICHAR *const *fileNamesU,
@@ -48,6 +50,8 @@ bool sampleLoaderIsBusy(void);
 bool loadTapeSisterExchange(const UNICHAR *folderPathU,
 	const tapeheadExchangeOffer_t *offer,
 	const tapeheadExchangeDestination_t *destinations);
+bool loadEXSRoundTrip(const UNICHAR *folderPathU,
+	const exsManifest_t *manifest);
 
 // globals for sample loaders
 extern bool loadAsInstrFlag, smpFilenameSet;

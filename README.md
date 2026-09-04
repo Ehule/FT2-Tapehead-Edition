@@ -100,6 +100,17 @@ TapeSister-only colors on every save, and provides 19 TapeSister eyedropper
 swatches beside its 20-color selector. See
 the [universal palette guide](docs/UNIVERSAL_PALETTE.md).
 
+### EXS sample round trip
+
+Disk Op's **Sample → EXS → Save** extracts either used instruments or every
+populated XM sample into ordinary WAV files plus `EXS_manifest.ini`. Process
+those WAVs in REAPER, TapeSister, or any other editor while retaining their
+relative paths. Then open the export root in Sample Disk Op and press
+**Ctrl+R** (or right-click the **EXS** row) to preview and atomically replace
+the manifest's exact instrument/sample slots. Every WAV is decoded before the
+confirmation, unlisted slots remain untouched, and one Undo reverses the
+entire accepted import. See the [EXS round-trip guide](docs/EXS_SAMPLE_EXPORT.md).
+
 ## First run
 
 The example configuration is [`release/other/tapehead.ini`](release/other/tapehead.ini).
