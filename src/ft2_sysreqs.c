@@ -29,7 +29,7 @@ void (*loaderMsgBox)(const char *, ...);
 int16_t (*loaderSysReq)(int16_t, const char *, const char *, void (*)(void));
 // ----------------
 
-#define NUM_SYSREQ_TYPES 20
+#define NUM_SYSREQ_TYPES 21
 
 #define MAX_PUSHBUTTONS 5
 static char *buttonText[NUM_SYSREQ_TYPES][MAX_PUSHBUTTONS] =
@@ -56,7 +56,8 @@ static char *buttonText[NUM_SYSREQ_TYPES][MAX_PUSHBUTTONS] =
 	{ "Import/Replace", "Later", "", "", "" },
 	{ "Import", "Later", "", "", "" },
 	{ "Current instr.", "Instr. range", "Cancel", "", "" },
-	{ "Pattern mix", "Pattern track", "Song track", "Song mix", "Cancel" }
+	{ "Block", "Pattern mix", "Pattern track", "Song track", "Song mix" },
+	{ "Capture WAV", "TapeSister", "Cancel", "", "" }
 };
 
 static SDL_Keycode shortCut[NUM_SYSREQ_TYPES][5] =
@@ -83,7 +84,8 @@ static SDL_Keycode shortCut[NUM_SYSREQ_TYPES][5] =
 	{ SDLK_i, SDLK_l, 0, 0, 0 },
 	{ SDLK_i, SDLK_l, 0, 0, 0 },
 	{ SDLK_c, SDLK_r, SDLK_ESCAPE, 0, 0 },
-	{ SDLK_p, SDLK_t, SDLK_s, SDLK_m, SDLK_ESCAPE }
+	{ SDLK_b, SDLK_p, SDLK_t, SDLK_s, SDLK_m },
+	{ SDLK_c, SDLK_t, SDLK_ESCAPE, 0, 0 }
 };
 
 typedef struct quitType_t

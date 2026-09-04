@@ -20,6 +20,7 @@ enum
 #define SYSREQ_TYPE_TAPESISTER_IMPORT 17
 #define SYSREQ_TYPE_TAPESISTER_SEND_MENU 18
 #define SYSREQ_TYPE_TAPESISTER_RENDER_MENU 19
+#define SYSREQ_TYPE_RENDER_DESTINATION 20
 
 // for thread-safe version of okBox()
 typedef struct okBoxData_t

@@ -303,6 +303,13 @@ typedef struct song_t
 	uint64_t playbackSecondsFrac;
 } song_t;
 
+typedef struct tapeheadBlockLoopSpec_t
+{
+	uint16_t pattern, rowStart, rowEnd;
+	uint8_t channelStart, channelEnd;
+	uint16_t initialBPM, initialSpeed;
+} tapeheadBlockLoopSpec_t;
+
 int32_t getSampleC4Hz(sample_t *s);
 void setSampleC4Hz(sample_t *s, double dC4Hz);
 
@@ -338,6 +345,19 @@ void resetMusic(void);
 void startPlaying(int8_t mode, int16_t row);
 void stopPlaying(void);
 void stopPlayingKeepPoly(void);
+bool tapeheadBlockLoopSpecInit(tapeheadBlockLoopSpec_t *spec,
+	uint16_t patternNumber, uint16_t patternRows, int16_t rowStart,
+	int16_t rowEnd, int16_t channelStart, int16_t channelEnd,
+	int32_t channelCount, uint16_t bpm, uint16_t speed);
+bool tapeheadBlockLoopStartSelection(void);
+bool tapeheadBlockLoopStart(const tapeheadBlockLoopSpec_t *spec);
+bool tapeheadBlockLoopBeginOffline(const tapeheadBlockLoopSpec_t *spec);
+void tapeheadBlockLoopStop(void);
+bool tapeheadBlockLoopIsActive(void);
+bool tapeheadBlockLoopIsOffline(void);
+bool tapeheadBlockLoopCycleCompleted(void);
+bool tapeheadBlockLoopResize(int32_t rowDelta, int32_t channelDelta);
+bool tapeheadBlockLoopGetSelection(tapeheadBlockLoopSpec_t *spec);
 void handleRecPlusExhaustion(void);
 void stopVoices(void);
 void setSongPos(int16_t songPos, int16_t row, bool resetTick);

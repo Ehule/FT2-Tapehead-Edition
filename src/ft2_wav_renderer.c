@@ -48,6 +48,8 @@ static SDL_atomic_t renderThreadActive;
 static int16_t wavRenderSoloChannel = -1;
 static wavRenderCompletionCallback wavRenderCompletion;
 static void *wavRenderCompletionUserdata;
+static bool wavRenderBlockEnabled;
+static tapeheadBlockLoopSpec_t wavRenderBlockSpec;
 
 uint32_t getWavRenderFrequency(void)
 {
@@ -224,6 +226,14 @@ static bool dump_Init(uint32_t frq, int16_t amp, int16_t songPos,
 	songPlaying = true;
 
 	resetChannels();
+	if (wavRenderBlockEnabled &&
+		!tapeheadBlockLoopBeginOffline(&wavRenderBlockSpec))
+	{
+		free(wavRenderBuffer);
+		wavRenderBuffer = NULL;
+		editor.wavIsRendering = false;
+		return false;
+	}
 	setNewAudioFreq(frq);
 	setAudioAmp(amp, config.masterVol, (bitDepth == 32));
 
@@ -377,6 +387,7 @@ static int32_t renderWavThread(void *ptr)
 		wavRenderSoloChannel = -1;
 		wavRenderCompletion = NULL;
 		wavRenderCompletionUserdata = NULL;
+		wavRenderBlockEnabled = false;
 		if (completion != NULL)
 			completion(false, 0, completionUserdata);
 		else
@@ -411,6 +422,7 @@ static int32_t renderWavThread(void *ptr)
 		wavRenderSoloChannel = -1;
 		wavRenderCompletion = NULL;
 		wavRenderCompletionUserdata = NULL;
+		wavRenderBlockEnabled = false;
 		if (completion != NULL)
 			completion(false, 0, completionUserdata);
 		else
@@ -448,7 +460,8 @@ static int32_t renderWavThread(void *ptr)
 				renderDone = true;
 				break;
 			}
-			if (dump_EndOfTune(stopPosition))
+			if (wavRenderBlockEnabled ? tapeheadBlockLoopCycleCompleted() :
+				dump_EndOfTune(stopPosition))
 			{
 				renderDone = true;
 				break;
@@ -539,6 +552,7 @@ static int32_t renderWavThread(void *ptr)
 	wavRenderSoloChannel = -1;
 	wavRenderCompletion = NULL;
 	wavRenderCompletionUserdata = NULL;
+	wavRenderBlockEnabled = false;
 	if (completion != NULL)
 		completion(success, renderedFrames, completionUserdata);
 	SDL_AtomicSet(&renderThreadActive, false);
@@ -802,6 +816,7 @@ bool startWavRenderToFile(FILE *file, uint8_t startPosition,
 	wavRenderSoloChannel = soloChannel;
 	wavRenderCompletion = callback;
 	wavRenderCompletionUserdata = userdata;
+	wavRenderBlockEnabled = false;
 
 	mouseAnimOn();
 	SDL_Thread *renderThread = SDL_CreateThread(renderWavThread,
@@ -812,6 +827,54 @@ bool startWavRenderToFile(FILE *file, uint8_t startPosition,
 		wavRenderSoloChannel = -1;
 		wavRenderCompletion = NULL;
 		wavRenderCompletionUserdata = NULL;
+		setMouseBusy(false);
+		SDL_AtomicSet(&renderThreadActive, false);
+		return false;
+	}
+
+	SDL_DetachThread(renderThread);
+	return true;
+}
+
+bool startWavBlockRenderToFile(FILE *file,
+	const tapeheadBlockLoopSpec_t *spec,
+	wavRenderCompletionCallback callback, void *userdata)
+{
+	if (file == NULL || spec == NULL || editor.wavIsRendering ||
+		spec->pattern >= MAX_PATTERNS)
+	{
+		return false;
+	}
+	tapeheadBlockLoopSpec_t checkedSpec;
+	if (!tapeheadBlockLoopSpecInit(&checkedSpec, spec->pattern,
+		patternNumRows[spec->pattern], spec->rowStart, spec->rowEnd,
+		spec->channelStart, spec->channelEnd, song.numChannels,
+		spec->initialBPM, spec->initialSpeed))
+	{
+		return false;
+	}
+	if (!SDL_AtomicCAS(&renderThreadActive, false, true))
+		return false;
+
+	editor.stopWavRender = false;
+	editor.wavRendererFileHandle = file;
+	WDStartPos = (uint8_t)CLAMP(editor.songPos, 0, song.songLength - 1);
+	WDStopPos = WDStartPos;
+	wavRenderSoloChannel = -1;
+	wavRenderCompletion = callback;
+	wavRenderCompletionUserdata = userdata;
+	wavRenderBlockSpec = *spec;
+	wavRenderBlockEnabled = true;
+
+	mouseAnimOn();
+	SDL_Thread *renderThread = SDL_CreateThread(renderWavThread,
+		"Block WAV render thread", NULL);
+	if (renderThread == NULL)
+	{
+		editor.wavRendererFileHandle = NULL;
+		wavRenderCompletion = NULL;
+		wavRenderCompletionUserdata = NULL;
+		wavRenderBlockEnabled = false;
 		setMouseBusy(false);
 		SDL_AtomicSet(&renderThreadActive, false);
 		return false;

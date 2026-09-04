@@ -34,6 +34,7 @@
 #include "ft2_pattern_draw.h"
 #include "ft2_pattern_launcher_ui.h"
 #include "ft2_tapehead_actions.h"
+#include "ft2_capture.h"
 
 keyb_t keyb; // globalized
 
@@ -258,6 +259,37 @@ void keyDownHandler(SDL_Scancode scancode, SDL_Keycode keycode, SDL_Keymod modif
 		if (!keyWasRepeated)
 			(void)tapeheadActionTransportPunchKeyboardToggle();
 		return;
+	}
+
+	/* Ctrl+L owns the literal block transport. Shift+Arrow then moves the
+	** selection's live corner; the revised rectangle is committed at the next
+	** loop seam so the cycle currently being heard is never torn in half. */
+	if (keycode == SDLK_l && keyb.leftCtrlPressed &&
+		!keyb.leftShiftPressed && !keyb.leftAltPressed)
+	{
+		if (!keyWasRepeated)
+		{
+			if (tapeheadBlockLoopIsActive())
+				tapeheadBlockLoopStop();
+			else if (!tapeheadBlockLoopStartSelection())
+				showErrorMsgBox("Select a non-empty Pattern Editor block first.");
+		}
+		return;
+	}
+
+	if (tapeheadBlockLoopIsActive() && keyb.leftShiftPressed &&
+		!keyb.leftCtrlPressed && !keyb.leftAltPressed)
+	{
+		int32_t rowDelta = 0, channelDelta = 0;
+		if (keycode == SDLK_UP) rowDelta = -1;
+		else if (keycode == SDLK_DOWN) rowDelta = 1;
+		else if (keycode == SDLK_LEFT) channelDelta = -1;
+		else if (keycode == SDLK_RIGHT) channelDelta = 1;
+		if (rowDelta != 0 || channelDelta != 0)
+		{
+			(void)tapeheadBlockLoopResize(rowDelta, channelDelta);
+			return;
+		}
 	}
 
 	if (keycode == SDLK_ESCAPE)
@@ -697,6 +729,16 @@ static void handleKeys(SDL_Keycode keycode, SDL_Scancode scanKey, bool keyWasRep
 			     if (keyb.leftShiftPressed) trackTranspCurInsUp();
 			else if (keyb.leftCtrlPressed)  pattTranspCurInsUp();
 			else if (keyb.leftAltPressed)   blockTranspCurInsUp();
+			else if (tapeheadBlockLoopIsActive())
+			{
+				if (!keyWasRepeated)
+				{
+					if (tapeheadCaptureQuickBlock())
+						showRecPlusOverlay("CAPTURING BLOCK");
+					else
+						showErrorMsgBox("Couldn't start the block capture.");
+				}
+			}
 			else if (tapeheadConfig.f8ExtractBlock)
 			{
 				if (!keyWasRepeated)

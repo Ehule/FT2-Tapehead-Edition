@@ -6,6 +6,7 @@ const char *tapeheadRenderScopeName(tapeheadRenderScope_t scope)
 {
 	switch (scope)
 	{
+		case TAPEHEAD_RENDER_BLOCK: return "block";
 		case TAPEHEAD_RENDER_PATTERN_MIX: return "pattern_mix";
 		case TAPEHEAD_RENDER_PATTERN_TRACK: return "pattern_track";
 		case TAPEHEAD_RENDER_SONG_TRACK: return "song_track";
@@ -18,6 +19,7 @@ const char *tapeheadRenderScopeLabel(tapeheadRenderScope_t scope)
 {
 	switch (scope)
 	{
+		case TAPEHEAD_RENDER_BLOCK: return "Selected block";
 		case TAPEHEAD_RENDER_PATTERN_MIX: return "Current pattern mix";
 		case TAPEHEAD_RENDER_PATTERN_TRACK: return "Current pattern track";
 		case TAPEHEAD_RENDER_SONG_TRACK: return "Full-song track";
@@ -32,7 +34,8 @@ bool tapeheadRenderPlanInit(tapeheadRenderPlan_t *plan,
 	uint16_t initialBPM, uint16_t initialSpeed, uint32_t sampleRate,
 	uint8_t bitDepth)
 {
-	if (plan == NULL || scope < 0 || scope >= TAPEHEAD_RENDER_SCOPE_COUNT ||
+	if (plan == NULL || scope <= TAPEHEAD_RENDER_BLOCK ||
+		scope >= TAPEHEAD_RENDER_SCOPE_COUNT ||
 		songLength == 0 || songLength > 256 || songPosition >= songLength ||
 		pattern > 255 || sourceChannels == 0 || sourceChannels > 255 ||
 		track >= sourceChannels || sampleRate == 0 ||
@@ -51,6 +54,8 @@ bool tapeheadRenderPlanInit(tapeheadRenderPlan_t *plan,
 	plan->pattern = (scope == TAPEHEAD_RENDER_PATTERN_MIX ||
 		scope == TAPEHEAD_RENDER_PATTERN_TRACK) ? (int16_t)pattern : -1;
 	plan->sourceChannels = (uint8_t)sourceChannels;
+	plan->rowStart = plan->rowEnd = -1;
+	plan->channelStart = plan->channelEnd = -1;
 	plan->soloChannel = (scope == TAPEHEAD_RENDER_PATTERN_TRACK ||
 		scope == TAPEHEAD_RENDER_SONG_TRACK) ? (int16_t)track : -1;
 	plan->initialBPM = initialBPM;
@@ -85,6 +90,40 @@ bool tapeheadRenderPlanInit(tapeheadRenderPlan_t *plan,
 	return written > 0 && (size_t)written < sizeof (plan->filename);
 }
 
+bool tapeheadRenderBlockPlanInit(tapeheadRenderPlan_t *plan,
+	const tapeheadBlockLoopSpec_t *spec, uint16_t sourceChannels,
+	uint32_t sampleRate, uint8_t bitDepth)
+{
+	if (plan == NULL || spec == NULL || spec->pattern > 255 ||
+		spec->rowEnd <= spec->rowStart ||
+		spec->channelEnd < spec->channelStart || sourceChannels == 0 ||
+		sourceChannels > 255 || spec->channelEnd >= sourceChannels ||
+		sampleRate == 0 || (bitDepth != 16 && bitDepth != 32))
+	{
+		return false;
+	}
+
+	memset(plan, 0, sizeof (*plan));
+	plan->scope = TAPEHEAD_RENDER_BLOCK;
+	plan->pattern = (int16_t)spec->pattern;
+	plan->soloChannel = -1;
+	plan->rowStart = (int16_t)spec->rowStart;
+	plan->rowEnd = (int16_t)spec->rowEnd;
+	plan->channelStart = (int16_t)spec->channelStart;
+	plan->channelEnd = (int16_t)spec->channelEnd;
+	plan->sourceChannels = (uint8_t)sourceChannels;
+	plan->initialBPM = spec->initialBPM;
+	plan->initialSpeed = spec->initialSpeed;
+	plan->sampleRate = sampleRate;
+	plan->bitDepth = bitDepth;
+	const int written = snprintf(plan->filename, sizeof (plan->filename),
+		"Block_P%02X_R%03u-%03u_T%02u-%02u.wav",
+		(unsigned int)spec->pattern, (unsigned int)spec->rowStart,
+		(unsigned int)spec->rowEnd - 1, (unsigned int)spec->channelStart + 1,
+		(unsigned int)spec->channelEnd + 1);
+	return written > 0 && (size_t)written < sizeof (plan->filename);
+}
+
 bool tapeheadRenderWriteMetadata(FILE *file,
 	const tapeheadRenderPlan_t *plan, uint64_t renderedFrames)
 {
@@ -105,6 +144,10 @@ bool tapeheadRenderWriteMetadata(FILE *file,
 		"order_end=%u\n"
 		"pattern=%d\n"
 		"track=%u\n"
+		"row_start=%d\n"
+		"row_end=%d\n"
+		"channel_start=%d\n"
+		"channel_end=%d\n"
 		"source_channels=%u\n"
 		"output_channels=2\n"
 		"sample_rate=%u\n"
@@ -117,6 +160,10 @@ bool tapeheadRenderWriteMetadata(FILE *file,
 		(unsigned int)plan->startOrder, (unsigned int)plan->stopOrder,
 		plan->pattern,
 		plan->soloChannel >= 0 ? (unsigned int)plan->soloChannel + 1 : 0,
+		plan->rowStart,
+		plan->rowEnd >= 0 ? plan->rowEnd - 1 : -1,
+		plan->channelStart >= 0 ? plan->channelStart + 1 : -1,
+		plan->channelEnd >= 0 ? plan->channelEnd + 1 : -1,
 		(unsigned int)plan->sourceChannels, plan->sampleRate,
 		(unsigned int)plan->bitDepth, (unsigned int)plan->initialBPM,
 		(unsigned int)plan->initialSpeed,

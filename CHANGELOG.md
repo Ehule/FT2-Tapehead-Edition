@@ -11,6 +11,17 @@ map.
 
 ## Render tracker audio to TapeSister — 2026-09-04
 
+- Added a literal **Block Loop** (`Ctrl+L`) that auditions only the selected
+  rows and channels, keeps global timing commands active, ignores FastTracks
+  and pattern-flow commands, and accepts live `Shift`+arrow boundary edits at
+  the next loop seam.
+- Added one-key block capture with plain `F8` while Block Loop is active. It
+  renders exactly one loop cycle, resumes auditioning, and writes a
+  collision-safe WAV to an automatically created local `Captures` folder.
+- Expanded Instrument Editor **Render audio** to export a block, pattern mix,
+  pattern track, song track, or song mix either as an ordinary local WAV or as
+  an explicit TapeSister exchange offer. Local capture no longer requires a
+  configured TapeSister exchange path.
 - Added atomic TapeSister transfers for the current-order pattern mix,
   current-order selected track, full-song selected track, and full-song mix.
 - Reused Tapehead's offline WAV engine through a completion-aware file target;

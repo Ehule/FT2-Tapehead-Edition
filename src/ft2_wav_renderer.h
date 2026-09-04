@@ -37,3 +37,6 @@ uint8_t getWavRenderBitDepth(void);
 bool startWavRenderToFile(FILE *file, uint8_t startPosition,
 	uint8_t stopPosition, int16_t soloChannel,
 	wavRenderCompletionCallback callback, void *userdata);
+bool startWavBlockRenderToFile(FILE *file,
+	const tapeheadBlockLoopSpec_t *spec,
+	wavRenderCompletionCallback callback, void *userdata);

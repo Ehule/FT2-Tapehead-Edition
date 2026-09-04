@@ -53,6 +53,7 @@
     <ClCompile Include="..\..\src\ft2_tapesister_exchange.c" />
     <ClCompile Include="..\..\src\ft2_tapesister_protocol.c" />
     <ClCompile Include="..\..\src\ft2_tapesister_render.c" />
+    <ClCompile Include="..\..\src\ft2_capture.c" />
     <ClCompile Include="..\..\src\ft2_sampling.c" />
     <ClCompile Include="..\..\src\ft2_scrollbars.c" />
     <ClCompile Include="..\..\src\ft2_structs.c" />
@@ -338,6 +339,9 @@
       <Filter>headers</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\ft2_tapesister_render.h">
+      <Filter>headers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\ft2_capture.h">
       <Filter>headers</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\ft2_wav_metadata.h">

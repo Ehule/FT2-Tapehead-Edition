@@ -31,6 +31,8 @@
 #include "ft2_tapesister_render.h"
 #include "ft2_unicode.h"
 #include "ft2_wav_renderer.h"
+#include "ft2_capture.h"
+#include "ft2_pattern_ed.h"
 
 /* Leave room for a child name and Win32's extended-path prefix beyond the
 ** longest configured root/executable value. */
@@ -56,10 +58,11 @@ typedef struct exchangeSource_t
 typedef struct exchangeRenderJob_t
 {
 	tapeheadRenderPlan_t plan;
+	tapeheadBlockLoopSpec_t blockSpec;
 	UNICHAR partialFolder[EXCHANGE_RUNTIME_PATH_CAPACITY];
 	UNICHAR finalFolder[EXCHANGE_RUNTIME_PATH_CAPACITY];
 	char folderName[64];
-	bool forceNewInstance;
+	bool forceNewInstance, hasBlock;
 } exchangeRenderJob_t;
 
 typedef struct inboxScanJob_t
@@ -1256,14 +1259,69 @@ static void confirmAndRender(tapeheadRenderScope_t scope)
 		return;
 	}
 
+	tapeheadBlockLoopSpec_t blockSpec;
+	const bool blockScope = scope == TAPEHEAD_RENDER_BLOCK;
+	bool validBlock = false;
+	if (blockScope)
+	{
+		const uint16_t currentSpeed = song.speed > 0 ? song.speed :
+			(song.initialSpeed > 0 ? song.initialSpeed : 6);
+		validBlock = tapeheadBlockLoopGetSelection(&blockSpec);
+		if (!validBlock)
+		{
+			validBlock = tapeheadBlockLoopSpecInit(&blockSpec,
+				editor.editPattern, patternNumRows[editor.editPattern],
+				pattMark.markY1, pattMark.markY2, pattMark.markX1,
+				pattMark.markX2, song.numChannels, song.BPM, currentSpeed);
+		}
+	}
+
 	tapeheadRenderPlan_t plan;
-	if (!tapeheadRenderPlanInit(&plan, scope, song.songLength,
-		(uint16_t)editor.songPos, song.orders[editor.songPos], cursor.ch,
-		(uint16_t)song.numChannels, song.BPM, song.speed,
-		getWavRenderFrequency(), getWavRenderBitDepth()))
+	const bool validPlan = blockScope ?
+		(validBlock && tapeheadRenderBlockPlanInit(&plan, &blockSpec,
+			(uint16_t)song.numChannels, getWavRenderFrequency(),
+			getWavRenderBitDepth())) :
+		tapeheadRenderPlanInit(&plan, scope, song.songLength,
+			(uint16_t)editor.songPos, song.orders[editor.songPos], cursor.ch,
+			(uint16_t)song.numChannels, song.BPM, song.speed,
+			getWavRenderFrequency(), getWavRenderBitDepth());
+	if (!validPlan)
 	{
 		okBox(0, "Render to TapeSister",
+			blockScope ? "Select a non-empty Pattern Editor block first." :
 			"Could not prepare the requested render.", NULL);
+		return;
+	}
+
+	const int16_t destination = okBox(SYSREQ_TYPE_RENDER_DESTINATION,
+		"Render audio",
+		"Save an ordinary WAV in Captures, or publish it into the TapeSister exchange inbox.",
+		NULL);
+	if (destination == 1)
+	{
+		char captureMessage[512];
+		snprintf(captureMessage, sizeof (captureMessage),
+			"Render: %s\nOutput: stereo, %u Hz, %u-bit\n\n"
+			"Save a uniquely numbered ordinary WAV in the Captures folder?",
+			tapeheadRenderScopeLabel(scope), plan.sampleRate,
+			(unsigned int)plan.bitDepth);
+		if (okBox(2, "Render audio", captureMessage, NULL) != 1)
+			return;
+		const bool resumeBlock = blockScope && tapeheadBlockLoopIsActive();
+		if (!tapeheadCaptureRender(&plan, blockScope ? &blockSpec : NULL,
+			resumeBlock, false))
+		{
+			okBox(0, "Render audio",
+				"Could not create the Captures folder or start the WAV render.", NULL);
+		}
+		return;
+	}
+	if (destination != 2)
+		return;
+	if (tapeheadConfig.tapeSisterExchangePath[0] == '\0')
+	{
+		okBox(0, "Render to TapeSister",
+			"Configure [TapeSister] ExchangePath in tapehead.ini first.", NULL);
 		return;
 	}
 
@@ -1279,7 +1337,19 @@ static void confirmAndRender(tapeheadRenderScope_t scope)
 			"Track: %02u\nSelected tracker track will be isolated.\n",
 			(unsigned int)plan.soloChannel + 1);
 	}
-	if (patternScope)
+	if (blockScope)
+	{
+		snprintf(message, sizeof (message),
+			"Render: %s\nPattern: %02X  Rows: %03u-%03u  Tracks: %02u-%02u\n"
+			"Output: stereo, %u Hz, %u-bit\nDestination: TapeSister tile 01\n\n"
+			"The WAV, metadata, and manifest will be published atomically.",
+			tapeheadRenderScopeLabel(scope), (unsigned int)plan.pattern,
+			(unsigned int)blockSpec.rowStart, (unsigned int)blockSpec.rowEnd - 1,
+			(unsigned int)blockSpec.channelStart + 1,
+			(unsigned int)blockSpec.channelEnd + 1, plan.sampleRate,
+			(unsigned int)plan.bitDepth);
+	}
+	else if (patternScope)
 	{
 		snprintf(message, sizeof (message),
 			"Render: %s\nOrder: %02X  Pattern: %02X\n%s"
@@ -1312,6 +1382,9 @@ static void confirmAndRender(tapeheadRenderScope_t scope)
 		return;
 	}
 	job->plan = plan;
+	job->hasBlock = blockScope;
+	if (blockScope)
+		job->blockSpec = blockSpec;
 	job->forceNewInstance = choice == 2;
 	if (!createTransferFolders(job->folderName, sizeof (job->folderName),
 		job->partialFolder, job->finalFolder))
@@ -1328,8 +1401,13 @@ static void confirmAndRender(tapeheadRenderScope_t scope)
 		EXCHANGE_RUNTIME_PATH_CAPACITY, job->partialFolder, filename);
 	free(filename);
 	FILE *file = joined ? UNICHAR_FOPEN(path, "wb") : NULL;
-	if (file == NULL || !startWavRenderToFile(file, job->plan.startOrder,
-		job->plan.stopOrder, job->plan.soloChannel, renderTransferCompleted, job))
+	const bool started = file != NULL && (job->hasBlock ?
+		startWavBlockRenderToFile(file, &job->blockSpec,
+			renderTransferCompleted, job) :
+		startWavRenderToFile(file, job->plan.startOrder,
+			job->plan.stopOrder, job->plan.soloChannel,
+			renderTransferCompleted, job));
+	if (!started)
 	{
 		if (file != NULL)
 			fclose(file);
@@ -1480,25 +1558,26 @@ void tapeSisterExchangeOpenMenu(void)
 	}
 	if (choice != 1 && choice != 2)
 		return;
+	if (choice == 2)
+	{
+		const int16_t renderChoice = okBox(SYSREQ_TYPE_TAPESISTER_RENDER_MENU,
+			"Render audio",
+			"Choose a source. Press Escape to cancel; the next step chooses Captures or TapeSister.", NULL);
+		switch (renderChoice)
+		{
+			case 1: confirmAndRender(TAPEHEAD_RENDER_BLOCK); break;
+			case 2: confirmAndRender(TAPEHEAD_RENDER_PATTERN_MIX); break;
+			case 3: confirmAndRender(TAPEHEAD_RENDER_PATTERN_TRACK); break;
+			case 4: confirmAndRender(TAPEHEAD_RENDER_SONG_TRACK); break;
+			case 5: confirmAndRender(TAPEHEAD_RENDER_SONG_MIX); break;
+			default: break;
+		}
+		return;
+	}
 	if (tapeheadConfig.tapeSisterExchangePath[0] == '\0')
 	{
 		okBox(0, "TapeSister Exchange",
 			"Configure [TapeSister] ExchangePath in tapehead.ini first.", NULL);
-		return;
-	}
-	if (choice == 2)
-	{
-		const int16_t renderChoice = okBox(SYSREQ_TYPE_TAPESISTER_RENDER_MENU,
-			"Render to TapeSister",
-			"Choose the tracker audio to render into TapeSister tile 01.", NULL);
-		switch (renderChoice)
-		{
-			case 1: confirmAndRender(TAPEHEAD_RENDER_PATTERN_MIX); break;
-			case 2: confirmAndRender(TAPEHEAD_RENDER_PATTERN_TRACK); break;
-			case 3: confirmAndRender(TAPEHEAD_RENDER_SONG_TRACK); break;
-			case 4: confirmAndRender(TAPEHEAD_RENDER_SONG_MIX); break;
-			default: break;
-		}
 		return;
 	}
 

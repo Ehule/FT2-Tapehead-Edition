@@ -12,6 +12,19 @@
 static int testPlans(void)
 {
 	tapeheadRenderPlan_t plan;
+	tapeheadBlockLoopSpec_t block =
+	{
+		.pattern = 0x2A, .rowStart = 16, .rowEnd = 32,
+		.channelStart = 2, .channelEnd = 4,
+		.initialBPM = 125, .initialSpeed = 6
+	};
+	CHECK(tapeheadRenderBlockPlanInit(&plan, &block, 8, 48000, 32));
+	CHECK(plan.scope == TAPEHEAD_RENDER_BLOCK);
+	CHECK(plan.rowStart == 16 && plan.rowEnd == 32);
+	CHECK(plan.channelStart == 2 && plan.channelEnd == 4);
+	CHECK(strcmp(plan.filename, "Block_P2A_R016-031_T03-05.wav") == 0);
+	CHECK(!tapeheadRenderBlockPlanInit(&plan, &block, 4, 48000, 32));
+
 	CHECK(tapeheadRenderPlanInit(&plan, TAPEHEAD_RENDER_PATTERN_MIX,
 		8, 3, 0x2A, 4, 8, 125, 6, 48000, 32));
 	CHECK(plan.startOrder == 3 && plan.stopOrder == 3);
@@ -50,14 +63,34 @@ static int testPlans(void)
 static int testMetadata(void)
 {
 	tapeheadRenderPlan_t plan;
+	tapeheadBlockLoopSpec_t block =
+	{
+		.pattern = 7, .rowStart = 8, .rowEnd = 12,
+		.channelStart = 1, .channelEnd = 3,
+		.initialBPM = 140, .initialSpeed = 3
+	};
+	CHECK(tapeheadRenderBlockPlanInit(&plan, &block, 8, 48000, 32));
+	FILE *file = tmpfile();
+	CHECK(file != NULL);
+	CHECK(tapeheadRenderWriteMetadata(file, &plan, 96000));
+	rewind(file);
+	char contents[2048];
+	size_t length = fread(contents, 1, sizeof (contents) - 1, file);
+	contents[length] = '\0';
+	fclose(file);
+	CHECK(strstr(contents, "scope=block\n") != NULL);
+	CHECK(strstr(contents, "row_start=8\n") != NULL);
+	CHECK(strstr(contents, "row_end=11\n") != NULL);
+	CHECK(strstr(contents, "channel_start=2\n") != NULL);
+	CHECK(strstr(contents, "channel_end=4\n") != NULL);
+
 	CHECK(tapeheadRenderPlanInit(&plan, TAPEHEAD_RENDER_PATTERN_TRACK,
 		4, 2, 7, 1, 8, 140, 3, 48000, 32));
-	FILE *file = tmpfile();
+	file = tmpfile();
 	CHECK(file != NULL);
 	CHECK(tapeheadRenderWriteMetadata(file, &plan, 120000));
 	rewind(file);
-	char contents[2048];
-	const size_t length = fread(contents, 1, sizeof (contents) - 1, file);
+	length = fread(contents, 1, sizeof (contents) - 1, file);
 	contents[length] = '\0';
 	fclose(file);
 	CHECK(strstr(contents, "TAPEHEAD_RENDER 1\n") != NULL);

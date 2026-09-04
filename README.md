@@ -118,6 +118,19 @@ Select **TRACKER** in Deck Matrix to return to the ordinary editor. See the
 [Deck Matrix guide](docs/DECK_MATRIX.md) for its mouse gestures and transport
 boundaries.
 
+## Block Loop and captures
+
+Select a Pattern Editor rectangle and press **Ctrl+L** to loop its literal rows
+and tracks. FastTracks/LEN/deck routing is bypassed for this audition;
+timing/global commands on the same rows still apply. While it plays,
+**Shift+Arrow** resizes the active corner at the next loop seam and plain
+**F8** renders one cycle to an auto-created `Captures` folder before resuming.
+
+The deliberate route remains right-click **Instrument Editor → Render audio**.
+It offers block, pattern mix/track, and song mix/track sources, followed by an
+ordinary **Capture WAV** or explicit **TapeSister** destination. See the
+[exchange and rendering guide](docs/FT2_EXCHANGE.md).
+
 ## Portable releases
 
 Tapehead distributions do not use an installer. On Windows, extract the entire

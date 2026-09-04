@@ -95,7 +95,12 @@ falls back to the normal configured-executable launch.
 ## Render tracker audio to TapeSister
 
 Right-click **Instrument Editor**, choose **Render audio**, and select one of
-four scopes:
+five scopes. The next dialog chooses either an ordinary WAV in `Captures` or
+an explicit TapeSister publication:
+
+- **Block** renders the selected Pattern Editor rectangle as one literal
+  cycle. Only selected tracks are audible; Fxx, Gxx, Hxx, and EEx commands on
+  the same rows outside the rectangle still govern timing/global state.
 
 - **Pattern mix** renders the pattern assigned to the current song order from
   its first row through its end.
@@ -105,14 +110,27 @@ four scopes:
   selected tracker track audible.
 - **Song mix** renders orders `00` through the end of the song as a stereo mix.
 
-Track isolation keeps all tracker channels running internally so tempo, speed,
+Pattern/song track isolation keeps all tracker channels running internally so tempo, speed,
 pattern-flow, and other global commands on non-audible tracks still govern the
 render. The output uses the WAV exporter's current sample rate, bit depth, and
 amplification settings and is always stereo. The confirmation dialog displays
 the exact order/pattern or song range, selected track where relevant, format,
-and TapeSister destination before rendering begins.
+and destination before rendering begins.
 
-Each successful render becomes a normal one-item version-1
+The literal block transport deliberately ignores FastTracks ratios, LEN track
+lengths, Pattern/Poly Matrix routing, Bxx/Dxx jumps, E6x loops, and Zxx
+FastTracks commands. Selecting rows 16-31 and tracks 3-5 therefore renders
+exactly those cells in lockstep, regardless of the surrounding composition.
+
+For the fast version, select a block and press **Ctrl+L**. Tapehead loops only
+that rectangle. **Shift+Arrow** moves the selection's active corner while it
+plays; the new bounds take effect at the next loop seam. Press plain **F8**
+during Block Loop to render exactly one current cycle to the auto-created
+`Captures` folder, then resume Block Loop. Modified F8 commands retain their
+existing transpose meanings, and plain F8 retains block extraction whenever
+Block Loop is off.
+
+Each successful render sent to TapeSister becomes a normal one-item version-1
 `instrument_samples` offer and therefore works with current TapeSister builds
 without a protocol change. TapeSister receives the WAV in tile 1. The transfer
 also contains `render.tapehead`, a versioned text sidecar recording render
