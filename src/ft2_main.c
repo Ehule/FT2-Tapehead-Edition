@@ -451,6 +451,7 @@ static void cleanUpAndExit(void) // never call this inside the main loop!
 	shutdownSamplePreview();
 	sampleLauncherFree();
 	closeAudio();
+	tapeheadCaptureShutdown();
 	closeReplayer();
 	closeVideo();
 	freeSprites();

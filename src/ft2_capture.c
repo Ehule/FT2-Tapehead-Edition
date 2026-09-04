@@ -18,6 +18,7 @@
 #endif
 
 #include "ft2_config.h"
+#include "ft2_audio.h"
 #include "ft2_header.h"
 #include "ft2_structs.h"
 #include "ft2_sysreqs.h"
@@ -26,6 +27,22 @@
 #include "ft2_wav_renderer.h"
 
 #define CAPTURE_PATH_CAPACITY (TAPEHEAD_CONFIG_PATH_CAPACITY + 512)
+#define CAPTURE_FILENAME_CAPACITY (TAPEHEAD_RENDER_FILENAME_CAPACITY + 64)
+#define PERFORMANCE_RING_FRAMES (1U << 20)
+#define PERFORMANCE_RING_MASK (PERFORMANCE_RING_FRAMES - 1)
+#define PERFORMANCE_WRITE_CHUNK_FRAMES 4096
+
+enum
+{
+	PERFORMANCE_CAPTURE_IDLE = 0,
+	PERFORMANCE_CAPTURE_PREPARING,
+	PERFORMANCE_CAPTURE_ARMED,
+	PERFORMANCE_CAPTURE_RECORDING,
+	PERFORMANCE_CAPTURE_STOP_PENDING,
+	PERFORMANCE_CAPTURE_FINISHING,
+	PERFORMANCE_CAPTURE_ABORTING,
+	PERFORMANCE_CAPTURE_FINISHED
+};
 
 typedef struct tapeheadCaptureJob_t
 {
@@ -34,11 +51,28 @@ typedef struct tapeheadCaptureJob_t
 	bool hasBlock, resumeBlockLoop, quietSuccess, success;
 	uint64_t renderedFrames;
 	UNICHAR path[CAPTURE_PATH_CAPACITY];
-	char filename[TAPEHEAD_RENDER_FILENAME_CAPACITY + 64];
+	char filename[CAPTURE_FILENAME_CAPACITY];
 	SDL_atomic_t finished;
 } tapeheadCaptureJob_t;
 
+typedef struct tapeheadPerformanceCaptureJob_t
+{
+	float *ring;
+	FILE *file;
+	SDL_Thread *thread;
+	uint32_t sampleRate;
+	uint8_t bitDepth;
+	bool userDisarmed;
+	uint64_t renderedFrames;
+	UNICHAR path[CAPTURE_PATH_CAPACITY];
+	UNICHAR partialPath[CAPTURE_PATH_CAPACITY];
+	char filename[CAPTURE_FILENAME_CAPACITY];
+	SDL_atomic_t state, readPosition, writePosition, finished, startedEvent;
+	SDL_atomic_t success, overflow, writeError;
+} tapeheadPerformanceCaptureJob_t;
+
 static tapeheadCaptureJob_t *captureJob;
+static tapeheadPerformanceCaptureJob_t performanceCapture;
 
 static UNICHAR *pathFromUtf8(const char *path)
 {
@@ -220,34 +254,460 @@ static void safeSongName(char destination[40])
 	destination[output] = '\0';
 }
 
-static bool createUniqueCapturePath(tapeheadCaptureJob_t *job)
+static bool createUniqueCapturePathForName(const char *renderFilename,
+	char filename[CAPTURE_FILENAME_CAPACITY],
+	UNICHAR path[CAPTURE_PATH_CAPACITY])
 {
+	if (renderFilename == NULL || renderFilename[0] == '\0')
+		return false;
+
 	UNICHAR directory[CAPTURE_PATH_CAPACITY];
 	if (!defaultCaptureDirectory(directory))
 		return false;
 
-	char songPrefix[40], stem[TAPEHEAD_RENDER_FILENAME_CAPACITY + 64];
+	char songPrefix[40], stem[CAPTURE_FILENAME_CAPACITY - 16];
 	safeSongName(songPrefix);
-	snprintf(stem, sizeof (stem), "%s_%s", songPrefix, job->plan.filename);
+	snprintf(stem, sizeof (stem), "%s_%s", songPrefix, renderFilename);
 	char *extension = strrchr(stem, '.');
 	if (extension != NULL && !_stricmp(extension, ".wav"))
 		*extension = '\0';
 
 	for (uint32_t number = 1; number <= 999999; number++)
 	{
-		snprintf(job->filename, sizeof (job->filename), "%s_%03u.wav", stem,
+		snprintf(filename, CAPTURE_FILENAME_CAPACITY, "%s_%03u.wav", stem,
 			number);
-		UNICHAR *filename = pathFromUtf8(job->filename);
-		const bool joined = filename != NULL && joinPath(job->path,
-			CAPTURE_PATH_CAPACITY, directory, filename);
-		free(filename);
+		UNICHAR *filenameU = pathFromUtf8(filename);
+		const bool joined = filenameU != NULL && joinPath(path,
+			CAPTURE_PATH_CAPACITY, directory, filenameU);
+		free(filenameU);
 		if (!joined)
 			return false;
-		if (!pathExists(job->path))
+		if (!pathExists(path))
 			return true;
 	}
 	return false;
 }
+
+static bool createUniqueCapturePath(tapeheadCaptureJob_t *job)
+{
+	return createUniqueCapturePathForName(job->plan.filename, job->filename,
+		job->path);
+}
+
+static void putU16LE(uint8_t *destination, uint16_t value)
+{
+	destination[0] = (uint8_t)value;
+	destination[1] = (uint8_t)(value >> 8);
+}
+
+static void putU32LE(uint8_t *destination, uint32_t value)
+{
+	destination[0] = (uint8_t)value;
+	destination[1] = (uint8_t)(value >> 8);
+	destination[2] = (uint8_t)(value >> 16);
+	destination[3] = (uint8_t)(value >> 24);
+}
+
+static bool writePerformanceWavHeader(FILE *file, uint32_t sampleRate,
+	uint8_t bitDepth, uint64_t frames)
+{
+	if (file == NULL || sampleRate == 0 || (bitDepth != 16 && bitDepth != 32))
+		return false;
+
+	const uint32_t bytesPerFrame = (bitDepth / 8) * 2;
+	if (frames > (UINT32_MAX - 36U) / bytesPerFrame)
+		return false;
+
+	const uint32_t dataBytes = (uint32_t)frames * bytesPerFrame;
+	uint8_t header[44] = { 0 };
+	memcpy(&header[0], "RIFF", 4);
+	putU32LE(&header[4], 36U + dataBytes);
+	memcpy(&header[8], "WAVEfmt ", 8);
+	putU32LE(&header[16], 16);
+	putU16LE(&header[20], bitDepth == 16 ? 1 : 3);
+	putU16LE(&header[22], 2);
+	putU32LE(&header[24], sampleRate);
+	putU32LE(&header[28], sampleRate * bytesPerFrame);
+	putU16LE(&header[32], (uint16_t)bytesPerFrame);
+	putU16LE(&header[34], bitDepth);
+	memcpy(&header[36], "data", 4);
+	putU32LE(&header[40], dataBytes);
+
+	if (fseek(file, 0, SEEK_SET) != 0 ||
+		fwrite(header, 1, sizeof (header), file) != sizeof (header))
+	{
+		return false;
+	}
+	return !ferror(file);
+}
+
+#ifdef TAPEHEAD_CAPTURE_TEST
+bool tapeheadTestWritePerformanceWavHeader(FILE *file, uint32_t sampleRate,
+	uint8_t bitDepth, uint64_t frames)
+{
+	return writePerformanceWavHeader(file, sampleRate, bitDepth, frames);
+}
+#endif
+
+static bool makePerformancePartialPath(void)
+{
+	const size_t length = UNICHAR_STRLEN(performanceCapture.path);
+#ifdef _WIN32
+	static const UNICHAR suffix[] = L".partial";
+#else
+	static const UNICHAR suffix[] = ".partial";
+#endif
+	if (length + (sizeof (suffix) / sizeof (suffix[0])) >
+		CAPTURE_PATH_CAPACITY)
+	{
+		return false;
+	}
+	UNICHAR_STRCPY(performanceCapture.partialPath, performanceCapture.path);
+	UNICHAR_STRCAT(performanceCapture.partialPath, suffix);
+	return true;
+}
+
+static uint32_t performanceRingAvailable(void)
+{
+	const uint32_t readPosition =
+		(uint32_t)SDL_AtomicGet(&performanceCapture.readPosition);
+	const uint32_t writePosition =
+		(uint32_t)SDL_AtomicGet(&performanceCapture.writePosition);
+	return (writePosition - readPosition) & PERFORMANCE_RING_MASK;
+}
+
+static bool writePerformanceFrames(const float *samples, uint32_t frames)
+{
+	if (frames == 0)
+		return true;
+
+	const uint32_t bytesPerFrame = (performanceCapture.bitDepth / 8) * 2;
+	if (performanceCapture.renderedFrames + frames >
+		(UINT32_MAX - 36U) / bytesPerFrame)
+	{
+		SDL_AtomicSet(&performanceCapture.overflow, true);
+		return false;
+	}
+
+	if (performanceCapture.bitDepth == 32)
+	{
+		if (fwrite(samples, sizeof (float), (size_t)frames * 2,
+			performanceCapture.file) != (size_t)frames * 2)
+		{
+			return false;
+		}
+	}
+	else
+	{
+		int16_t converted[PERFORMANCE_WRITE_CHUNK_FRAMES * 2];
+		for (uint32_t i = 0; i < frames * 2; i++)
+		{
+			const float value = CLAMP(samples[i], -1.0f, 1.0f) * 32767.0f;
+			converted[i] = (int16_t)(value >= 0.0f ? value + 0.5f : value - 0.5f);
+		}
+		if (fwrite(converted, sizeof (int16_t), (size_t)frames * 2,
+			performanceCapture.file) != (size_t)frames * 2)
+		{
+			return false;
+		}
+	}
+
+	performanceCapture.renderedFrames += frames;
+	return !ferror(performanceCapture.file);
+}
+
+static int32_t performanceCaptureWriter(void *userdata)
+{
+	(void)userdata;
+	bool fileOK = true;
+
+	for (;;)
+	{
+		const int32_t state = SDL_AtomicGet(&performanceCapture.state);
+		if (state == PERFORMANCE_CAPTURE_ABORTING)
+		{
+			fileOK = false;
+			break;
+		}
+
+		const uint32_t available = performanceRingAvailable();
+		if (available > 0)
+		{
+			const uint32_t readPosition =
+				(uint32_t)SDL_AtomicGet(&performanceCapture.readPosition);
+			uint32_t frames = MIN(available, PERFORMANCE_WRITE_CHUNK_FRAMES);
+			frames = MIN(frames, PERFORMANCE_RING_FRAMES - readPosition);
+			if (!writePerformanceFrames(
+				&performanceCapture.ring[readPosition * 2], frames))
+			{
+				SDL_AtomicSet(&performanceCapture.writeError,
+					!SDL_AtomicGet(&performanceCapture.overflow));
+				SDL_AtomicSet(&performanceCapture.state,
+					PERFORMANCE_CAPTURE_ABORTING);
+				fileOK = false;
+				break;
+			}
+			SDL_AtomicSet(&performanceCapture.readPosition,
+				(int)((readPosition + frames) & PERFORMANCE_RING_MASK));
+			continue;
+		}
+
+		if (state == PERFORMANCE_CAPTURE_FINISHING)
+			break;
+		SDL_Delay(2);
+	}
+
+	if (fileOK && performanceCapture.renderedFrames > 0)
+	{
+		fileOK = writePerformanceWavHeader(performanceCapture.file,
+			performanceCapture.sampleRate, performanceCapture.bitDepth,
+			performanceCapture.renderedFrames);
+	}
+	else
+	{
+		fileOK = false;
+	}
+
+	if (performanceCapture.file != NULL)
+	{
+		if (fclose(performanceCapture.file) != 0)
+			fileOK = false;
+		performanceCapture.file = NULL;
+	}
+
+	if (fileOK)
+	{
+		if (UNICHAR_RENAME(performanceCapture.partialPath,
+			performanceCapture.path) != 0)
+		{
+			fileOK = false;
+		}
+	}
+	if (!fileOK)
+		UNICHAR_REMOVE(performanceCapture.partialPath);
+
+	SDL_AtomicSet(&performanceCapture.success, fileOK);
+	SDL_AtomicSet(&performanceCapture.state, PERFORMANCE_CAPTURE_FINISHED);
+	SDL_AtomicSet(&performanceCapture.finished, true);
+	return 0;
+}
+
+static bool startPerformanceCapture(void)
+{
+	if (captureJob != NULL || editor.wavIsRendering ||
+		SDL_AtomicGet(&performanceCapture.state) != PERFORMANCE_CAPTURE_IDLE ||
+		!tapeheadBlockLoopIsActive() || tapeheadBlockLoopIsOffline() ||
+		!songPlaying || audio.freq == 0)
+	{
+		return false;
+	}
+
+	memset(&performanceCapture, 0, sizeof (performanceCapture));
+	SDL_AtomicSet(&performanceCapture.state, PERFORMANCE_CAPTURE_PREPARING);
+	performanceCapture.sampleRate = audio.freq;
+	performanceCapture.bitDepth = getWavRenderBitDepth();
+	if (performanceCapture.bitDepth != 16 && performanceCapture.bitDepth != 32)
+		performanceCapture.bitDepth = 32;
+
+	performanceCapture.ring = malloc(
+		(size_t)PERFORMANCE_RING_FRAMES * 2 * sizeof (float));
+	if (performanceCapture.ring == NULL ||
+		!createUniqueCapturePathForName("BlockPerformance.wav",
+			performanceCapture.filename, performanceCapture.path) ||
+		!makePerformancePartialPath())
+	{
+		free(performanceCapture.ring);
+		memset(&performanceCapture, 0, sizeof (performanceCapture));
+		return false;
+	}
+
+	performanceCapture.file = UNICHAR_FOPEN(performanceCapture.partialPath, "wb");
+	if (performanceCapture.file == NULL ||
+		!writePerformanceWavHeader(performanceCapture.file,
+			performanceCapture.sampleRate, performanceCapture.bitDepth, 0))
+	{
+		if (performanceCapture.file != NULL)
+			fclose(performanceCapture.file);
+		UNICHAR_REMOVE(performanceCapture.partialPath);
+		free(performanceCapture.ring);
+		memset(&performanceCapture, 0, sizeof (performanceCapture));
+		return false;
+	}
+
+	performanceCapture.thread = SDL_CreateThread(performanceCaptureWriter,
+		"Block performance capture", NULL);
+	if (performanceCapture.thread == NULL)
+	{
+		fclose(performanceCapture.file);
+		performanceCapture.file = NULL;
+		UNICHAR_REMOVE(performanceCapture.partialPath);
+		free(performanceCapture.ring);
+		memset(&performanceCapture, 0, sizeof (performanceCapture));
+		return false;
+	}
+
+	SDL_AtomicSet(&performanceCapture.state, PERFORMANCE_CAPTURE_ARMED);
+	return true;
+}
+
+bool tapeheadPerformanceCaptureIsBusy(void)
+{
+	return SDL_AtomicGet(&performanceCapture.state) != PERFORMANCE_CAPTURE_IDLE;
+}
+
+tapeheadPerformanceCaptureToggleResult_t tapeheadPerformanceCaptureToggle(void)
+{
+	int32_t state = SDL_AtomicGet(&performanceCapture.state);
+	if (state == PERFORMANCE_CAPTURE_IDLE)
+	{
+		return startPerformanceCapture()
+			? TAPEHEAD_PERFORMANCE_CAPTURE_ARMED
+			: TAPEHEAD_PERFORMANCE_CAPTURE_FAILED;
+	}
+	if (state == PERFORMANCE_CAPTURE_ARMED)
+	{
+		performanceCapture.userDisarmed = true;
+		if (SDL_AtomicCAS(&performanceCapture.state, PERFORMANCE_CAPTURE_ARMED,
+			PERFORMANCE_CAPTURE_ABORTING))
+		{
+			return TAPEHEAD_PERFORMANCE_CAPTURE_DISARMED;
+		}
+		performanceCapture.userDisarmed = false;
+		state = SDL_AtomicGet(&performanceCapture.state);
+	}
+	if (state == PERFORMANCE_CAPTURE_RECORDING)
+	{
+		if (SDL_AtomicCAS(&performanceCapture.state,
+			PERFORMANCE_CAPTURE_RECORDING,
+			PERFORMANCE_CAPTURE_STOP_PENDING))
+		{
+			return TAPEHEAD_PERFORMANCE_CAPTURE_STOPPING;
+		}
+	}
+	if (state == PERFORMANCE_CAPTURE_STOP_PENDING ||
+		state == PERFORMANCE_CAPTURE_FINISHING ||
+		state == PERFORMANCE_CAPTURE_FINISHED)
+	{
+		return TAPEHEAD_PERFORMANCE_CAPTURE_ALREADY_STOPPING;
+	}
+	return TAPEHEAD_PERFORMANCE_CAPTURE_FAILED;
+}
+
+void tapeheadPerformanceCaptureFeed(const float *left, const float *right,
+	uint32_t offset, uint32_t frames, float normalizeMultiplier,
+	bool blockSeam)
+{
+	int32_t state = SDL_AtomicGet(&performanceCapture.state);
+	if ((state == PERFORMANCE_CAPTURE_RECORDING ||
+		state == PERFORMANCE_CAPTURE_STOP_PENDING) && frames > 0 &&
+		left != NULL && right != NULL)
+	{
+		const uint32_t readPosition =
+			(uint32_t)SDL_AtomicGet(&performanceCapture.readPosition);
+		const uint32_t writePosition =
+			(uint32_t)SDL_AtomicGet(&performanceCapture.writePosition);
+		const uint32_t used =
+			(writePosition - readPosition) & PERFORMANCE_RING_MASK;
+		const uint32_t freeFrames = PERFORMANCE_RING_MASK - used;
+		if (frames > freeFrames)
+		{
+			SDL_AtomicSet(&performanceCapture.overflow, true);
+			SDL_AtomicSet(&performanceCapture.state,
+				PERFORMANCE_CAPTURE_ABORTING);
+			return;
+		}
+
+		for (uint32_t i = 0; i < frames; i++)
+		{
+			const uint32_t destination =
+				((writePosition + i) & PERFORMANCE_RING_MASK) * 2;
+			performanceCapture.ring[destination] = CLAMP(
+				left[offset + i] * normalizeMultiplier, -1.0f, 1.0f);
+			performanceCapture.ring[destination + 1] = CLAMP(
+				right[offset + i] * normalizeMultiplier, -1.0f, 1.0f);
+		}
+		SDL_AtomicSet(&performanceCapture.writePosition,
+			(int)((writePosition + frames) & PERFORMANCE_RING_MASK));
+	}
+
+	if (!blockSeam)
+		return;
+
+	state = SDL_AtomicGet(&performanceCapture.state);
+	if (state == PERFORMANCE_CAPTURE_ARMED &&
+		SDL_AtomicCAS(&performanceCapture.state, PERFORMANCE_CAPTURE_ARMED,
+			PERFORMANCE_CAPTURE_RECORDING))
+	{
+		SDL_AtomicSet(&performanceCapture.startedEvent, true);
+	}
+	else if (state == PERFORMANCE_CAPTURE_STOP_PENDING)
+	{
+		(void)SDL_AtomicCAS(&performanceCapture.state,
+			PERFORMANCE_CAPTURE_STOP_PENDING, PERFORMANCE_CAPTURE_FINISHING);
+	}
+}
+
+void tapeheadPerformanceCaptureAudioStopped(void)
+{
+	const int32_t state = SDL_AtomicGet(&performanceCapture.state);
+	if (state == PERFORMANCE_CAPTURE_ARMED ||
+		state == PERFORMANCE_CAPTURE_PREPARING)
+	{
+		(void)SDL_AtomicCAS(&performanceCapture.state, state,
+			PERFORMANCE_CAPTURE_ABORTING);
+	}
+	else if (state == PERFORMANCE_CAPTURE_RECORDING ||
+		state == PERFORMANCE_CAPTURE_STOP_PENDING)
+	{
+		(void)SDL_AtomicCAS(&performanceCapture.state, state,
+			PERFORMANCE_CAPTURE_FINISHING);
+	}
+}
+
+#ifdef TAPEHEAD_CAPTURE_TEST
+bool tapeheadTestPerformanceCaptureFeedState(void)
+{
+	float *ring = calloc((size_t)PERFORMANCE_RING_FRAMES * 2, sizeof (float));
+	if (ring == NULL)
+		return false;
+
+	memset(&performanceCapture, 0, sizeof (performanceCapture));
+	performanceCapture.ring = ring;
+	SDL_AtomicSet(&performanceCapture.state, PERFORMANCE_CAPTURE_ARMED);
+
+	const float left[] = { -2.0f, -1.0f, 0.5f, 2.0f };
+	const float right[] = { 2.0f, 1.0f, -0.5f, -2.0f };
+	tapeheadPerformanceCaptureFeed(left, right, 0, 4, 0.5f, true);
+	bool ok = SDL_AtomicGet(&performanceCapture.state) ==
+		PERFORMANCE_CAPTURE_RECORDING &&
+		SDL_AtomicGet(&performanceCapture.writePosition) == 0 &&
+		SDL_AtomicGet(&performanceCapture.startedEvent);
+
+	tapeheadPerformanceCaptureFeed(left, right, 0, 4, 0.5f, false);
+	ok = ok && SDL_AtomicGet(&performanceCapture.writePosition) == 4 &&
+		ring[0] == -1.0f && ring[1] == 1.0f &&
+		ring[2] == -0.5f && ring[3] == 0.5f &&
+		ring[4] == 0.25f && ring[5] == -0.25f &&
+		ring[6] == 1.0f && ring[7] == -1.0f;
+
+	SDL_AtomicSet(&performanceCapture.state, PERFORMANCE_CAPTURE_STOP_PENDING);
+	tapeheadPerformanceCaptureFeed(left, right, 1, 2, 1.0f, true);
+	ok = ok && SDL_AtomicGet(&performanceCapture.writePosition) == 6 &&
+		SDL_AtomicGet(&performanceCapture.state) == PERFORMANCE_CAPTURE_FINISHING;
+
+	SDL_AtomicSet(&performanceCapture.readPosition, 1);
+	SDL_AtomicSet(&performanceCapture.writePosition, 0);
+	SDL_AtomicSet(&performanceCapture.state, PERFORMANCE_CAPTURE_RECORDING);
+	tapeheadPerformanceCaptureFeed(left, right, 0, 1, 1.0f, false);
+	ok = ok && SDL_AtomicGet(&performanceCapture.state) ==
+		PERFORMANCE_CAPTURE_ABORTING &&
+		SDL_AtomicGet(&performanceCapture.overflow);
+
+	free(ring);
+	memset(&performanceCapture, 0, sizeof (performanceCapture));
+	return ok;
+}
+#endif
 
 static void captureCompleted(bool success, uint64_t renderedFrames,
 	void *userdata)
@@ -263,6 +723,7 @@ bool tapeheadCaptureRender(const tapeheadRenderPlan_t *plan,
 	bool quietSuccess)
 {
 	if (plan == NULL || captureJob != NULL || editor.wavIsRendering ||
+		tapeheadPerformanceCaptureIsBusy() ||
 		(plan->scope == TAPEHEAD_RENDER_BLOCK && blockSpec == NULL))
 	{
 		return false;
@@ -321,6 +782,83 @@ bool tapeheadCaptureQuickBlock(void)
 
 void tapeheadCapturePoll(void)
 {
+	int32_t performanceState = SDL_AtomicGet(&performanceCapture.state);
+	if (performanceState != PERFORMANCE_CAPTURE_IDLE &&
+		performanceState != PERFORMANCE_CAPTURE_FINISHED &&
+		!tapeheadBlockLoopIsActive())
+	{
+		/*
+		** Stop/cancel outside the audio callback only while it is locked. This
+		** prevents the writer from closing its file while a callback is still
+		** publishing the last post-mixer frames into the ring.
+		*/
+		const bool audioWasLocked = audio.locked;
+		if (!audioWasLocked)
+			lockAudio();
+		performanceState = SDL_AtomicGet(&performanceCapture.state);
+		if (performanceState == PERFORMANCE_CAPTURE_ARMED ||
+			performanceState == PERFORMANCE_CAPTURE_PREPARING)
+		{
+			(void)SDL_AtomicCAS(&performanceCapture.state, performanceState,
+				PERFORMANCE_CAPTURE_ABORTING);
+		}
+		else if (performanceState == PERFORMANCE_CAPTURE_RECORDING ||
+			performanceState == PERFORMANCE_CAPTURE_STOP_PENDING)
+		{
+			(void)SDL_AtomicCAS(&performanceCapture.state, performanceState,
+				PERFORMANCE_CAPTURE_FINISHING);
+		}
+		if (!audioWasLocked)
+			unlockAudio();
+	}
+
+	if (SDL_AtomicCAS(&performanceCapture.startedEvent, true, false) &&
+		!SDL_AtomicGet(&performanceCapture.finished))
+	{
+		showRecPlusOverlay("PERFORMANCE CAPTURE");
+	}
+
+	if (SDL_AtomicGet(&performanceCapture.finished))
+	{
+		if (performanceCapture.thread != NULL)
+		{
+			SDL_WaitThread(performanceCapture.thread, NULL);
+			performanceCapture.thread = NULL;
+		}
+
+		const bool success = SDL_AtomicGet(&performanceCapture.success) != 0;
+		const bool overflow = SDL_AtomicGet(&performanceCapture.overflow) != 0;
+		const bool writeError =
+			SDL_AtomicGet(&performanceCapture.writeError) != 0;
+		const bool userDisarmed = performanceCapture.userDisarmed;
+		free(performanceCapture.ring);
+		memset(&performanceCapture, 0, sizeof (performanceCapture));
+
+		if (success)
+			showRecPlusOverlay("PERFORMANCE SAVED");
+		else if (!userDisarmed)
+		{
+			if (overflow)
+			{
+				okBox(0, "Performance capture",
+					"The live capture buffer overflowed. No capture was kept.",
+					NULL);
+			}
+			else if (writeError)
+			{
+				okBox(0, "Performance capture",
+					"The capture could not be written. No capture was kept.",
+					NULL);
+			}
+			else
+			{
+				okBox(0, "Performance capture",
+					"The performance capture stopped before audio was recorded. No capture was kept.",
+					NULL);
+			}
+		}
+	}
+
 	tapeheadCaptureJob_t *job = captureJob;
 	if (job == NULL || !SDL_AtomicGet(&job->finished))
 		return;
@@ -348,4 +886,22 @@ void tapeheadCapturePoll(void)
 			"The WAV render was cancelled or failed. No capture was kept.", NULL);
 	}
 	free(job);
+}
+
+void tapeheadCaptureShutdown(void)
+{
+	if (SDL_AtomicGet(&performanceCapture.state) == PERFORMANCE_CAPTURE_IDLE)
+		return;
+
+	/* closeAudio() has stopped the device before this is called. */
+	tapeheadPerformanceCaptureAudioStopped();
+	if (performanceCapture.thread != NULL)
+	{
+		SDL_WaitThread(performanceCapture.thread, NULL);
+		performanceCapture.thread = NULL;
+	}
+	if (!SDL_AtomicGet(&performanceCapture.success))
+		UNICHAR_REMOVE(performanceCapture.partialPath);
+	free(performanceCapture.ring);
+	memset(&performanceCapture, 0, sizeof (performanceCapture));
 }

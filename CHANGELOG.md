@@ -11,6 +11,14 @@ map.
 
 ## Render tracker audio to TapeSister — 2026-09-04
 
+- Added seam-quantized Block Loop performance capture on plain `F7`. The first
+  press arms recording for the next cycle, live `Shift`+arrow block changes
+  are captured exactly as heard for any number of repeats, and the second
+  press closes at the following seam without stopping Block Loop.
+- Captured the normalized post-mixer Bus A stereo stream through a bounded
+  lock-free ring and background WAV writer. Temporary `.partial` files are
+  atomically published only after a valid close; interruption, disk errors,
+  and overflow leave no corrupt capture behind.
 - Settled block captures through one discarded live-equivalent loop cycle
   before writing, so carried sample/envelope state matches at the WAV seam;
   also fixed stacked Block Loop/capture overlays and playback-relative drawing

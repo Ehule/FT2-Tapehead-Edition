@@ -720,6 +720,27 @@ static void handleKeys(SDL_Keycode keycode, SDL_Scancode scanKey, bool keyWasRep
 			     if (keyb.leftShiftPressed) trackTranspCurInsDn();
 			else if (keyb.leftCtrlPressed)  pattTranspCurInsDn();
 			else if (keyb.leftAltPressed)   blockTranspCurInsDn();
+			else if (tapeheadBlockLoopIsActive())
+			{
+				if (!keyWasRepeated)
+				{
+					const tapeheadPerformanceCaptureToggleResult_t result =
+						tapeheadPerformanceCaptureToggle();
+					if (result == TAPEHEAD_PERFORMANCE_CAPTURE_ARMED)
+						showRecPlusOverlay("PERF CAPTURE ARMED");
+					else if (result == TAPEHEAD_PERFORMANCE_CAPTURE_DISARMED)
+						showRecPlusOverlay("CAPTURE DISARMED");
+					else if (result == TAPEHEAD_PERFORMANCE_CAPTURE_STOPPING)
+						showRecPlusOverlay("STOPPING AT LOOP END");
+					else if (result ==
+						TAPEHEAD_PERFORMANCE_CAPTURE_ALREADY_STOPPING)
+					{
+						showRecPlusOverlay("STOP ALREADY ARMED");
+					}
+					else
+						showErrorMsgBox("Couldn't start the performance capture.");
+				}
+			}
 			else                            editor.curOctave = 6;
 		}
 		break;
@@ -733,7 +754,11 @@ static void handleKeys(SDL_Keycode keycode, SDL_Scancode scanKey, bool keyWasRep
 			{
 				if (!keyWasRepeated)
 				{
-					if (tapeheadCaptureQuickBlock())
+					if (tapeheadPerformanceCaptureIsBusy())
+					{
+						showErrorMsgBox("Stop the performance capture before using F8.");
+					}
+					else if (tapeheadCaptureQuickBlock())
 						showRecPlusOverlay("CAPTURING BLOCK");
 					else
 						showErrorMsgBox("Couldn't start the block capture.");

@@ -454,7 +454,7 @@ Delete  @T160Delete note or volume column at cursor.
 >Alt+F3 @T160Cut block.
 >Alt+F4 @T160Copy block.
 >Alt+F5 @T160Paste block.
->F8 @T160Extract block to a Matrix-only pattern (copy-only).
+>F8 @T160Extract block to a Matrix-only pattern (outside Block Loop).
 >Ctrl+Sh+T @T160Interpolate selected Mxx/Nxx Tuning/Drift values.
 >Alt+C  @T160Mark current track.
 
@@ -464,7 +464,11 @@ Right ctrl.  @T160Play song.
 >Right alt    @T160Play pattern.
 >Right shift  @T160Record pattern.
 >Space    @T160Stop/Edit.
->F1..F7 @T160Select octave (F8 can restore duplicate octave 6 in tapehead.ini).
+>F1..F7 @T160Select octave outside Block Loop (F8 can duplicate octave 6).
+>Ctrl+L @T160Start/stop Block Loop for the marked rectangle.
+>Sh+Cursor @T160Resize a playing Block Loop at its next seam.
+>F7 in Block Loop @T160Arm/stop seam-quantized performance capture.
+>F8 in Block Loop @T160Capture one clean cycle to the Captures folder.
 >Key below Esc @T160Increase cursoradd.
 >Sh+(1/2) @T160Decrease cursoradd.
 >CapsLock or <> @T160Enter Keyoff-"note".

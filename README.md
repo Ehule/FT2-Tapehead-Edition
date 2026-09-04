@@ -125,6 +125,11 @@ and tracks. FastTracks/LEN/deck routing is bypassed for this audition;
 timing/global commands on the same rows still apply. While it plays,
 **Shift+Arrow** resizes the active corner at the next loop seam and plain
 **F8** renders one cycle to an auto-created `Captures` folder before resuming.
+Plain **F7** arms a real-time performance capture for the next seam; keep
+resizing or holding the block for as many cycles as desired, then press
+**F7** again to stop cleanly at the end of the current cycle. The resulting
+`*_BlockPerformance_###.wav` contains exactly the audible performance and
+Block Loop keeps playing.
 
 The deliberate route remains right-click **Instrument Editor → Render audio**.
 It offers block, pattern mix/track, and song mix/track sources, followed by an

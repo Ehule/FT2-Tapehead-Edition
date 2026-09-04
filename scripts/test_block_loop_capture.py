@@ -3,6 +3,7 @@
 
 from pathlib import Path
 import subprocess
+import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,12 +20,14 @@ def main() -> None:
     keyboard = (ROOT / "src/ft2_keyboard.c").read_text()
     renderer = (ROOT / "src/ft2_wav_renderer.c").read_text()
     capture = (ROOT / "src/ft2_capture.c").read_text()
+    audio = (ROOT / "src/ft2_audio.c").read_text()
     exchange = (ROOT / "src/ft2_tapesister_exchange.c").read_text()
     config = (ROOT / "src/ft2_config.c").read_text()
     main_c = (ROOT / "src/ft2_main.c").read_text()
     video = (ROOT / "src/ft2_video.c").read_text()
     pattern_draw = (ROOT / "src/ft2_pattern_draw.c").read_text()
     project = (ROOT / "vs2026_project/ft2-clone/ft2-clone.vcxproj").read_text()
+    help_text = (ROOT / "src/helpdata/FT2.HLP").read_text()
 
     # Block playback branches before every alternate tracker/deck transport.
     tick = replayer[replayer.index("void tickReplayer(void)"):
@@ -56,6 +59,54 @@ def main() -> None:
     ordered(f8, "keyb.leftAltPressed", "tapeheadBlockLoopIsActive()",
             "tapeheadConfig.f8ExtractBlock")
     assert "tapeheadCaptureQuickBlock()" in f8
+
+    # Plain F7 is performance capture only during Block Loop. Every modified
+    # transpose variant still wins, and octave 6 remains the non-loop default.
+    f7 = keyboard[keyboard.index("case SDLK_F7:"):
+                  keyboard.index("case SDLK_F8:")]
+    ordered(f7, "keyb.leftShiftPressed", "keyb.leftCtrlPressed",
+            "keyb.leftAltPressed", "tapeheadBlockLoopIsActive()",
+            "tapeheadPerformanceCaptureToggle()", "editor.curOctave = 6")
+    for message in ("PERF CAPTURE ARMED", "CAPTURE DISARMED",
+                    "STOPPING AT LOOP END"):
+        assert message in f7
+    ordered(f8, "tapeheadPerformanceCaptureIsBusy()",
+            "tapeheadCaptureQuickBlock()")
+
+    # Live capture taps normalized post-mixer Bus A before SDL/JACK delivery
+    # clears the mix buffers. Seam transitions occur only after the complete
+    # final tick has been mixed, and the callback performs no allocation/I/O.
+    live_render = audio[audio.index("static void renderAudioFrames"):
+                        audio.index("static void audioCallback")]
+    ordered(live_render, "doChannelMixing(bufferPosition",
+            "audio.tickSampleCounter -= samplesToMix",
+            "tapeheadPerformanceCaptureFeed(",
+            "tapeheadBlockLoopClearCycleCompleted()",
+            "bufferPosition += samplesToMix")
+    assert "audio.fBusMixBufferL[0]" in live_render
+    assert "audio.fBusMixBufferR[0]" in live_render
+    assert "fAudioNormalizeMul / 32768.0f" in live_render
+    feed = capture[capture.index("void tapeheadPerformanceCaptureFeed"):
+                   capture.index("void tapeheadPerformanceCaptureAudioStopped")]
+    assert "PERFORMANCE_CAPTURE_ARMED" in feed
+    assert "PERFORMANCE_CAPTURE_RECORDING" in feed
+    assert "PERFORMANCE_CAPTURE_STOP_PENDING" in feed
+    for forbidden in ("fwrite", "fopen", "malloc", "SDL_Delay"):
+        assert forbidden not in feed
+
+    # Disk work stays on a background writer and publishes a complete WAV via
+    # a temporary name. Transport interruption and shutdown finalize safely.
+    assert '".partial"' in capture
+    assert "SDL_CreateThread(performanceCaptureWriter" in capture
+    assert "writePerformanceWavHeader" in capture
+    assert "UNICHAR_RENAME(performanceCapture.partialPath" in capture
+    assert "PERFORMANCE_RING_FRAMES" in capture
+    assert "The live capture buffer overflowed" in capture
+    assert "lockAudio();" in capture and "unlockAudio();" in capture
+    assert "tapeheadPerformanceCaptureAudioStopped();" in audio
+    assert "tapeheadCaptureShutdown();" in main_c
+    assert "F7 in Block Loop" in help_text
+    assert "F8 in Block Loop" in help_text
 
     # Offline rendering first discards one production-mixer cycle so the WAV
     # begins with the same carried voice state heard at a live loop seam. It
@@ -98,7 +149,7 @@ def main() -> None:
     # headers used by the Windows project.
     include_sdl = ROOT / "vs2026_project/ft2-clone/sdl/include"
     for source in (
-        "ft2_capture.c", "ft2_replayer.c", "ft2_keyboard.c",
+        "ft2_capture.c", "ft2_audio.c", "ft2_replayer.c", "ft2_keyboard.c",
         "ft2_wav_renderer.c", "ft2_tapesister_exchange.c",
         "ft2_tapesister_render.c", "ft2_config.c", "ft2_main.c",
         "ft2_sysreqs.c", "ft2_video.c", "ft2_pattern_draw.c",
@@ -110,6 +161,34 @@ def main() -> None:
             check=True,
             cwd=ROOT,
         )
+
+    # Execute the production header writer for both supported live-capture
+    # encodings. Section GC keeps this focused native test independent from
+    # the application's unrelated UI/audio globals.
+    with tempfile.TemporaryDirectory() as temp_name:
+        temp = Path(temp_name)
+        common = [
+            "gcc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+            "-D_DEFAULT_SOURCE", "-DTAPEHEAD_CAPTURE_TEST",
+            "-ffunction-sections",
+            "-fdata-sections", f"-I{include_sdl}", f"-I{ROOT / 'src'}",
+        ]
+        capture_object = temp / "ft2_capture.o"
+        test_object = temp / "test_performance_capture_wav.o"
+        executable = temp / "test_performance_capture_wav"
+        subprocess.run(
+            [*common, "-c", str(ROOT / "src/ft2_capture.c"),
+             "-o", str(capture_object)], check=True, cwd=ROOT,
+        )
+        subprocess.run(
+            [*common, "-c", str(ROOT / "tests/test_performance_capture_wav.c"),
+             "-o", str(test_object)], check=True, cwd=ROOT,
+        )
+        subprocess.run(
+            ["gcc", "-Wl,--gc-sections", str(capture_object),
+             str(test_object), "-o", str(executable)], check=True, cwd=ROOT,
+        )
+        subprocess.run([str(executable)], check=True, cwd=ROOT)
 
     print("Literal Block Loop and agnostic capture wiring tests passed.")
 

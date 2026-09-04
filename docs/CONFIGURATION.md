@@ -69,6 +69,10 @@ Folder=
 - The capture folder is intentionally separate from the TapeSister exchange
   folder. Only an explicit **TapeSister** destination creates a manifest and
   publishes into that transactional inbox.
+- Plain F7 during Block Loop writes live, seam-quantized performance captures
+  here as `Song_BlockPerformance_###.wav`. They use the active audio-device
+  rate and current WAV bit depth; F8 and dialog renders continue to use the
+  WAV renderer's selected format.
 
 ## Video
 

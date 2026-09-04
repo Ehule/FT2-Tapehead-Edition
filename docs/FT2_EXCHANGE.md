@@ -130,6 +130,25 @@ during Block Loop to render exactly one current cycle to the auto-created
 existing transpose meanings, and plain F8 retains block extraction whenever
 Block Loop is off.
 
+Plain **F7** turns Block Loop into a quantized performance recorder. The first
+press arms capture; recording begins at the next loop seam. Change the rows or
+tracks with **Shift+Arrow**, hold a shape for several repeats, or continue
+performing without a fixed cycle count. Press **F7** again and Tapehead records
+through the current cycle, stops at its closing seam, saves
+`Song_BlockPerformance_###.wav` in `Captures`, and leaves Block Loop running.
+Pressing F7 a second time before the armed start cancels it. Stopping Block
+Loop while recording safely closes what has already been captured; stopping
+while merely armed keeps no file.
+
+Performance capture records the live post-mixer Bus A stereo stream at the
+active audio-device rate and current WAV bit depth. Its audio callback only
+copies into a bounded memory ring; a background writer performs all file I/O
+through a `.partial` file and publishes the final WAV only after a clean
+close. F8 remains the deterministic one-cycle offline capture, while F7 is
+the evolving, what-you-hear performance path. Modified F7 commands retain
+their existing transpose meanings, and plain F7 remains octave 6 outside
+Block Loop.
+
 Each successful render sent to TapeSister becomes a normal one-item version-1
 `instrument_samples` offer and therefore works with current TapeSister builds
 without a protocol change. TapeSister receives the WAV in tile 1. The transfer

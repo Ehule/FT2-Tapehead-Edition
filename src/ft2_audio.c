@@ -11,6 +11,7 @@
 #include "ft2_header.h"
 #include "ft2_config.h"
 #include "ft2_audio.h"
+#include "ft2_capture.h"
 #include "scopes/ft2_scopes.h"
 #include "ft2_video.h"
 #include "ft2_gui.h"
@@ -1667,9 +1668,21 @@ static void renderAudioFrames(uint32_t sampleFrames, uint8_t outputBusCount)
 			samplesToMix = audio.tickSampleCounter;
 
 		doChannelMixing(bufferPosition, samplesToMix, outputBusCount);
-		bufferPosition += samplesToMix;
-
 		audio.tickSampleCounter -= samplesToMix;
+
+		const bool blockSeam = audio.tickSampleCounter == 0 &&
+			tapeheadBlockLoopIsActive() && !tapeheadBlockLoopIsOffline() &&
+			tapeheadBlockLoopCycleCompleted();
+		const float captureNormalizeMultiplier =
+			(config.specialFlags & BITDEPTH_16)
+			? fAudioNormalizeMul / 32768.0f : fAudioNormalizeMul;
+		tapeheadPerformanceCaptureFeed(audio.fBusMixBufferL[0],
+			audio.fBusMixBufferR[0], (uint32_t)bufferPosition,
+			(uint32_t)samplesToMix, captureNormalizeMultiplier, blockSeam);
+		if (blockSeam)
+			tapeheadBlockLoopClearCycleCompleted();
+
+		bufferPosition += samplesToMix;
 		samplesLeft -= samplesToMix;
 	}
 }
@@ -2258,6 +2271,7 @@ void closeAudio(void)
 		SDL_CloseAudioDevice(audio.dev);
 		audio.dev = 0;
 	}
+	tapeheadPerformanceCaptureAudioStopped();
 
 	freeAudioBuffers();
 
