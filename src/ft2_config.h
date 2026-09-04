@@ -378,6 +378,7 @@ typedef struct tapeheadConfig_t
 	char midiControlOutput[256];
 	char tapeSisterExchangePath[TAPEHEAD_CONFIG_PATH_CAPACITY];
 	char tapeSisterExecutablePath[TAPEHEAD_CONFIG_PATH_CAPACITY];
+	char captureFolder[TAPEHEAD_CONFIG_PATH_CAPACITY];
 	uint8_t midiDubTrackChannels[MAX_CHANNELS];
 	uint32_t undoMemoryMB;
 } tapeheadConfig_t;

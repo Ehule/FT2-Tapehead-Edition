@@ -49,6 +49,7 @@
 #include "ft2_pattern_launcher_ui.h"
 #include "ft2_splash.h"
 #include "ft2_tapesister_exchange.h"
+#include "ft2_capture.h"
 #include "ft2_palette.h"
 
 static void initializeVars(void);
@@ -322,6 +323,7 @@ int main(int argc, char *argv[])
 		readInput();
 		handleEvents();
 		tapeSisterExchangePoll(false);
+		tapeheadCapturePoll();
 		handleRecPlusExhaustion();
 		handlePolyMatrixQHandoff();
 		handlePatternLauncherStop();
@@ -449,6 +451,7 @@ static void cleanUpAndExit(void) // never call this inside the main loop!
 	shutdownSamplePreview();
 	sampleLauncherFree();
 	closeAudio();
+	tapeheadCaptureShutdown();
 	closeReplayer();
 	closeVideo();
 	freeSprites();

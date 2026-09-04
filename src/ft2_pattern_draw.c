@@ -550,7 +550,22 @@ static void writePatternBlockMark(int32_t currRow, uint32_t rowHeight, const pat
 	for (int32_t y = 0; y < h; y++)
 	{
 		for (int32_t x = 0; x < w; x++)
-			ptr32[x] = video.palette[(ptr32[x] >> 24) ^ (interpolationPreviewActive() ? 6 : 2)]; // preview uses a distinct temporary-selection palette
+		{
+			const uint8_t paletteIndex =
+				(uint8_t)((ptr32[x] >> 24) & PAL_FRAMEBUFFER_INDEX_MASK);
+			/* PAL_DESKTOP is the gray current-row bar. Its ordinary XOR maps
+			** to another gray UI shade, making the first selected row appear
+			** absent when Block Loop starts on it. Keep the selected part of
+			** that live row visibly tied to the block instead. */
+			if (tapeheadBlockLoopIsActive() && paletteIndex == PAL_DESKTOP)
+				ptr32[x] = video.palette[PAL_BLCKMRK];
+			else
+			{
+				const uint8_t selectionXor =
+					interpolationPreviewActive() ? 6 : 2;
+				ptr32[x] = video.palette[paletteIndex ^ selectionXor];
+			}
+		}
 
 		ptr32 += SCREEN_W;
 	}
@@ -1540,7 +1555,12 @@ void writePattern(int32_t currRow, int32_t currPattern)
 	writeCursor();
 
 	if (pattMark.markY1 != pattMark.markY2)
-		writePatternBlockMark(currRow, rowHeight, pattCoord);
+	{
+		/* The pattern body follows song.row during playback. Map the selection
+		** through that same visual row so its first line does not appear to fall
+		** out of the block when Block Loop starts. */
+		writePatternBlockMark(visualMasterRow, rowHeight, pattCoord);
+	}
 
 	const uint16_t lengthHeaderY = (uint16_t)(pattCoord2->upperRowsY + 2);
 	drawFastTracksPOCStatus((uint16_t)(lengthHeaderY + 8),

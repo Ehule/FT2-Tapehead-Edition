@@ -902,6 +902,9 @@ static void writeDefaultTapeheadConfig(const UNICHAR *filePathU)
 	fputs("ExchangePath=\n", f);
 	fputs("; TapeSister executable. Blank still permits publishing transfers.\n", f);
 	fputs("ExecutablePath=\n\n", f);
+	fputs("[Capture]\n\n", f);
+	fputs("; Ordinary WAV renders. Blank creates Captures beside FT2.CFG.\n", f);
+	fputs("Folder=\n\n", f);
 	fputs("[Baker]\n\n", f);
 	fputs("; Rows per flattened loop pattern: 16, 32, 64, 128 or 256.\n", f);
 	fputs("PatternRows=256\n\n", f);
@@ -1015,6 +1018,7 @@ void loadTapeheadConfig(void)
 	tapeheadConfig.midiControlOutput[0] = '\0';
 	tapeheadConfig.tapeSisterExchangePath[0] = '\0';
 	tapeheadConfig.tapeSisterExecutablePath[0] = '\0';
+	tapeheadConfig.captureFolder[0] = '\0';
 	tapeheadConfig.hdMode = false;
 	tapeheadConfig.launcherMode = false;
 	tapeheadConfig.launcherStandalone = false;
@@ -1053,6 +1057,7 @@ void loadTapeheadConfig(void)
 		TAPEHEAD_SECTION_LAUNCHER,
 		TAPEHEAD_SECTION_DISKOP,
 		TAPEHEAD_SECTION_TAPESISTER,
+		TAPEHEAD_SECTION_CAPTURE,
 		TAPEHEAD_SECTION_BAKER,
 		TAPEHEAD_SECTION_KEYBOARD,
 		TAPEHEAD_SECTION_AUDIO,
@@ -1083,6 +1088,8 @@ void loadTapeheadConfig(void)
 				section = TAPEHEAD_SECTION_DISKOP;
 			else if (!_stricmp(text + 1, "TapeSister"))
 				section = TAPEHEAD_SECTION_TAPESISTER;
+			else if (!_stricmp(text + 1, "Capture"))
+				section = TAPEHEAD_SECTION_CAPTURE;
 			else if (!_stricmp(text + 1, "Baker"))
 				section = TAPEHEAD_SECTION_BAKER;
 			else if (!_stricmp(text + 1, "Keyboard"))
@@ -1225,6 +1232,12 @@ void loadTapeheadConfig(void)
 		{
 			snprintf(tapeheadConfig.tapeSisterExecutablePath,
 				sizeof (tapeheadConfig.tapeSisterExecutablePath), "%s", value);
+		}
+		else if (section == TAPEHEAD_SECTION_CAPTURE &&
+			!_stricmp(key, "Folder"))
+		{
+			snprintf(tapeheadConfig.captureFolder,
+				sizeof (tapeheadConfig.captureFolder), "%s", value);
 		}
 		else if (section == TAPEHEAD_SECTION_BAKER && !_stricmp(key, "PatternRows"))
 		{

@@ -28,7 +28,11 @@
 #include "ft2_structs.h"
 #include "ft2_sysreqs.h"
 #include "ft2_tapesister_protocol.h"
+#include "ft2_tapesister_render.h"
 #include "ft2_unicode.h"
+#include "ft2_wav_renderer.h"
+#include "ft2_capture.h"
+#include "ft2_pattern_ed.h"
 
 /* Leave room for a child name and Win32's extended-path prefix beyond the
 ** longest configured root/executable value. */
@@ -50,6 +54,16 @@ typedef struct exchangeSource_t
 	uint8_t instruments[TAPEHEAD_EXCHANGE_MAX_V1_ITEMS];
 	uint8_t samples[TAPEHEAD_EXCHANGE_MAX_V1_ITEMS];
 } exchangeSource_t;
+
+typedef struct exchangeRenderJob_t
+{
+	tapeheadRenderPlan_t plan;
+	tapeheadBlockLoopSpec_t blockSpec;
+	UNICHAR partialFolder[EXCHANGE_RUNTIME_PATH_CAPACITY];
+	UNICHAR finalFolder[EXCHANGE_RUNTIME_PATH_CAPACITY];
+	char folderName[64];
+	bool forceNewInstance, hasBlock;
+} exchangeRenderJob_t;
 
 typedef struct inboxScanJob_t
 {
@@ -978,8 +992,10 @@ static bool launchTapeSister(void)
 	return launched;
 }
 
-static bool publishSource(const exchangeSource_t *source, char *folderName,
-	size_t folderNameCapacity)
+static bool createTransferFolders(char *folderName,
+	size_t folderNameCapacity,
+	UNICHAR partialFolder[EXCHANGE_RUNTIME_PATH_CAPACITY],
+	UNICHAR finalFolder[EXCHANGE_RUNTIME_PATH_CAPACITY])
 {
 	UNICHAR *root = pathFromUtf8(tapeheadConfig.tapeSisterExchangePath);
 	if (root == NULL || !pathIsDirectory(root))
@@ -987,8 +1003,6 @@ static bool publishSource(const exchangeSource_t *source, char *folderName,
 		free(root);
 		return false;
 	}
-	UNICHAR finalFolder[EXCHANGE_RUNTIME_PATH_CAPACITY];
-	UNICHAR partialFolder[EXCHANGE_RUNTIME_PATH_CAPACITY];
 	bool created = false;
 	for (uint32_t number = 1; number <= 999999; number++)
 	{
@@ -1016,8 +1030,19 @@ static bool publishSource(const exchangeSource_t *source, char *folderName,
 		break;
 	}
 	free(root);
-	if (!created)
+	return created;
+}
+
+static bool publishSource(const exchangeSource_t *source, char *folderName,
+	size_t folderNameCapacity)
+{
+	UNICHAR finalFolder[EXCHANGE_RUNTIME_PATH_CAPACITY];
+	UNICHAR partialFolder[EXCHANGE_RUNTIME_PATH_CAPACITY];
+	if (!createTransferFolders(folderName, folderNameCapacity, partialFolder,
+		finalFolder))
+	{
 		return false;
+	}
 
 	bool success = true;
 	UNICHAR path[EXCHANGE_RUNTIME_PATH_CAPACITY];
@@ -1060,7 +1085,9 @@ static bool publishSource(const exchangeSource_t *source, char *folderName,
 			fprintf(manifest, "item=%u,%u,%u,%s\n", item->tapeSisterTile,
 				item->ft2Instrument, item->ft2Sample, item->filename);
 		}
-		success = ferror(manifest) == 0 && fclose(manifest) == 0;
+		success = ferror(manifest) == 0;
+		if (fclose(manifest) != 0)
+			success = false;
 		manifest = NULL;
 	}
 	if (manifest != NULL)
@@ -1073,6 +1100,323 @@ static bool publishSource(const exchangeSource_t *source, char *folderName,
 		return false;
 	}
 	return true;
+}
+
+static void cleanupRenderPartial(const exchangeRenderJob_t *job)
+{
+	UNICHAR path[EXCHANGE_RUNTIME_PATH_CAPACITY];
+	UNICHAR *filename = pathFromUtf8(job->plan.filename);
+	if (filename != NULL && joinPath(path, EXCHANGE_RUNTIME_PATH_CAPACITY,
+		job->partialFolder, filename))
+	{
+		UNICHAR_REMOVE(path);
+	}
+	free(filename);
+#ifdef _WIN32
+	static const UNICHAR metadataName[] = L"render.tapehead";
+	static const UNICHAR manifestName[] = L"exchange.tsexchange";
+#else
+	static const UNICHAR metadataName[] = "render.tapehead";
+	static const UNICHAR manifestName[] = "exchange.tsexchange";
+#endif
+	if (joinPath(path, EXCHANGE_RUNTIME_PATH_CAPACITY, job->partialFolder,
+		metadataName))
+	{
+		UNICHAR_REMOVE(path);
+	}
+	if (joinPath(path, EXCHANGE_RUNTIME_PATH_CAPACITY, job->partialFolder,
+		manifestName))
+	{
+		UNICHAR_REMOVE(path);
+	}
+	removeDirectory(job->partialFolder);
+}
+
+static bool writeRenderTransferFiles(const exchangeRenderJob_t *job,
+	uint64_t renderedFrames)
+{
+#ifdef _WIN32
+	static const UNICHAR metadataName[] = L"render.tapehead";
+	static const UNICHAR manifestName[] = L"exchange.tsexchange";
+#else
+	static const UNICHAR metadataName[] = "render.tapehead";
+	static const UNICHAR manifestName[] = "exchange.tsexchange";
+#endif
+	UNICHAR path[EXCHANGE_RUNTIME_PATH_CAPACITY];
+	if (!joinPath(path, EXCHANGE_RUNTIME_PATH_CAPACITY, job->partialFolder,
+		metadataName))
+	{
+		return false;
+	}
+	FILE *metadata = UNICHAR_FOPEN(path, "wb");
+	if (metadata == NULL)
+		return false;
+	bool success = tapeheadRenderWriteMetadata(metadata, &job->plan,
+		renderedFrames);
+	if (fclose(metadata) != 0)
+		success = false;
+	if (!success || !joinPath(path, EXCHANGE_RUNTIME_PATH_CAPACITY,
+		job->partialFolder, manifestName))
+	{
+		return false;
+	}
+
+	/* Write the standard v1 manifest last. TapeSister can consume this as a
+	** one-tile transfer today; render.tapehead carries the richer provenance
+	** for future exchange-aware placement without changing the v1 parser. */
+	FILE *manifest = UNICHAR_FOPEN(path, "wb");
+	if (manifest == NULL)
+		return false;
+	fprintf(manifest,
+		"TAPESISTER_EXCHANGE 1\n"
+		"sender=tapehead\n"
+		"recipient=tapesister\n"
+		"layout=instrument_samples\n"
+		"count=1\n"
+		"item=1,1,1,%s\n", job->plan.filename);
+	success = ferror(manifest) == 0;
+	if (fclose(manifest) != 0)
+		success = false;
+	return success;
+}
+
+static void formatPublishedResult(bool forceNewInstance,
+	const char *folderName, char *result, size_t resultCapacity)
+{
+	if (!forceNewInstance && tapeSisterIsRunning())
+	{
+		snprintf(result, resultCapacity,
+			"Published %s. Open TapeSister will receive it.", folderName);
+	}
+	else if (tapeheadConfig.tapeSisterExecutablePath[0] == '\0')
+	{
+		snprintf(result, resultCapacity,
+			"Published %s. TapeSister executable path is blank.", folderName);
+	}
+	else if (!launchTapeSister())
+	{
+		snprintf(result, resultCapacity,
+			"Published %s, but TapeSister could not be launched.", folderName);
+	}
+	else
+	{
+		snprintf(result, resultCapacity, forceNewInstance ?
+			"Published %s and launched another TapeSister." :
+			"Published %s and launched TapeSister.", folderName);
+	}
+}
+
+static void renderTransferCompleted(bool renderSucceeded,
+	uint64_t renderedFrames, void *userdata)
+{
+	exchangeRenderJob_t *job = (exchangeRenderJob_t *)userdata;
+	if (renderSucceeded &&
+		renderedFrames > TAPEHEAD_RENDER_MAX_TAPESISTER_FRAMES)
+	{
+		cleanupRenderPartial(job);
+		okBoxThreadSafe(0, "Render to TapeSister",
+			"The render exceeds TapeSister's 100,000,000-frame import limit. No completed transfer was published. Lower the WAV rate or render a shorter range.",
+			NULL);
+		free(job);
+		return;
+	}
+	bool published = renderSucceeded;
+	if (published)
+		published = writeRenderTransferFiles(job, renderedFrames);
+	if (published)
+		published = UNICHAR_RENAME(job->partialFolder, job->finalFolder) == 0;
+	if (!published)
+	{
+		cleanupRenderPartial(job);
+		okBoxThreadSafe(0, "Render to TapeSister",
+			"The render was cancelled or failed. No completed transfer was published.",
+			NULL);
+		free(job);
+		return;
+	}
+
+	char result[256];
+	formatPublishedResult(job->forceNewInstance, job->folderName, result,
+		sizeof (result));
+	okBoxThreadSafe(0, "Render to TapeSister", result, NULL);
+	free(job);
+}
+
+static void confirmAndRender(tapeheadRenderScope_t scope)
+{
+	if (editor.wavIsRendering)
+	{
+		okBox(0, "Render to TapeSister",
+			"A WAV render is already in progress.", NULL);
+		return;
+	}
+	if (song.songLength == 0 || editor.songPos < 0 ||
+		editor.songPos >= song.songLength || song.numChannels <= 0 ||
+		cursor.ch >= song.numChannels)
+	{
+		okBox(0, "Render to TapeSister",
+			"The current song position or track is not renderable.", NULL);
+		return;
+	}
+
+	tapeheadBlockLoopSpec_t blockSpec;
+	const bool blockScope = scope == TAPEHEAD_RENDER_BLOCK;
+	bool validBlock = false;
+	if (blockScope)
+	{
+		const uint16_t currentSpeed = song.speed > 0 ? song.speed :
+			(song.initialSpeed > 0 ? song.initialSpeed : 6);
+		validBlock = tapeheadBlockLoopGetSelection(&blockSpec);
+		if (!validBlock)
+		{
+			validBlock = tapeheadBlockLoopSpecInit(&blockSpec,
+				editor.editPattern, patternNumRows[editor.editPattern],
+				pattMark.markY1, pattMark.markY2, pattMark.markX1,
+				pattMark.markX2, song.numChannels, song.BPM, currentSpeed);
+		}
+	}
+
+	tapeheadRenderPlan_t plan;
+	const bool validPlan = blockScope ?
+		(validBlock && tapeheadRenderBlockPlanInit(&plan, &blockSpec,
+			(uint16_t)song.numChannels, getWavRenderFrequency(),
+			getWavRenderBitDepth())) :
+		tapeheadRenderPlanInit(&plan, scope, song.songLength,
+			(uint16_t)editor.songPos, song.orders[editor.songPos], cursor.ch,
+			(uint16_t)song.numChannels, song.BPM, song.speed,
+			getWavRenderFrequency(), getWavRenderBitDepth());
+	if (!validPlan)
+	{
+		okBox(0, "Render to TapeSister",
+			blockScope ? "Select a non-empty Pattern Editor block first." :
+			"Could not prepare the requested render.", NULL);
+		return;
+	}
+
+	const int16_t destination = okBox(SYSREQ_TYPE_RENDER_DESTINATION,
+		"Render audio",
+		"Save an ordinary WAV in Captures, or publish it into the TapeSister exchange inbox.",
+		NULL);
+	if (destination == 1)
+	{
+		char captureMessage[512];
+		snprintf(captureMessage, sizeof (captureMessage),
+			"Render: %s\nOutput: stereo, %u Hz, %u-bit\n\n"
+			"Save a uniquely numbered ordinary WAV in the Captures folder?",
+			tapeheadRenderScopeLabel(scope), plan.sampleRate,
+			(unsigned int)plan.bitDepth);
+		if (okBox(2, "Render audio", captureMessage, NULL) != 1)
+			return;
+		const bool resumeBlock = blockScope && tapeheadBlockLoopIsActive();
+		if (!tapeheadCaptureRender(&plan, blockScope ? &blockSpec : NULL,
+			resumeBlock, false))
+		{
+			okBox(0, "Render audio",
+				"Could not create the Captures folder or start the WAV render.", NULL);
+		}
+		return;
+	}
+	if (destination != 2)
+		return;
+	if (tapeheadConfig.tapeSisterExchangePath[0] == '\0')
+	{
+		okBox(0, "Render to TapeSister",
+			"Configure [TapeSister] ExchangePath in tapehead.ini first.", NULL);
+		return;
+	}
+
+	char message[768];
+	const bool patternScope = scope == TAPEHEAD_RENDER_PATTERN_MIX ||
+		scope == TAPEHEAD_RENDER_PATTERN_TRACK;
+	const bool trackScope = scope == TAPEHEAD_RENDER_PATTERN_TRACK ||
+		scope == TAPEHEAD_RENDER_SONG_TRACK;
+	char trackDetail[96] = { 0 };
+	if (trackScope)
+	{
+		snprintf(trackDetail, sizeof (trackDetail),
+			"Track: %02u\nSelected tracker track will be isolated.\n",
+			(unsigned int)plan.soloChannel + 1);
+	}
+	if (blockScope)
+	{
+		snprintf(message, sizeof (message),
+			"Render: %s\nPattern: %02X  Rows: %03u-%03u  Tracks: %02u-%02u\n"
+			"Output: stereo, %u Hz, %u-bit\nDestination: TapeSister tile 01\n\n"
+			"The WAV, metadata, and manifest will be published atomically.",
+			tapeheadRenderScopeLabel(scope), (unsigned int)plan.pattern,
+			(unsigned int)blockSpec.rowStart, (unsigned int)blockSpec.rowEnd - 1,
+			(unsigned int)blockSpec.channelStart + 1,
+			(unsigned int)blockSpec.channelEnd + 1, plan.sampleRate,
+			(unsigned int)plan.bitDepth);
+	}
+	else if (patternScope)
+	{
+		snprintf(message, sizeof (message),
+			"Render: %s\nOrder: %02X  Pattern: %02X\n%s"
+			"Output: stereo, %u Hz, %u-bit\nDestination: TapeSister tile 01\n\n"
+			"The WAV, metadata, and manifest will be published atomically.",
+			tapeheadRenderScopeLabel(scope), (unsigned int)plan.startOrder,
+			(unsigned int)plan.pattern, trackDetail,
+			plan.sampleRate, (unsigned int)plan.bitDepth);
+	}
+	else
+	{
+		snprintf(message, sizeof (message),
+			"Render: %s\nOrders: %02X-%02X\n%s"
+			"Output: stereo, %u Hz, %u-bit\nDestination: TapeSister tile 01\n\n"
+			"The WAV, metadata, and manifest will be published atomically.",
+			tapeheadRenderScopeLabel(scope), (unsigned int)plan.startOrder,
+			(unsigned int)plan.stopOrder, trackDetail, plan.sampleRate,
+			(unsigned int)plan.bitDepth);
+	}
+
+	const int16_t choice = okBox(SYSREQ_TYPE_TAPESISTER_PUBLISH,
+		"Render to TapeSister", message, NULL);
+	if (choice != 1 && choice != 2)
+		return;
+
+	exchangeRenderJob_t *job = calloc(1, sizeof (*job));
+	if (job == NULL)
+	{
+		okBox(0, "Render to TapeSister", "Not enough memory.", NULL);
+		return;
+	}
+	job->plan = plan;
+	job->hasBlock = blockScope;
+	if (blockScope)
+		job->blockSpec = blockSpec;
+	job->forceNewInstance = choice == 2;
+	if (!createTransferFolders(job->folderName, sizeof (job->folderName),
+		job->partialFolder, job->finalFolder))
+	{
+		free(job);
+		okBox(0, "Render to TapeSister",
+			"Could not create a pending transfer folder.", NULL);
+		return;
+	}
+
+	UNICHAR path[EXCHANGE_RUNTIME_PATH_CAPACITY];
+	UNICHAR *filename = pathFromUtf8(job->plan.filename);
+	const bool joined = filename != NULL && joinPath(path,
+		EXCHANGE_RUNTIME_PATH_CAPACITY, job->partialFolder, filename);
+	free(filename);
+	FILE *file = joined ? UNICHAR_FOPEN(path, "wb") : NULL;
+	const bool started = file != NULL && (job->hasBlock ?
+		startWavBlockRenderToFile(file, &job->blockSpec,
+			renderTransferCompleted, job) :
+		startWavRenderToFile(file, job->plan.startOrder,
+			job->plan.stopOrder, job->plan.soloChannel,
+			renderTransferCompleted, job));
+	if (!started)
+	{
+		if (file != NULL)
+			fclose(file);
+		cleanupRenderPartial(job);
+		free(job);
+		okBox(0, "Render to TapeSister",
+			"Could not start the audio render. No completed transfer was published.",
+			NULL);
+	}
 }
 
 static void confirmAndPublish(const exchangeSource_t *source)
@@ -1104,27 +1448,7 @@ static void confirmAndPublish(const exchangeSource_t *source)
 		return;
 	}
 	char result[256];
-	if (!forceNewInstance && tapeSisterIsRunning())
-	{
-		snprintf(result, sizeof (result),
-			"Published %s. Open TapeSister will receive it.", folderName);
-	}
-	else if (tapeheadConfig.tapeSisterExecutablePath[0] == '\0')
-	{
-		snprintf(result, sizeof (result),
-			"Published %s. TapeSister executable path is blank.", folderName);
-	}
-	else if (!launchTapeSister())
-	{
-		snprintf(result, sizeof (result),
-			"Published %s, but TapeSister could not be launched.", folderName);
-	}
-	else
-	{
-		snprintf(result, sizeof (result), forceNewInstance ?
-			"Published %s and launched another TapeSister." :
-			"Published %s and launched TapeSister.", folderName);
-	}
+	formatPublishedResult(forceNewInstance, folderName, result, sizeof (result));
 	okBox(0, "Send to TapeSister", result, NULL);
 }
 
@@ -1217,7 +1541,8 @@ void tapeSisterExchangeOpenMenu(void)
 {
 	const int16_t choice = okBox(SYSREQ_TYPE_TAPESISTER_MENU,
 		"TapeSister Exchange",
-		"Send samples, check the shared inbox, or open the exchange folder.", NULL);
+		"Send samples or rendered audio, check the shared inbox, or open the exchange folder.",
+		NULL);
 	if (choice == 3)
 	{
 		tapeSisterExchangePoll(true);
@@ -1233,19 +1558,43 @@ void tapeSisterExchangeOpenMenu(void)
 	}
 	if (choice != 1 && choice != 2)
 		return;
-	if (tapeheadConfig.tapeSisterExchangePath[0] == '\0')
+	if (choice == 2)
 	{
-		okBox(0, "Send to TapeSister", "Configure [TapeSister] ExchangePath in tapehead.ini first.", NULL);
+		const int16_t renderChoice = okBox(SYSREQ_TYPE_TAPESISTER_RENDER_MENU,
+			"Render audio",
+			"Choose a source. Press Escape to cancel; the next step chooses Captures or TapeSister.", NULL);
+		switch (renderChoice)
+		{
+			case 1: confirmAndRender(TAPEHEAD_RENDER_BLOCK); break;
+			case 2: confirmAndRender(TAPEHEAD_RENDER_PATTERN_MIX); break;
+			case 3: confirmAndRender(TAPEHEAD_RENDER_PATTERN_TRACK); break;
+			case 4: confirmAndRender(TAPEHEAD_RENDER_SONG_TRACK); break;
+			case 5: confirmAndRender(TAPEHEAD_RENDER_SONG_MIX); break;
+			default: break;
+		}
 		return;
 	}
+	if (tapeheadConfig.tapeSisterExchangePath[0] == '\0')
+	{
+		okBox(0, "TapeSister Exchange",
+			"Configure [TapeSister] ExchangePath in tapehead.ini first.", NULL);
+		return;
+	}
+
+	const int16_t sendChoice = okBox(SYSREQ_TYPE_TAPESISTER_SEND_MENU,
+		"Send samples to TapeSister",
+		"Send one instrument's samples or one sample from each following instrument.",
+		NULL);
+	if (sendChoice != 1 && sendChoice != 2)
+		return;
 	exchangeSource_t source;
-	const bool collected = choice == 1 ? collectCurrentInstrument(&source) :
+	const bool collected = sendChoice == 1 ? collectCurrentInstrument(&source) :
 		collectInstrumentRange(&source);
 	if (!collected)
 	{
 		exchangeSourceFree(&source);
 		okBox(0, "Send to TapeSister",
-			choice == 1 ? "The current instrument has no populated samples." :
+			sendChoice == 1 ? "The current instrument has no populated samples." :
 			"No occupied instruments were found from the current instrument onward.",
 			NULL);
 		return;

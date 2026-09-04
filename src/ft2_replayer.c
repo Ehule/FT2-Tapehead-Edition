@@ -98,6 +98,17 @@ uint16_t channelVolumeTrim[MAX_CHANNELS];
 bool performanceMute[MAX_CHANNELS];
 
 song_t song;
+
+typedef struct tapeheadBlockLoopState_t
+{
+	bool active, offline, pendingBounds, cycleCompleted;
+	tapeheadBlockLoopSpec_t current, pending;
+	int16_t anchorRow, movingRow;
+	int8_t anchorChannel, movingChannel;
+	uint32_t releaseAtNextRow;
+} tapeheadBlockLoopState_t;
+
+static tapeheadBlockLoopState_t blockLoop;
 instr_t *instr[128+4];
 note_t *pattern[MAX_PATTERNS];
 // ----------------------------------
@@ -2717,6 +2728,148 @@ static void processMasterTransportEffect(channel_t *ch, const note_t *event)
 	}
 }
 
+static void isolateBlockEvent(note_t *event, bool selectedChannel)
+{
+	if (event == NULL)
+		return;
+
+	/* A block is a literal rectangle. Song/pattern jumps, pattern loops and
+	** FastTracks control commands must never replace its row clock. */
+	if (selectedChannel)
+	{
+		if (event->efx == 0x0B || event->efx == 0x0D || event->efx == 0x23 ||
+			(event->efx == 0x0F && event->efxData == 0) ||
+			(event->efx == 0x0E && (event->efxData & 0xF0) == 0x60))
+		{
+			event->efx = 0;
+			event->efxData = 0;
+		}
+		return;
+	}
+
+	/* Tracks outside the rectangle are silent, but their literal-row timing
+	** and global-volume commands remain authoritative. This is what lets a
+	** dedicated timing lane continue to drive an isolated musical block. */
+	note_t globalEvent;
+	memset(&globalEvent, 0, sizeof (globalEvent));
+	if ((event->efx == 0x0F && event->efxData > 0) ||
+		event->efx == 0x10 || event->efx == 0x11 ||
+		(event->efx == 0x0E && (event->efxData & 0xF0) == 0xE0))
+	{
+		globalEvent.efx = event->efx;
+		globalEvent.efxData = event->efxData;
+	}
+	*event = globalEvent;
+}
+
+static void advanceBlockLoop(void)
+{
+	if (song.tick != 1)
+		return;
+
+	song.row++;
+	if (song.pattDelTime > 0)
+	{
+		song.pattDelTime2 = song.pattDelTime;
+		song.pattDelTime = 0;
+	}
+	if (song.pattDelTime2 > 0)
+	{
+		song.pattDelTime2--;
+		if (song.pattDelTime2 > 0)
+			song.row--;
+	}
+
+	if (song.row < blockLoop.current.rowEnd)
+		return;
+
+	if (blockLoop.pendingBounds)
+	{
+		for (int32_t i = blockLoop.current.channelStart;
+			i <= blockLoop.current.channelEnd; i++)
+		{
+			if (i < blockLoop.pending.channelStart ||
+				i > blockLoop.pending.channelEnd)
+			{
+				blockLoop.releaseAtNextRow |= UINT32_C(1) << i;
+			}
+		}
+		blockLoop.current = blockLoop.pending;
+		blockLoop.pendingBounds = false;
+	}
+
+	song.pattNum = blockLoop.current.pattern;
+	song.currNumRows = patternNumRows[song.pattNum];
+	song.row = blockLoop.current.rowStart;
+	song.pattDelTime = song.pattDelTime2 = 0;
+	song.pBreakFlag = song.posJumpFlag = false;
+	song.pBreakPos = 0;
+	song.BPM = blockLoop.current.initialBPM;
+	song.speed = MAX(blockLoop.current.initialSpeed, 1);
+	setMixerBPM(song.BPM);
+	blockLoop.cycleCompleted = true;
+	ui.updatePatternEditor = true;
+}
+
+static void tickBlockLoop(void)
+{
+	if (song.BPM >= MIN_BPM && song.BPM <= MAX_BPM)
+	{
+		song.playbackSecondsFrac += songTickDuration52fp[song.BPM-MIN_BPM];
+		if (song.playbackSecondsFrac >= 1ULL << 52)
+		{
+			song.playbackSecondsFrac &= (1ULL << 52)-1;
+			song.playbackSeconds++;
+		}
+	}
+
+	bool tickZero = false;
+	if (--song.tick == 0)
+	{
+		song.tick = MAX(song.speed, 1);
+		tickZero = true;
+	}
+	song.curReplayerTick = (uint8_t)song.tick;
+
+	const bool readNewNote = tickZero && song.pattDelTime2 == 0;
+	const note_t *rowNotes = nilPatternLine;
+	if (readNewNote && pattern[blockLoop.current.pattern] != NULL &&
+		song.row >= blockLoop.current.rowStart &&
+		song.row < blockLoop.current.rowEnd)
+	{
+		rowNotes = &pattern[blockLoop.current.pattern][song.row * MAX_CHANNELS];
+		song.curReplayerRow = (uint8_t)song.row;
+		song.curReplayerPattNum = (uint8_t)blockLoop.current.pattern;
+		song.curReplayerSongPos = (uint8_t)song.songPos;
+	}
+
+	beginTapeheadGlobalCommandPass();
+	channel_t *ch = channel;
+	for (int32_t i = 0; i < song.numChannels; i++, ch++)
+	{
+		if (readNewNote)
+		{
+			note_t event = rowNotes[i];
+			const bool selected = i >= blockLoop.current.channelStart &&
+				i <= blockLoop.current.channelEnd;
+			isolateBlockEvent(&event, selected);
+			if (blockLoop.releaseAtNextRow & (UINT32_C(1) << i))
+			{
+				event.note = NOTE_OFF;
+				blockLoop.releaseAtNextRow &= ~(UINT32_C(1) << i);
+			}
+			getNewNote(ch, &event);
+		}
+		else
+		{
+			handleEffects_TickNonZero(ch);
+		}
+		updateVolPanAutoVib(ch);
+	}
+	finishTapeheadGlobalCommandPass();
+	advanceBlockLoop();
+}
+
 static void getNextPos(void)
 {
 	const bool topologyActive = fastTracksPOCLengthTopologyIsActive(song.pattNum);
@@ -2970,6 +3123,15 @@ void tickReplayer(void) // periodically called from audio callback
 		transportPunchSkipResumeRow = false;
 		song.tick = 1;
 		getNextPos();
+	}
+
+	/* Block Loop owns a deliberately small transport universe. It bypasses
+	** FastTracks, LEN, Q/Poly routing and the sample deck, then reads the exact
+	** selected cells on the exact selected rows. */
+	if (blockLoop.active && songPlaying)
+	{
+		tickBlockLoop();
+		return;
 	}
 
 	if (!bakerIsOfflineRunning())
@@ -3867,6 +4029,197 @@ void startPlaying(int8_t mode, int16_t row)
 	ui.updatePatternEditor = true;
 }
 
+bool tapeheadBlockLoopSpecInit(tapeheadBlockLoopSpec_t *spec,
+	uint16_t patternNumber, uint16_t patternRows, int16_t rowStart,
+	int16_t rowEnd, int16_t channelStart, int16_t channelEnd,
+	int32_t channelCount, uint16_t bpm, uint16_t speed)
+{
+	if (spec == NULL || patternNumber >= MAX_PATTERNS || patternRows == 0 ||
+		rowStart < 0 || rowEnd <= rowStart || rowEnd > patternRows ||
+		channelStart < 0 || channelEnd < channelStart ||
+		channelCount <= 0 || channelEnd >= channelCount ||
+		bpm < MIN_BPM || bpm > MAX_BPM || speed == 0)
+	{
+		return false;
+	}
+
+	spec->pattern = patternNumber;
+	spec->rowStart = (uint16_t)rowStart;
+	spec->rowEnd = (uint16_t)rowEnd;
+	spec->channelStart = (uint8_t)channelStart;
+	spec->channelEnd = (uint8_t)channelEnd;
+	spec->initialBPM = bpm;
+	spec->initialSpeed = speed;
+	return true;
+}
+
+static void configureBlockLoopState(const tapeheadBlockLoopSpec_t *spec,
+	bool offline)
+{
+	memset(&blockLoop, 0, sizeof (blockLoop));
+	blockLoop.active = true;
+	blockLoop.offline = offline;
+	blockLoop.current = *spec;
+	blockLoop.pending = *spec;
+	blockLoop.anchorRow = spec->rowStart;
+	blockLoop.movingRow = spec->rowEnd - 1;
+	blockLoop.anchorChannel = spec->channelStart;
+	blockLoop.movingChannel = spec->channelEnd;
+
+	song.pattNum = spec->pattern;
+	song.currNumRows = patternNumRows[spec->pattern];
+	song.row = spec->rowStart;
+	song.BPM = spec->initialBPM;
+	song.speed = MAX(spec->initialSpeed, 1);
+	song.tick = 1;
+	song.pattDelTime = song.pattDelTime2 = 0;
+	song.pBreakFlag = song.posJumpFlag = false;
+	song.pBreakPos = 0;
+	setMixerBPM(song.BPM);
+	for (int32_t i = 0; i < song.numChannels; i++)
+		channel[i].channelOff = false;
+}
+
+static bool blockLoopSpecIsValid(const tapeheadBlockLoopSpec_t *spec)
+{
+	if (spec == NULL || spec->pattern >= MAX_PATTERNS)
+		return false;
+	tapeheadBlockLoopSpec_t checked;
+	return tapeheadBlockLoopSpecInit(&checked, spec->pattern,
+		patternNumRows[spec->pattern], spec->rowStart, spec->rowEnd,
+		spec->channelStart, spec->channelEnd, song.numChannels,
+		spec->initialBPM, spec->initialSpeed);
+}
+
+bool tapeheadBlockLoopStart(const tapeheadBlockLoopSpec_t *spec)
+{
+	if (!blockLoopSpecIsValid(spec))
+		return false;
+
+	stopPlaying();
+	resetChannels();
+	configureBlockLoopState(spec, false);
+	startPlaying(PLAYMODE_PATT, spec->rowStart);
+	if (!songPlaying)
+	{
+		memset(&blockLoop, 0, sizeof (blockLoop));
+		for (int32_t i = 0; i < song.numChannels; i++)
+			channel[i].channelOff = editor.channelMuted[i];
+		return false;
+	}
+	showRecPlusOverlay("BLOCK LOOP");
+	return true;
+}
+
+bool tapeheadBlockLoopStartSelection(void)
+{
+	const int16_t activeRow = editor.row;
+	const int16_t activeChannel = cursor.ch;
+	const uint16_t currentSpeed = song.speed > 0 ? song.speed :
+		(song.initialSpeed > 0 ? song.initialSpeed : 6);
+	tapeheadBlockLoopSpec_t spec;
+	if (!tapeheadBlockLoopSpecInit(&spec, editor.editPattern,
+		patternNumRows[editor.editPattern], pattMark.markY1, pattMark.markY2,
+		pattMark.markX1, pattMark.markX2, song.numChannels, song.BPM,
+		currentSpeed))
+	{
+		return false;
+	}
+	if (!tapeheadBlockLoopStart(&spec))
+		return false;
+
+	const bool movingTop = activeRow <= spec.rowStart;
+	blockLoop.anchorRow = movingTop ? spec.rowEnd - 1 : spec.rowStart;
+	blockLoop.movingRow = movingTop ? spec.rowStart : spec.rowEnd - 1;
+	const bool movingLeft = activeChannel <= spec.channelStart;
+	blockLoop.anchorChannel = movingLeft ? spec.channelEnd : spec.channelStart;
+	blockLoop.movingChannel = movingLeft ? spec.channelStart : spec.channelEnd;
+	return true;
+}
+
+bool tapeheadBlockLoopBeginOffline(const tapeheadBlockLoopSpec_t *spec)
+{
+	if (!blockLoopSpecIsValid(spec))
+		return false;
+	configureBlockLoopState(spec, true);
+	return true;
+}
+
+void tapeheadBlockLoopStop(void)
+{
+	if (!blockLoop.active)
+		return;
+	stopPlaying();
+	showRecPlusOverlay("BLOCK LOOP OFF");
+}
+
+bool tapeheadBlockLoopIsActive(void)
+{
+	return blockLoop.active;
+}
+
+bool tapeheadBlockLoopIsOffline(void)
+{
+	return blockLoop.active && blockLoop.offline;
+}
+
+bool tapeheadBlockLoopCycleCompleted(void)
+{
+	return blockLoop.active && blockLoop.cycleCompleted;
+}
+
+void tapeheadBlockLoopClearCycleCompleted(void)
+{
+	if (blockLoop.active)
+		blockLoop.cycleCompleted = false;
+}
+
+bool tapeheadBlockLoopGetSelection(tapeheadBlockLoopSpec_t *spec)
+{
+	if (!blockLoop.active || spec == NULL)
+		return false;
+	*spec = blockLoop.pendingBounds ? blockLoop.pending : blockLoop.current;
+	return true;
+}
+
+bool tapeheadBlockLoopResize(int32_t rowDelta, int32_t channelDelta)
+{
+	if (!blockLoop.active || blockLoop.offline ||
+		(rowDelta == 0 && channelDelta == 0) ||
+		(rowDelta != 0 && channelDelta != 0))
+	{
+		return false;
+	}
+
+	if (rowDelta != 0)
+	{
+		blockLoop.movingRow = (int16_t)CLAMP(blockLoop.movingRow + rowDelta,
+			0, patternNumRows[blockLoop.current.pattern] - 1);
+	}
+	else
+	{
+		blockLoop.movingChannel = (int8_t)CLAMP(
+			blockLoop.movingChannel + channelDelta, 0, song.numChannels - 1);
+		cursor.ch = (uint8_t)blockLoop.movingChannel;
+	}
+
+	blockLoop.pending = blockLoop.current;
+	blockLoop.pending.rowStart = MIN(blockLoop.anchorRow, blockLoop.movingRow);
+	blockLoop.pending.rowEnd = MAX(blockLoop.anchorRow, blockLoop.movingRow) + 1;
+	blockLoop.pending.channelStart = MIN(blockLoop.anchorChannel,
+		blockLoop.movingChannel);
+	blockLoop.pending.channelEnd = MAX(blockLoop.anchorChannel,
+		blockLoop.movingChannel);
+	blockLoop.pendingBounds = true;
+
+	pattMark.markY1 = blockLoop.pending.rowStart;
+	pattMark.markY2 = blockLoop.pending.rowEnd;
+	pattMark.markX1 = blockLoop.pending.channelStart;
+	pattMark.markX2 = blockLoop.pending.channelEnd;
+	ui.updatePatternEditor = true;
+	return true;
+}
+
 void handleRecPlusExhaustion(void)
 {
 	if (!recPlusExhaustionPending)
@@ -3927,9 +4280,11 @@ void stopPlayingKeepPoly(void)
 void stopPlaying(void)
 {
 	const bool finishOrCancelLiveBake = bakerLiveIsCapturing() || bakerLiveIsArmed();
+	const bool blockWasActive = blockLoop.active;
 
 	patternLauncherSetEnabled(false);
 	polyMatrixReset();
+	memset(&blockLoop, 0, sizeof (blockLoop));
 
 	bool songWasPlaying = songPlaying;
 	playMode = PLAYMODE_IDLE;
@@ -3973,6 +4328,11 @@ void stopPlaying(void)
 	song.tick = editor.tick = 1;
 	song.globalVolume = editor.globalVolume = 64;
 	ui.drawGlobVolFlag = true;
+	if (blockWasActive)
+	{
+		for (int32_t i = 0; i < song.numChannels; i++)
+			channel[i].channelOff = editor.channelMuted[i];
+	}
 
 	if (finishOrCancelLiveBake)
 		bakerFinishOrCancelLive();

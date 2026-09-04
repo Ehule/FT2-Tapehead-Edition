@@ -27,6 +27,16 @@ On first launch, the AppImage creates a writable Tapehead-data folder beside
 it. Keep that folder with the AppImage when moving or backing up Tapehead. No
 system-wide installation is performed.
 
+Ordinary tracker/block WAV renders auto-create a Captures folder beside
+FT2.CFG (inside Tapehead-data for AppImage builds). This is separate from the
+TapeSister exchange inbox; only an explicit TapeSister render destination is
+published there.
+
+During Ctrl+L Block Loop, F8 captures one clean offline cycle. F7 arms a live
+performance capture at the next loop boundary; change the block with
+Shift+Arrow, then press F7 again to stop at the following boundary. These WAVs
+also go to Captures and never require TapeSister.
+
 LICENSES
 --------
 Tapehead is derived from ft2-clone and FastTracker II. Complete source and

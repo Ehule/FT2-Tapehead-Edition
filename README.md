@@ -78,12 +78,16 @@ configurable MIDI Dub routing, and native JACK/PipeWire-JACK output buses.
 
 ### TapeSister exchange
 
-Tapehead and TapeSister exchange samples through an atomic, file-based inbox.
+Tapehead and TapeSister exchange samples and rendered tracker audio through an
+atomic, file-based inbox.
 TapeSister's **All Pages** protocol addresses as many as 255 Sample Bank pages;
 Tapehead imports any consecutive mapping that fits its 128 instruments, with
 up to 16 same-numbered sample slots per page.
 Right-click the **Instrument Editor** button to send every populated slot in
-the current instrument or the first populated slot from up to 16 instruments.
+the current instrument, the first populated slot from up to 16 instruments,
+or render the current order's pattern or full song as a mix or selected track.
+Audio renders arrive in TapeSister tile 1 and retain a small provenance
+sidecar for future exchange-aware placement.
 Incoming transfers always show their exact instrument and sample
 destinations—and any replacements—before Tapehead changes the module.
 Configure the shared folder and optional TapeSister executable in
@@ -113,6 +117,24 @@ Important defaults in this checkpoint:
 Select **TRACKER** in Deck Matrix to return to the ordinary editor. See the
 [Deck Matrix guide](docs/DECK_MATRIX.md) for its mouse gestures and transport
 boundaries.
+
+## Block Loop and captures
+
+Select a Pattern Editor rectangle and press **Ctrl+L** to loop its literal rows
+and tracks. FastTracks/LEN/deck routing is bypassed for this audition;
+timing/global commands on the same rows still apply. While it plays,
+**Shift+Arrow** resizes the active corner at the next loop seam and plain
+**F8** renders one cycle to an auto-created `Captures` folder before resuming.
+Plain **F7** arms a real-time performance capture for the next seam; keep
+resizing or holding the block for as many cycles as desired, then press
+**F7** again to stop cleanly at the end of the current cycle. The resulting
+`*_BlockPerformance_###.wav` contains exactly the audible performance and
+Block Loop keeps playing.
+
+The deliberate route remains right-click **Instrument Editor → Render audio**.
+It offers block, pattern mix/track, and song mix/track sources, followed by an
+ordinary **Capture WAV** or explicit **TapeSister** destination. See the
+[exchange and rendering guide](docs/FT2_EXCHANGE.md).
 
 ## Portable releases
 

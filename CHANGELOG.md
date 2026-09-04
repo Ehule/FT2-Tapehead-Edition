@@ -9,6 +9,47 @@ milestones and may contain limitations or planned work that later entries
 supersede. See [`docs/README.md`](docs/README.md) for the current documentation
 map.
 
+## Render tracker audio to TapeSister — 2026-09-04
+
+- Added seam-quantized Block Loop performance capture on plain `F7`. The first
+  press arms recording for the next cycle, live `Shift`+arrow block changes
+  are captured exactly as heard for any number of repeats, and the second
+  press closes at the following seam without stopping Block Loop.
+- Captured the normalized post-mixer Bus A stereo stream through a bounded
+  lock-free ring and background WAV writer. Temporary `.partial` files are
+  atomically published only after a valid close; interruption, disk errors,
+  and overflow leave no corrupt capture behind.
+- Settled block captures through one discarded live-equivalent loop cycle
+  before writing, so carried sample/envelope state matches at the WAV seam;
+  also fixed stacked Block Loop/capture overlays and playback-relative drawing
+  of the selection's first row.
+- Added a literal **Block Loop** (`Ctrl+L`) that auditions only the selected
+  rows and channels, keeps global timing commands active, ignores FastTracks
+  and pattern-flow commands, and accepts live `Shift`+arrow boundary edits at
+  the next loop seam.
+- Added one-key block capture with plain `F8` while Block Loop is active. It
+  renders exactly one loop cycle, resumes auditioning, and writes a
+  collision-safe WAV to an automatically created local `Captures` folder.
+- Expanded Instrument Editor **Render audio** to export a block, pattern mix,
+  pattern track, song track, or song mix either as an ordinary local WAV or as
+  an explicit TapeSister exchange offer. Local capture no longer requires a
+  configured TapeSister exchange path.
+- Added atomic TapeSister transfers for the current-order pattern mix,
+  current-order selected track, full-song selected track, and full-song mix.
+- Reused Tapehead's offline WAV engine through a completion-aware file target;
+  selected-track renders keep other channels' tracker commands active while
+  excluding their audio from the stereo mix.
+- Kept current TapeSister compatibility by publishing each render as a normal
+  one-item version-1 offer targeting tile 1, with a separate versioned
+  `render.tapehead` provenance sidecar for future exchange-aware placement.
+- Made render cancellation and I/O failure remove the pending `.partial`
+  folder instead of exposing an incomplete offer, and retained the existing
+  live-instance versus **Publish + New** behavior. Renders beyond current
+  TapeSister's 100,000,000-frame import limit are rejected before publication.
+- Split the Instrument Editor exchange dialog into clear **Send samples** and
+  **Render audio** submenus and added native planning/metadata plus atomic
+  wiring regression coverage.
+
 ## Tapehead identity and portable packaging — 2026-09-03
 
 - Renamed the Linux, Windows, CMake, Visual Studio, desktop, MIDI-port, window,

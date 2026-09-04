@@ -68,7 +68,8 @@ acknowledged folders are not offered again.
 
 ## Send to TapeSister
 
-Right-click the **Instrument Editor** button and choose:
+Right-click the **Instrument Editor** button, choose **Send samples**, then
+choose:
 
 - **Current instr.** exports every populated sample slot (maximum 16) from the
   current nonzero instrument. Sample slots 1–16 map to the same TapeSister
@@ -90,6 +91,81 @@ live TapeSister and lets its inbox poll discover the new transfer instead of
 launching another process. **Publish + New** deliberately starts another
 TapeSister instance after publication. A stale or missing presence marker
 falls back to the normal configured-executable launch.
+
+## Render tracker audio to TapeSister
+
+Right-click **Instrument Editor**, choose **Render audio**, and select one of
+five scopes. The next dialog chooses either an ordinary WAV in `Captures` or
+an explicit TapeSister publication:
+
+- **Block** renders the selected Pattern Editor rectangle as one literal
+  cycle. Only selected tracks are audible; Fxx, Gxx, Hxx, and EEx commands on
+  the same rows outside the rectangle still govern timing/global state.
+
+- **Pattern mix** renders the pattern assigned to the current song order from
+  its first row through its end.
+- **Pattern track** renders that same pattern with only the currently selected
+  tracker track audible.
+- **Song track** renders orders `00` through the end of the song with only the
+  selected tracker track audible.
+- **Song mix** renders orders `00` through the end of the song as a stereo mix.
+
+Pattern/song track isolation keeps all tracker channels running internally so tempo, speed,
+pattern-flow, and other global commands on non-audible tracks still govern the
+render. The output uses the WAV exporter's current sample rate, bit depth, and
+amplification settings and is always stereo. The confirmation dialog displays
+the exact order/pattern or song range, selected track where relevant, format,
+and destination before rendering begins.
+
+The literal block transport deliberately ignores FastTracks ratios, LEN track
+lengths, Pattern/Poly Matrix routing, Bxx/Dxx jumps, E6x loops, and Zxx
+FastTracks commands. Selecting rows 16-31 and tracks 3-5 therefore renders
+exactly those cells in lockstep, regardless of the surrounding composition.
+
+For the fast version, select a block and press **Ctrl+L**. Tapehead loops only
+that rectangle. **Shift+Arrow** moves the selection's active corner while it
+plays; the new bounds take effect at the next loop seam. Press plain **F8**
+during Block Loop to render exactly one current cycle to the auto-created
+`Captures` folder, then resume Block Loop. Modified F8 commands retain their
+existing transpose meanings, and plain F8 retains block extraction whenever
+Block Loop is off.
+
+Plain **F7** turns Block Loop into a quantized performance recorder. The first
+press arms capture; recording begins at the next loop seam. Change the rows or
+tracks with **Shift+Arrow**, hold a shape for several repeats, or continue
+performing without a fixed cycle count. Press **F7** again and Tapehead records
+through the current cycle, stops at its closing seam, saves
+`Song_BlockPerformance_###.wav` in `Captures`, and leaves Block Loop running.
+Pressing F7 a second time before the armed start cancels it. Stopping Block
+Loop while recording safely closes what has already been captured; stopping
+while merely armed keeps no file.
+
+Performance capture records the live post-mixer Bus A stereo stream at the
+active audio-device rate and current WAV bit depth. Its audio callback only
+copies into a bounded memory ring; a background writer performs all file I/O
+through a `.partial` file and publishes the final WAV only after a clean
+close. F8 remains the deterministic one-cycle offline capture, while F7 is
+the evolving, what-you-hear performance path. Modified F7 commands retain
+their existing transpose meanings, and plain F7 remains octave 6 outside
+Block Loop.
+
+Each successful render sent to TapeSister becomes a normal one-item version-1
+`instrument_samples` offer and therefore works with current TapeSister builds
+without a protocol change. TapeSister receives the WAV in tile 1. The transfer
+also contains `render.tapehead`, a versioned text sidecar recording render
+scope, order range, pattern or `-1` for a song render, selected track or `0`
+for a mix, source channel count, format, initial tempo/speed, frame count, and
+duration. Current TapeSister builds safely ignore that sidecar; it preserves
+enough provenance for future placement and round-trip features.
+
+Tapehead writes the WAV first, the sidecar second, and the ordinary manifest
+last inside the unique `.partial` folder. Only after the renderer and every
+file close successfully does Tapehead rename the folder into view. Cancelling,
+stopping, an I/O error, or a failed render removes the pending folder and never
+publishes a complete offer. **Publish** and **Publish + New** retain the same
+running-instance behavior as sample sends. Tapehead also refuses to publish a
+render above current TapeSister's 100,000,000-frame WAV import ceiling; lower
+the WAV sample rate or render a shorter scope if that limit is reached.
 
 ## Authoritative version-1 manifest
 
@@ -193,9 +269,9 @@ rate behavior.
    and Undo history do not change and no `tapehead.received` appears.
 9. After a successful import, confirm `tapehead.received` exists and the folder
    is not offered again after restarting Tapehead.
-10. In Tapehead, right-click **Instrument Editor** and send **Current instr.**
-   from an instrument with sparse populated slots. Verify TapeSister previews
-   the same tile numbers and accepts them.
+10. In Tapehead, right-click **Instrument Editor**, choose **Send samples**,
+   and send **Current instr.** from an instrument with sparse populated slots.
+   Verify TapeSister previews the same tile numbers and accepts them.
 11. Send **Instr. range** across instruments with gaps and multiple samples.
    Verify exactly the first populated slot per occupied instrument is exported
    to sequential tiles.
@@ -208,3 +284,15 @@ rate behavior.
     ping-pong, and backward
     loops. Verify tuning is retained, loop endpoints remain valid, and the
     backward loop plays repeatedly in reverse.
+14. Put the cursor on a track with obvious audio and choose **Render audio →
+    Pattern track**. Confirm the dialog identifies the correct order, pattern,
+    and one-based track; accept it and verify TapeSister receives a stereo WAV
+    in tile 1 containing only that track for one pattern.
+15. Repeat **Pattern mix**, **Song track**, and **Song mix**. Confirm pattern
+    renders stop after the current order, song renders cover the full order
+    range, mix renders include all audible tracks, and isolated renders still
+    honor tempo/speed commands carried by other tracks.
+16. During a longer render, stop the WAV render. Confirm no completed exchange
+    folder appears and the temporary `.partial` folder is removed. Then finish
+    a render and verify its folder contains the WAV, `render.tapehead`, and
+    `exchange.tsexchange`, with the manifest mapping the WAV to tile 1.

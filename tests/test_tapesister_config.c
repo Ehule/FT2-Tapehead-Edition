@@ -27,12 +27,13 @@ void SDLCALL SDL_AtomicUnlock(SDL_SpinLock *lock)
 
 int main(int argc, char **argv)
 {
-	if (argc != 4)
+	if (argc != 5)
 		return 2;
 	editor.configFileLocationU = argv[1];
 	loadTapeheadConfig();
 	if (strcmp(tapeheadConfig.tapeSisterExchangePath, argv[2]) != 0 ||
-		strcmp(tapeheadConfig.tapeSisterExecutablePath, argv[3]) != 0)
+		strcmp(tapeheadConfig.tapeSisterExecutablePath, argv[3]) != 0 ||
+		strcmp(tapeheadConfig.captureFolder, argv[4]) != 0)
 	{
 		fprintf(stderr, "TapeSister paths were not preserved\n");
 		return 1;
@@ -49,7 +50,8 @@ int main(int argc, char **argv)
 	tapeheadConfig.tapeSisterExecutablePath[0] = '\0';
 	loadTapeheadConfig();
 	if (strcmp(tapeheadConfig.tapeSisterExchangePath, argv[2]) != 0 ||
-		strcmp(tapeheadConfig.tapeSisterExecutablePath, argv[3]) != 0)
+		strcmp(tapeheadConfig.tapeSisterExecutablePath, argv[3]) != 0 ||
+		strcmp(tapeheadConfig.captureFolder, argv[4]) != 0)
 	{
 		fprintf(stderr, "TapeSister UI paths were not saved\n");
 		return 1;

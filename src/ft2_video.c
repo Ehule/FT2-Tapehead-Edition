@@ -286,6 +286,14 @@ void showRecPlusOverlay(const char *text)
 		if (recPlusOverlayBackup == NULL)
 			return;
 	}
+	else if (recPlusOverlayFrames > 0)
+	{
+		/* Remove the previous overlay before taking the next background copy.
+		** Otherwise a quick CAPTURING BLOCK message snapshots BLOCK LOOP and
+		** permanently draws the two phrases on top of each other. */
+		memcpy(video.frameBuffer, recPlusOverlayBackup,
+			SCREEN_W * SCREEN_H * sizeof (uint32_t));
+	}
 
 	memcpy(recPlusOverlayBackup, video.frameBuffer,
 		SCREEN_W * SCREEN_H * sizeof (uint32_t));

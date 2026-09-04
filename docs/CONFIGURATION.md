@@ -16,7 +16,9 @@ ExecutablePath=
 
 - `ExchangePath` is the shared directory configured as TapeSister's **FT2
   Exchange Path**. Tapehead checks it at startup, about once per second while
-  the UI is idle, and when **Check inbox** is requested manually.
+  the UI is idle, and when **Check inbox** is requested manually. Sample sends
+  and explicit **Render audio → TapeSister** transfers are published into this
+  same directory. Ordinary WAV captures never use the exchange inbox.
 - `ExecutablePath` is the full path to the TapeSister executable. After
   publishing, Tapehead reuses a live TapeSister detected through the exchange
   folder; otherwise it starts this path directly without a command shell.
@@ -48,6 +50,29 @@ loads it at startup and its Layout palette **Load**/**Save** buttons use it.
 With no Exchange path, the file lives beside `FT2.CFG`. See
 [`UNIVERSAL_PALETTE.md`](UNIVERSAL_PALETTE.md) for legacy fallback and the
 complete reciprocal schema.
+
+## Audio captures
+
+```ini
+[Capture]
+Folder=
+```
+
+- `Folder` is the destination for ordinary, application-agnostic WAV renders.
+  When blank, Tapehead creates `Captures` beside `FT2.CFG` the first time a
+  capture is requested. This keeps Windows portable captures inside the
+  extracted Tapehead folder and Linux AppImage captures inside
+  `Tapehead-data`.
+- Set `Folder` to an absolute path to choose another capture library. Tapehead
+  creates the final folder when possible, refuses to overwrite existing WAVs,
+  and adds a three-digit sequence number to every filename.
+- The capture folder is intentionally separate from the TapeSister exchange
+  folder. Only an explicit **TapeSister** destination creates a manifest and
+  publishes into that transactional inbox.
+- Plain F7 during Block Loop writes live, seam-quantized performance captures
+  here as `Song_BlockPerformance_###.wav`. They use the active audio-device
+  rate and current WAV bit depth; F8 and dialog renders continue to use the
+  WAV renderer's selected format.
 
 ## Video
 

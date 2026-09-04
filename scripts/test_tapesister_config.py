@@ -33,16 +33,20 @@ def main() -> None:
 
         long_exchange = "/tmp/" + "/".join(["exchange-segment"] * 100)
         long_executable = "/opt/" + "/".join(["application-segment"] * 90) + "/TapeSister"
+        capture_folder = str(tmp_path / "Captures")
         tapehead_ini.write_text(
             "[TapeSister]\n"
             f"ExchangePath={long_exchange}\n"
             f"ExecutablePath={long_executable}\n"
             "CustomKey=keep-me\n"
+            "[Capture]\n"
+            f"Folder={capture_folder}\n"
             "[Other]\nCustomSetting=still-here\n",
             encoding="utf-8",
         )
         subprocess.run(
-            [str(executable), str(tmp_path / "FT2.CFG"), long_exchange, long_executable],
+            [str(executable), str(tmp_path / "FT2.CFG"), long_exchange,
+             long_executable, capture_folder],
             check=True,
             cwd=ROOT,
         )
@@ -52,13 +56,15 @@ def main() -> None:
         assert f"ExecutablePath={long_executable}" in written
         assert "CustomKey=keep-me" in written
         assert "CustomSetting=still-here" in written
+        assert f"Folder={capture_folder}" in written
 
         tapehead_ini.write_text(
-            "[TapeSister]\nExchangePath=/tmp/shared\nExecutablePath=\n",
+            "[TapeSister]\nExchangePath=/tmp/shared\nExecutablePath=\n"
+            "[Capture]\nFolder=\n",
             encoding="utf-8",
         )
         subprocess.run(
-            [str(executable), str(tmp_path / "FT2.CFG"), "/tmp/shared", ""],
+            [str(executable), str(tmp_path / "FT2.CFG"), "/tmp/shared", "", ""],
             check=True,
             cwd=ROOT,
         )
