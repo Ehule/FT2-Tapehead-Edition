@@ -11,6 +11,10 @@ map.
 
 ## Render tracker audio to TapeSister — 2026-09-04
 
+- Settled block captures through one discarded live-equivalent loop cycle
+  before writing, so carried sample/envelope state matches at the WAV seam;
+  also fixed stacked Block Loop/capture overlays and playback-relative drawing
+  of the selection's first row.
 - Added a literal **Block Loop** (`Ctrl+L`) that auditions only the selected
   rows and channels, keeps global timing commands active, ignores FastTracks
   and pattern-flow commands, and accepts live `Shift`+arrow boundary edits at

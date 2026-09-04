@@ -4168,6 +4168,12 @@ bool tapeheadBlockLoopCycleCompleted(void)
 	return blockLoop.active && blockLoop.cycleCompleted;
 }
 
+void tapeheadBlockLoopClearCycleCompleted(void)
+{
+	if (blockLoop.active)
+		blockLoop.cycleCompleted = false;
+}
+
 bool tapeheadBlockLoopGetSelection(tapeheadBlockLoopSpec_t *spec)
 {
 	if (!blockLoop.active || spec == NULL)

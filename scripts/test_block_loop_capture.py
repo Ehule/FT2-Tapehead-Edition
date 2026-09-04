@@ -22,6 +22,8 @@ def main() -> None:
     exchange = (ROOT / "src/ft2_tapesister_exchange.c").read_text()
     config = (ROOT / "src/ft2_config.c").read_text()
     main_c = (ROOT / "src/ft2_main.c").read_text()
+    video = (ROOT / "src/ft2_video.c").read_text()
+    pattern_draw = (ROOT / "src/ft2_pattern_draw.c").read_text()
     project = (ROOT / "vs2026_project/ft2-clone/ft2-clone.vcxproj").read_text()
 
     # Block playback branches before every alternate tracker/deck transport.
@@ -55,13 +57,32 @@ def main() -> None:
             "tapeheadConfig.f8ExtractBlock")
     assert "tapeheadCaptureQuickBlock()" in f8
 
-    # Offline rendering ends at exactly one literal loop cycle and then the
-    # main thread can resume audition without worker-thread GUI calls.
+    # Offline rendering first discards one production-mixer cycle so the WAV
+    # begins with the same carried voice state heard at a live loop seam. It
+    # then captures exactly one cycle and resumes audition on the main thread.
+    ordered(renderer, "static bool renderBlockPreroll",
+            "mixReplayerTickToBuffer(tickSamples, wavRenderBuffer, bitDepth)",
+            "tapeheadBlockLoopClearCycleCompleted()",
+            "static int32_t renderWavThread")
+    ordered(renderer, "if (wavRenderBlockEnabled &&",
+            "renderBlockPreroll(bitDepth, &tickSamplesFrac, &cancelled)",
+            "while (!renderDone)")
     assert "tapeheadBlockLoopCycleCompleted()" in renderer
     assert "startWavBlockRenderToFile" in renderer
     assert "SDL_AtomicSet(&job->finished, true)" in capture
     assert "tapeheadCapturePoll();" in main_c
     assert "tapeheadBlockLoopStart(&job->blockSpec)" in capture
+
+    # Replacing a transient overlay restores its clean backing frame first,
+    # and the selection uses the same playback-centered row as the pattern.
+    overlay = video[video.index("void showRecPlusOverlay"):
+                    video.index("static void drawRecPlusOverlay")]
+    ordered(overlay, "recPlusOverlayFrames > 0",
+            "memcpy(video.frameBuffer, recPlusOverlayBackup",
+            "memcpy(recPlusOverlayBackup, video.frameBuffer")
+    assert "writePatternBlockMark(visualMasterRow" in pattern_draw
+    assert "tapeheadBlockLoopIsActive() && paletteIndex == PAL_DESKTOP" in pattern_draw
+    assert "video.palette[PAL_BLCKMRK]" in pattern_draw
 
     # Captures and exchange publication are deliberately separate outputs.
     assert 'capturesName[] = "Captures"' in capture
@@ -80,7 +101,7 @@ def main() -> None:
         "ft2_capture.c", "ft2_replayer.c", "ft2_keyboard.c",
         "ft2_wav_renderer.c", "ft2_tapesister_exchange.c",
         "ft2_tapesister_render.c", "ft2_config.c", "ft2_main.c",
-        "ft2_sysreqs.c",
+        "ft2_sysreqs.c", "ft2_video.c", "ft2_pattern_draw.c",
     ):
         subprocess.run(
             ["gcc", "-std=c11", "-D_DEFAULT_SOURCE", "-DNDEBUG",

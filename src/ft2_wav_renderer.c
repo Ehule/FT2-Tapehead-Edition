@@ -364,6 +364,43 @@ static void updateVisuals(void)
 	ui.updatePatternEditor = true;
 }
 
+static bool renderBlockPreroll(uint8_t bitDepth, uint64_t *tickSamplesFrac,
+	bool *cancelled)
+{
+	/*
+	** A live Block Loop carries its voices through the row-end/row-start seam.
+	** Starting an offline render from silent voices made the file's beginning
+	** and ending describe different mixer states, which produced a click when
+	** the captured cycle was looped. Run and discard one complete cycle first,
+	** then capture the following cycle from the settled seam state.
+	*/
+	while (!tapeheadBlockLoopCycleCompleted())
+	{
+		if (editor.stopWavRender || !editor.wavIsRendering)
+		{
+			*cancelled = true;
+			editor.stopWavRender = false;
+			return false;
+		}
+
+		dump_TickReplayer();
+		uint32_t tickSamples = audio.samplesPerTickInt;
+
+		*tickSamplesFrac += audio.samplesPerTickFrac;
+		if (*tickSamplesFrac >= BPM_FRAC_SCALE)
+		{
+			*tickSamplesFrac &= BPM_FRAC_MASK;
+			tickSamples++;
+		}
+
+		/* Advance the exact production mixer, but discard this warm-up audio. */
+		mixReplayerTickToBuffer(tickSamples, wavRenderBuffer, bitDepth);
+	}
+
+	tapeheadBlockLoopClearCycleCompleted();
+	return true;
+}
+
 static int32_t renderWavThread(void *ptr)
 {
 	(void)ptr;
@@ -441,6 +478,11 @@ static int32_t renderWavThread(void *ptr)
 	bool writeError = false;
 	uint8_t tickCounter = UPDATE_VISUALS_AT_TICK;
 	uint64_t tickSamplesFrac = 0;
+	if (wavRenderBlockEnabled &&
+		!renderBlockPreroll(bitDepth, &tickSamplesFrac, &cancelled))
+	{
+		renderDone = true;
+	}
 
 	uint64_t bytesInFile = sizeof (wavHeader_t);
 

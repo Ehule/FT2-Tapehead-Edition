@@ -356,6 +356,7 @@ void tapeheadBlockLoopStop(void);
 bool tapeheadBlockLoopIsActive(void);
 bool tapeheadBlockLoopIsOffline(void);
 bool tapeheadBlockLoopCycleCompleted(void);
+void tapeheadBlockLoopClearCycleCompleted(void);
 bool tapeheadBlockLoopResize(int32_t rowDelta, int32_t channelDelta);
 bool tapeheadBlockLoopGetSelection(tapeheadBlockLoopSpec_t *spec);
 void handleRecPlusExhaustion(void);
