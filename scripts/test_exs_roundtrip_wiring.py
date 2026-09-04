@@ -31,9 +31,19 @@ def main() -> None:
         require(saver, field, "EXS exporter")
 
     require(saver, "exsStripKnownSampleExtension(name);", "EXS filename normalization")
+    require(
+        saver,
+        'exsJoinPath(path, PATH_MAX+1, root, "Processed")',
+        "EXS processed-directory creation",
+    )
 
     for token in (
         "SAMPLE_FOLDER_IMPORT_EXS",
+        "exsProcessedFolderHasEntries",
+        "exsFlatBasenameIsUnique",
+        "job->exsUsesProcessed",
+        "Input WAVs: %s\\n",
+        '"Processed is incomplete:',
         "prepareEXSSample",
         "confirmEXSRoundTrip",
         'undoTransactionBegin("Replace Samples from EXS")',
@@ -56,6 +66,7 @@ def main() -> None:
     require(diskop, "editor.sampleSaveMode == SMP_SAVE_MODE_EXS", "EXS directory-name retention")
     require(mouse, "replaceSamplesFromEXSFolder();", "EXS mouse gesture")
     require(guide, "One **Undo**", "EXS guide")
+    require(guide, "never silently mixes processed and original files", "EXS guide")
     require(project, "ft2_exs_manifest.c", "Visual Studio project")
     require(project, "ft2_exs_manifest.h", "Visual Studio project")
 

@@ -11,6 +11,11 @@ map.
 
 ## EXS extraction and round-trip replacement — 2026-09-04
 
+- Added a reusable `Processed` output directory to every EXS export. Round-trip
+  import automatically uses a complete mirrored or flattened processed set,
+  clearly identifies that source in its confirmation, permits repeated REAPER
+  renders to replace those working files, and never mixes partial processed
+  material with untouched originals.
 - Kept the EXS destination field independent from sample audition selections,
   removed recognized source-audio extensions before adding the exported WAV
   extension, and repaired populated-folder deletion on Windows by supplying
