@@ -373,7 +373,33 @@ static int reader_take(TapeLinkReader *reader, float frame[2])
     return 1;
 }
 
-static int reader_prime(TapeLinkReader *reader)
+static uint32_t reader_target_frames(const TapeLinkReader *reader,
+                                     size_t output_frames,
+                                     uint32_t output_rate)
+{
+    uint64_t callback_frames;
+    uint64_t callback_floor;
+    uint32_t target;
+    if (reader == NULL || reader->sample_rate == 0u || output_rate == 0u)
+        return 256u;
+    /* Local shared memory needs only a small scheduling cushion. Target
+       25 ms, but retain two complete receiver callbacks when a large device
+       buffer would otherwise consume the reserve in one pass. */
+    target = reader->sample_rate / 40u;
+    callback_frames = ((uint64_t)output_frames * reader->sample_rate +
+                       output_rate - 1u) / output_rate;
+    callback_floor = callback_frames * 2u;
+    if (callback_floor > target)
+        target = callback_floor > UINT32_MAX ? UINT32_MAX :
+                 (uint32_t)callback_floor;
+    if (target < 256u) target = 256u;
+    if (target > TAPE_LINK_CAPACITY_FRAMES / 2u)
+        target = TAPE_LINK_CAPACITY_FRAMES / 2u;
+    return target;
+}
+
+static int reader_prime(TapeLinkReader *reader, size_t output_frames,
+                        uint32_t output_rate)
 {
     TapeLinkShared *shared = (TapeLinkShared *)reader->shared;
     uint32_t write_frame, read_frame, available, target;
@@ -386,10 +412,7 @@ static int reader_prime(TapeLinkReader *reader)
         available = 0u;
         atomic_store_u32(&shared->read_frame, read_frame);
     }
-    target = reader->sample_rate / 20u;
-    if (target < 256u) target = 256u;
-    if (target > TAPE_LINK_CAPACITY_FRAMES / 2u)
-        target = TAPE_LINK_CAPACITY_FRAMES / 2u;
+    target = reader_target_frames(reader, output_frames, output_rate);
     if (available < target) return 0;
     if (available > target) {
         read_frame = write_frame - target;
@@ -449,12 +472,11 @@ size_t tapeLinkReaderRead(TapeLinkReader *reader, float *interleaved,
     buffered = write_frame - read_frame;
     if (buffered > TAPE_LINK_CAPACITY_FRAMES) buffered = 0u;
     reader->connected = reader->stale_frames < output_rate / 2u || buffered > 0u;
-    if (!reader->primed && !reader_prime(reader)) {
+    if (!reader->primed && !reader_prime(reader, frames, output_rate)) {
         reader_fade_tail(reader, interleaved, frames, output_rate);
         return frames;
     }
-    target = reader->sample_rate / 20u;
-    if (target < 256u) target = 256u;
+    target = reader_target_frames(reader, frames, output_rate);
     correction = target > 0u ?
         ((double)buffered - (double)target) / (double)target * 0.002 : 0.0;
     if (correction < -0.002) correction = -0.002;

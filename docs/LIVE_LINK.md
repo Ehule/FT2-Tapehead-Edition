@@ -28,9 +28,10 @@ launcher routes fold to Bus A before transmission. Use native JACK or a multicha
 hardware destination when separate output buses are required.
 
 TapeSister resamples automatically when the applications use different rates. A small
-adaptive buffer targets roughly 50 ms so independent application clocks can drift
-without periodic clicks or dropouts. Connection, underrun, overrun, restart, and stop
-transitions are bounded and faded.
+adaptive buffer targets 25 ms, with a two-callback safety floor for large device
+buffers, so independent application clocks can drift without periodic clicks or
+dropouts. Connection, underrun, overrun, restart, and stop transitions are bounded and
+faded.
 
 ## Capture and processing
 

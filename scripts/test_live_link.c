@@ -81,10 +81,12 @@ int main(int argc, char **argv)
         input[frame * 2u] = 0.25f;
         input[frame * 2u + 1u] = -0.5f;
     }
-    assert(tapeLinkWriterWrite(&writer, input, 4096u) == 4096u);
-    assert(tapeLinkReaderRead(&reader, output, 1024u, 48000u) == 1024u);
-    assert(fabsf(output[2046] - 0.25f) < 0.001f);
-    assert(fabsf(output[2047] + 0.5f) < 0.001f);
+    /* A 512-frame callback at 48 kHz primes from the nominal 25 ms reserve.
+       The former 50 ms target would still return silence here. */
+    assert(tapeLinkWriterWrite(&writer, input, 1200u) == 1200u);
+    assert(tapeLinkReaderRead(&reader, output, 512u, 48000u) == 512u);
+    assert(fabsf(output[1022] - 0.25f) < 0.001f);
+    assert(fabsf(output[1023] + 0.5f) < 0.001f);
     tapeLinkReaderStatus(&reader, &status);
     assert(status.connected);
     assert(status.sample_rate == 44100u);
