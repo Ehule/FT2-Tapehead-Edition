@@ -15,7 +15,7 @@ echo Compiling, please wait patiently...
 
 mkdir -p "$APPDIR/usr/bin" "$DEFAULTS_DIR" "$DOC_DIR"
 
-gcc -DNDEBUG -DHAS_MIDI -D__LINUX_ALSA__ src/rtmidi/*.cpp src/gfxdata/*.c src/mixer/*.c src/scopes/*.c src/modloaders/*.c src/smploaders/*.c src/*.c -ffast-math -lSDL2 -lpthread -lasound -lstdc++ -ldl -lm -Wshadow -Winit-self -Wall -Wno-missing-field-initializers -Wno-unused-result -Wno-strict-aliasing -Wextra -Wunused -Wunreachable-code -Wswitch-default -Wno-stringop-overflow -O3 -o "$APPDIR/usr/bin/Tapehead"
+gcc -DNDEBUG -DHAS_MIDI -D__LINUX_ALSA__ src/rtmidi/*.cpp src/gfxdata/*.c src/mixer/*.c src/scopes/*.c src/modloaders/*.c src/smploaders/*.c src/*.c -ffast-math -lSDL2 -lpthread -lasound -lstdc++ -ldl -lrt -lm -Wshadow -Winit-self -Wall -Wno-missing-field-initializers -Wno-unused-result -Wno-strict-aliasing -Wextra -Wunused -Wunreachable-code -Wswitch-default -Wno-stringop-overflow -O3 -o "$APPDIR/usr/bin/Tapehead"
 
 scripts/copy-tapehead-runtime-assets.sh "$DEFAULTS_DIR"
 cp "$DEFAULTS_DIR/tapeheadSplash.png" "$APPDIR/usr/bin/"

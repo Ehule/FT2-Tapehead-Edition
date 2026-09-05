@@ -33,6 +33,7 @@ Start here:
 - [FasTracks and the frozen `Zxx` map](docs/FAST_TRACKS.md)
 - [Configuration reference](docs/CONFIGURATION.md)
 - [TapeSister exchange](docs/FT2_EXCHANGE.md)
+- [Tapehead → TapeSister Live Link](docs/LIVE_LINK.md)
 - [Changelog](CHANGELOG.md)
 
 ## What makes Tapehead different
@@ -99,6 +100,16 @@ uses a dedicated translucent Wave Selection color, retains the remaining
 TapeSister-only colors on every save, and provides 19 TapeSister eyedropper
 swatches beside its 20-color selector. See
 the [universal palette guide](docs/UNIVERSAL_PALETTE.md).
+
+### Tapehead → TapeSister Live Link
+
+Select **TapeSister Live Link** in Tapehead's Audio output list to send its
+post-mixer stereo stream directly into TapeSister. Tapehead opens no hardware
+output in this mode; TapeSister owns the interface and can process Tapehead
+through its ordinary pedalboard or the full Sister Machine, Fallout, capture,
+and file-recording paths. The applications may start in either order, reconnect
+after restarts, and may use different sample rates. See the
+[Live Link guide](docs/LIVE_LINK.md).
 
 ### EXS sample round trip
 

@@ -13,6 +13,7 @@
 #include "ft2_mouse.h"
 #include "ft2_audioselector.h"
 #include "ft2_jack.h"
+#include "ft2_live_link.h"
 #include "ft2_structs.h"
 #include "ft2_video.h"
 
@@ -405,6 +406,11 @@ void rescanAudioDevices(void)
 	audio.outputDeviceNum = 0;
 	audio.outputDeviceNames[0] = strdup(DEFAULT_AUDIO_DEV_STR);
 	audio.outputDeviceNum = 1;
+
+	/* Live Link is a clocked virtual destination and never opens hardware. */
+	if (audio.outputDeviceNum < MAX_AUDIO_DEVICES)
+		audio.outputDeviceNames[audio.outputDeviceNum++] =
+			strdup(TAPEHEAD_LIVE_LINK_DEVICE_NAME);
 
 	/* Native JACK ports are a virtual Tapehead destination, not an SDL device. */
 	if (tapeheadJackLibraryAvailable() && audio.outputDeviceNum < MAX_AUDIO_DEVICES)

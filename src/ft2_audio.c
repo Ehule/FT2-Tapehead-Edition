@@ -21,6 +21,7 @@
 #include "ft2_structs.h"
 #include "ft2_audioselector.h"
 #include "ft2_jack.h"
+#include "ft2_live_link.h"
 #include "ft2_pattern_launcher.h"
 #include "ft2_poly_matrix.h"
 #include "ft2_sample_launcher.h"
@@ -1464,7 +1465,9 @@ uint64_t getChQueueTimestamp(void)
 
 void lockAudio(void)
 {
-	if (tapeheadJackIsOpen())
+	if (tapeheadLiveLinkIsOpen())
+		tapeheadLiveLinkLock();
+	else if (tapeheadJackIsOpen())
 		tapeheadJackLock();
 	else if (audio.dev != 0)
 		SDL_LockAudioDevice(audio.dev);
@@ -1474,7 +1477,9 @@ void lockAudio(void)
 
 void unlockAudio(void)
 {
-	if (tapeheadJackIsOpen())
+	if (tapeheadLiveLinkIsOpen())
+		tapeheadLiveLinkUnlock();
+	else if (tapeheadJackIsOpen())
 		tapeheadJackUnlock();
 	else if (audio.dev != 0)
 		SDL_UnlockAudioDevice(audio.dev);
@@ -1530,7 +1535,9 @@ void pauseAudio(void) // lock audio + clear voices/scopes + render silence (for 
 		return;
 	}
 
-	if (tapeheadJackIsOpen())
+	if (tapeheadLiveLinkIsOpen())
+		tapeheadLiveLinkPause(true);
+	else if (tapeheadJackIsOpen())
 		tapeheadJackPause(true);
 	else if (audio.dev > 0)
 		SDL_PauseAudioDevice(audio.dev, true);
@@ -1550,7 +1557,9 @@ void resumeAudio(void) // unlock audio
 	if (!audioPaused)
 		return;
 
-	if (tapeheadJackIsOpen())
+	if (tapeheadLiveLinkIsOpen())
+		tapeheadLiveLinkPause(false);
+	else if (tapeheadJackIsOpen())
 		tapeheadJackPause(false);
 	else if (audio.dev > 0)
 		SDL_PauseAudioDevice(audio.dev, false);
@@ -1709,6 +1718,21 @@ static void audioCallback(void *userdata, Uint8 *stream, int len)
 	audio.callbackOngoing = false;
 
 	(void)userdata;
+}
+
+static void liveLinkAudioCallback(float *interleaved, uint32_t sampleFrames,
+	void *userdata)
+{
+	(void)userdata;
+	if (editor.wavIsRendering)
+	{
+		memset(interleaved, 0, sampleFrames * 2 * sizeof (float));
+		return;
+	}
+
+	renderAudioFrames(sampleFrames, 1);
+	sendSamples32BitFloat(interleaved, sampleFrames, 1);
+	audio.callbackOngoing = false;
 }
 
 static void jackAudioCallback(float **outputs, uint32_t sampleFrames,
@@ -2024,8 +2048,8 @@ const char *audioGetOutputFormatName(void)
 
 static void logActiveAudioState(void)
 {
-	const char *driver = tapeheadJackIsOpen()
-		? "jack-native" : SDL_GetCurrentAudioDriver();
+	const char *driver = tapeheadLiveLinkIsOpen() ? "shared-memory" :
+		tapeheadJackIsOpen() ? "jack-native" : SDL_GetCurrentAudioDriver();
 	fprintf(stderr,
 		"Tapehead audio: backend=%s, device=\"%s\", rate=%u Hz, "
 		"format=%s, channels=%u, buffer=%u frames%s.\n",
@@ -2073,12 +2097,37 @@ bool setupAudio(bool showErrorMsg)
 	audio.multichannelFallback = false;
 
 	const uint8_t requestedOutputChannels = tapeheadConfig.outputBuses * 2;
+	const bool useLiveLink =
+		tapeheadLiveLinkDeviceSelected(audio.currOutputDevice);
 	const bool useJack = tapeheadJackDeviceSelected(audio.currOutputDevice);
 	uint32_t openedFreq, openedSamples;
 	uint8_t openedChannels;
 	SDL_AudioFormat openedFormat;
 
-	if (useJack)
+	if (useLiveLink)
+	{
+		if (!tapeheadLiveLinkOpen(config.audioFreq, configAudioBufSize,
+			liveLinkAudioCallback, NULL))
+		{
+			setAudioOpenFailure(TAPEHEAD_LIVE_LINK_DEVICE_NAME,
+				tapeheadLiveLinkGetLastError());
+			if (showErrorMsg)
+			{
+				showErrorMsgBox("Couldn't start TapeSister Live Link:\n%s",
+					tapeheadLiveLinkGetLastError());
+			}
+			return false;
+		}
+
+		openedFreq = config.audioFreq;
+		openedSamples = configAudioBufSize;
+		openedChannels = 2;
+		openedFormat = AUDIO_F32;
+		audio.multichannelFallback = requestedOutputChannels > 2;
+		snprintf(audio.activeOutputDevice, sizeof (audio.activeOutputDevice),
+			"%s", TAPEHEAD_LIVE_LINK_DEVICE_NAME);
+	}
+	else if (useJack)
 	{
 		configureJackDiagnostics(tapeheadConfig.outputBuses);
 		if (!tapeheadJackOpen(tapeheadConfig.outputBuses, jackAudioCallback, NULL,
@@ -2262,6 +2311,9 @@ bool setupAudio(bool showErrorMsg)
 
 void closeAudio(void)
 {
+	if (tapeheadLiveLinkIsOpen())
+		tapeheadLiveLinkClose();
+
 	if (tapeheadJackIsOpen())
 		tapeheadJackClose();
 

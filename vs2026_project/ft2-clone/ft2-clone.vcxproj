@@ -323,6 +323,8 @@
     <ClCompile Include="..\..\src\ft2_inst_ed.c" />
     <ClCompile Include="..\..\src\ft2_interpolation.c" />
     <ClCompile Include="..\..\src\ft2_jack.c" />
+    <ClCompile Include="..\..\src\ft2_live_link.c" />
+    <ClCompile Include="..\..\src\tape_link.c" />
     <ClCompile Include="..\..\src\ft2_keyboard.c" />
     <ClCompile Include="..\..\src\ft2_main.c" />
     <ClCompile Include="..\..\src\ft2_midi.c" />
@@ -448,6 +450,8 @@
     <ClInclude Include="..\..\src\ft2_inst_ed.h" />
     <ClInclude Include="..\..\src\ft2_interpolation.h" />
     <ClInclude Include="..\..\src\ft2_jack.h" />
+    <ClInclude Include="..\..\src\ft2_live_link.h" />
+    <ClInclude Include="..\..\src\tape_link.h" />
     <ClInclude Include="..\..\src\ft2_keyboard.h" />
     <ClInclude Include="..\..\src\ft2_midi.h" />
     <ClInclude Include="..\..\src\ft2_midi_map.h" />

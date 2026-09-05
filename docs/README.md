@@ -18,6 +18,7 @@ was built a particular way.
 | [`MULTICHANNEL_OUTPUT.md`](MULTICHANNEL_OUTPUT.md) | Stereo buses, JACK/PipeWire-JACK, Mono Outputs, and routing gestures |
 | [`CONFIGURATION.md`](CONFIGURATION.md) | Every `tapehead.ini` section and startup behavior |
 | [`FT2_EXCHANGE.md`](FT2_EXCHANGE.md) | Bidirectional TapeSister exchange protocol and round-trip checklist |
+| [`LIVE_LINK.md`](LIVE_LINK.md) | Direct real-time Tapehead stereo routing into TapeSister |
 | [`EXS_SAMPLE_EXPORT.md`](EXS_SAMPLE_EXPORT.md) | Extract an XM's samples, batch-process its WAVs, and atomically replace their original slots |
 | [`UNIVERSAL_PALETTE.md`](UNIVERSAL_PALETTE.md) | Shared TapeSister/Tapehead `palette.pal` schema and eyedropper behavior |
 | [`PATTERN_INTERPOLATION.md`](PATTERN_INTERPOLATION.md) | Interpolation and Melodic Walk previews |

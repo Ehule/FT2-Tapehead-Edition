@@ -195,6 +195,11 @@ MonoOutputs=false
   before FT2 stereo panning. The Config > Audio checkbox can change this mode
   while Tapehead is running.
 
+The Audio output list also contains **TapeSister Live Link**. It is a clocked
+shared-memory stereo destination, not a hardware device. While selected,
+TapeSister is the sole physical-output owner and Tapehead's logical buses use
+the normal stereo fallback. See [`LIVE_LINK.md`](LIVE_LINK.md).
+
 Routing assignments are runtime performance state and are not stored in XM.
 See [`MULTICHANNEL_OUTPUT.md`](MULTICHANNEL_OUTPUT.md).
 

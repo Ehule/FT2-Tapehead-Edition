@@ -39,6 +39,7 @@
 #include "ft2_edit.h"
 #include "ft2_video_scaler.h"
 #include "ft2_jack.h"
+#include "ft2_live_link.h"
 
 static const uint8_t textCursorData[12] =
 {
@@ -191,8 +192,8 @@ static void drawFPSCounter(void)
 	if (dRefreshRate < 0.0 || dRefreshRate > 9999.9)
 		dRefreshRate = 9999.9; // prevent number from overflowing text box
 
-	const char *audioDriver = tapeheadJackIsOpen()
-		? "jack-native" : SDL_GetCurrentAudioDriver();
+	const char *audioDriver = tapeheadLiveLinkIsOpen() ? "shared-memory" :
+		tapeheadJackIsOpen() ? "jack-native" : SDL_GetCurrentAudioDriver();
 	const char *audioDevice = audio.outputDeviceLost
 		? "DISCONNECTED" : audioGetActiveOutputDevice();
 
