@@ -29,6 +29,20 @@ proven tick-resolution Composition Baker.
 See [`docs/DECK_MATRIX.md`](docs/DECK_MATRIX.md) for current controls and native
 Sample Bank behavior.
 
+### EXS sample extraction and round trip
+
+- Exports every populated sample or only instruments used by the active song
+- Writes ordinary mono WAVs without normalization plus a versioned identity manifest
+- Supports external batch processing in REAPER, TapeSister, or another editor
+- `Ctrl+R` in Sample Disk Op (or right-click **EXS**) previews exact slot replacement
+- Validates and decodes the complete WAV set before changing the module
+- Preserves all unlisted slots and instrument settings
+- Applies the accepted replacement as one bounded Undo transaction
+- Retains edited length, precision, and sample-rate tuning; restores XM defaults and valid loops
+
+See [`docs/EXS_SAMPLE_EXPORT.md`](docs/EXS_SAMPLE_EXPORT.md) for the complete
+export, editing, validation, and replacement contract.
+
 ### Composition Baker
 
 - Opened by holding **Shift** while clicking module **Save**

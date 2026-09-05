@@ -19,6 +19,7 @@
 #include "ft2_gui.h"
 #include "ft2_sample_ed.h"
 #include "ft2_diskop.h"
+#include "ft2_exs_manifest.h"
 #include "ft2_mouse.h"
 #include "ft2_structs.h"
 
@@ -692,6 +693,9 @@ static void exsSampleFilename(int32_t instrNum, int32_t sampleNum,
 {
 	char name[64];
 	exsSafeName(smp->name, name, sizeof (name), "Unnamed");
+	exsStripKnownSampleExtension(name);
+	if (name[0] == '\0')
+		strcpy(name, "Unnamed");
 	snprintf(dst, dstSize, "I%02d_S%02d_%s.wav", instrNum, sampleNum, name);
 }
 
@@ -759,6 +763,8 @@ static void exsCleanup(const UNICHAR *root, const bool selected[MAX_INST+1])
 		}
 	}
 
+	if (exsJoinPath(path, PATH_MAX+1, root, "Processed"))
+		exsRemoveDirectory(path);
 	if (exsJoinPath(path, PATH_MAX+1, root, "EXS_manifest.ini"))
 		UNICHAR_REMOVE(path);
 	exsRemoveDirectory(root);
@@ -799,7 +805,7 @@ bool exportSampleSet(const UNICHAR *directoryU, bool usedOnly)
 		return false;
 	}
 
-	UNICHAR root[PATH_MAX+1];
+	UNICHAR root[PATH_MAX+1], path[PATH_MAX+1];
 	UNICHAR_STRNCPY(root, directoryU, PATH_MAX);
 	root[PATH_MAX] = '\0';
 	bool rootCreated = exsMakeDirectory(root);
@@ -818,6 +824,14 @@ bool exportSampleSet(const UNICHAR *directoryU, bool usedOnly)
 		okBoxThreadSafe(0, "EXS - Export XM Samples", "Couldn't create the export directory.", NULL);
 		return false;
 	}
+	if (!exsJoinPath(path, PATH_MAX+1, root, "Processed") ||
+		!exsMakeDirectory(path))
+	{
+		exsRemoveDirectory(root);
+		okBoxThreadSafe(0, "EXS - Export XM Samples",
+			"Couldn't create the Processed output directory.", NULL);
+		return false;
+	}
 
 	const bool oldSaveRangeFlag = saveRangeFlag;
 	saveRangeFlag = false;
@@ -825,7 +839,6 @@ bool exportSampleSet(const UNICHAR *directoryU, bool usedOnly)
 
 	bool success = true;
 	char instrDir[128], relative[300];
-	UNICHAR path[PATH_MAX+1];
 	for (int32_t i = 1; i <= MAX_INST && success; i++)
 	{
 		if (!selected[i] || instr[i] == NULL)

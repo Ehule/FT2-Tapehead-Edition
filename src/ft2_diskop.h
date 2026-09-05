@@ -76,6 +76,7 @@ void pbDiskOpDrive8(void);
 void pbDiskOpSave(void);
 void showSampleFolderImportDialog(void);
 void loadCurrentFolderIntoSampleLauncher(void);
+void replaceSamplesFromEXSFolder(void);
 void pbDiskOpDelete(void);
 void pbDiskOpRename(void);
 void pbDiskOpMakeDir(void);

@@ -515,14 +515,27 @@ bool fileExistsAnsi(char *str)
 
 static bool deleteDirRecursive(UNICHAR *strU)
 {
+	/* SHFileOperation expects an absolute, double-NUL-terminated path list.
+	** Directory entries only carry one terminator, and passing those directly
+	** makes populated-folder deletion fail unpredictably on Windows. */
+	UNICHAR fullPath[PATH_MAX+2];
+	if (_wfullpath(fullPath, strU, PATH_MAX+1) == NULL)
+		return false;
+
+	const size_t pathLength = wcslen(fullPath);
+	if (pathLength == 0 || pathLength > PATH_MAX)
+		return false;
+	fullPath[pathLength+1] = L'\0';
+
 	SHFILEOPSTRUCTW shfo;
 
 	memset(&shfo, 0, sizeof (shfo));
 	shfo.wFunc = FO_DELETE;
 	shfo.fFlags = FOF_SILENT | FOF_NOERRORUI | FOF_NOCONFIRMATION;
-	shfo.pFrom = strU;
+	shfo.pFrom = fullPath;
 
-	return (SHFileOperationW(&shfo) == 0);
+	return SHFileOperationW(&shfo) == 0 && !shfo.fAnyOperationsAborted &&
+		!PathFileExistsW(fullPath);
 }
 
 static bool makeDirAnsi(char *str)
@@ -805,6 +818,11 @@ void diskOpSetFilename(uint8_t type, UNICHAR *pathU)
 
 		case DISKOP_ITEM_SAMPLE:
 		{
+			/* In EXS mode this field names an export directory. Auditioning or
+			** opening a sample must not replace it with the selected WAV name. */
+			if (editor.sampleSaveMode == SMP_SAVE_MODE_EXS)
+				break;
+
 			strcpy(smpTmpFName, filename);
 
 			if (editor.sampleSaveMode == SMP_SAVE_MODE_RAW)
@@ -1175,7 +1193,7 @@ static void diskOpSave(bool checkOverwrite, bool bakeCompositionRequested)
 			{
 				const int16_t mode = okBox(SYSREQ_TYPE_EXS_EXPORT,
 					"Export XM Samples",
-					"All samples belonging to each selected instrument will be exported.", NULL);
+					"Used only: all samples from song instruments.  All: every module sample.", NULL);
 				if (mode != 1 && mode != 2)
 					return;
 
@@ -1598,6 +1616,69 @@ void showSampleFolderImportDialog(void)
 	freeSamplePathList(&files);
 }
 
+void replaceSamplesFromEXSFolder(void)
+{
+	if (FReq_Item != DISKOP_ITEM_SAMPLE || FReq_CurPathU == NULL ||
+		FReq_Buffer == NULL)
+	{
+		okBox(0, "Replace Samples from EXS",
+			"Open an EXS export folder in Sample Disk Op first.", NULL);
+		return;
+	}
+
+#ifdef _WIN32
+	static const UNICHAR manifestName[] = L"EXS_manifest.ini";
+#else
+	static const UNICHAR manifestName[] = "EXS_manifest.ini";
+#endif
+	const size_t folderLength = UNICHAR_STRLEN(FReq_CurPathU);
+	const size_t nameLength = UNICHAR_STRLEN(manifestName);
+	const bool needsDelimiter = folderLength > 0 &&
+		FReq_CurPathU[folderLength-1] != DIR_DELIMITER;
+	if (folderLength + (needsDelimiter ? 1 : 0) + nameLength > PATH_MAX)
+	{
+		okBox(0, "Replace Samples from EXS", "The EXS folder path is too long.", NULL);
+		return;
+	}
+
+	UNICHAR manifestPath[PATH_MAX+1];
+	UNICHAR_STRCPY(manifestPath, FReq_CurPathU);
+	if (needsDelimiter)
+	{
+#ifdef _WIN32
+		UNICHAR_STRCAT(manifestPath, L"\\");
+#else
+		UNICHAR_STRCAT(manifestPath, "/");
+#endif
+	}
+	UNICHAR_STRCAT(manifestPath, manifestName);
+	FILE *file = UNICHAR_FOPEN(manifestPath, "rb");
+	if (file == NULL)
+	{
+		okBox(0, "Replace Samples from EXS",
+			"This folder does not contain EXS_manifest.ini.", NULL);
+		return;
+	}
+
+	exsManifest_t manifest;
+	exsManifestInit(&manifest);
+	char error[256];
+	const bool parsed = exsManifestParse(file, &manifest, error, sizeof (error));
+	fclose(file);
+	if (!parsed)
+	{
+		okBox(0, "Replace Samples from EXS", error, NULL);
+		return;
+	}
+
+	if (!loadEXSRoundTrip(FReq_CurPathU, &manifest))
+	{
+		okBox(0, "Replace Samples from EXS",
+			"Could not start the EXS replacement. Nothing was changed.", NULL);
+	}
+	exsManifestFree(&manifest);
+}
+
 void loadCurrentFolderIntoSampleLauncher(void)
 {
 	if (FReq_Item != DISKOP_ITEM_SAMPLE)
@@ -1788,7 +1869,7 @@ static void fileListPressed(int32_t index)
 					{
 						result = deleteDirRecursive(dirEntry->nameU);
 						if (!result)
-							okBox(0, "System message", "Couldn't delete folder: Access denied!", NULL);
+							okBox(0, "System message", "Couldn't delete folder. It may be open or write-protected.", NULL);
 						else
 							editor.diskOpReadDir = true;
 					}
@@ -3360,6 +3441,13 @@ bool diskOpHandleKey(int32_t keycode, bool keyWasRepeated)
 		mouse.mode != MOUSE_MODE_NORMAL)
 	{
 		return false;
+	}
+	if (keycode == SDLK_r && keyb.leftCtrlPressed &&
+		!keyb.leftShiftPressed && !keyb.leftAltPressed)
+	{
+		if (!keyWasRepeated)
+			replaceSamplesFromEXSFolder();
+		return true;
 	}
 
 	/* Shift+Up/Down keeps the existing global instrument selection behavior.

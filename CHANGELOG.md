@@ -9,6 +9,38 @@ milestones and may contain limitations or planned work that later entries
 supersede. See [`docs/README.md`](docs/README.md) for the current documentation
 map.
 
+## EXS extraction and round-trip replacement — 2026-09-04
+
+- Added a reusable `Processed` output directory to every EXS export. Round-trip
+  import automatically uses a complete mirrored or flattened processed set,
+  clearly identifies that source in its confirmation, permits repeated REAPER
+  renders to replace those working files, and never mixes partial processed
+  material with untouched originals.
+- Kept the EXS destination field independent from sample audition selections,
+  removed recognized source-audio extensions before adding the exported WAV
+  extension, and repaired populated-folder deletion on Windows by supplying
+  the Shell API with its required absolute double-NUL-terminated path list.
+- Clarified the EXS choice dialog: **Used only** means every populated sample
+  from song-referenced instruments, while **All** means every populated sample
+  in the module.
+- Completed EXS as a two-way, DAW-agnostic sample workflow: export an XM's
+  populated samples and replace them later from the same manifest folder with
+  `Ctrl+R` or a right-click on Disk Op's **EXS** row.
+- Added a strict version-1 manifest parser with authoritative instrument/sample
+  identities, duplicate detection, bounded values, and relative-path traversal
+  rejection.
+- Decode and validate every manifest WAV before confirmation, show exact
+  destination slots and old/new frame lengths, and preserve all unlisted
+  instruments, samples, note maps, envelopes, and instrument settings.
+- Apply every accepted replacement as one preflighted Undo transaction under
+  the mixer lock. Cancellation, bad/missing audio, allocation failure, or an
+  import beyond the Undo memory limit leaves the module unchanged.
+- Restore XM names, default volume/panning, and valid original loops while
+  adopting edited WAV precision and sample-rate tuning. Loops that no longer
+  fit are explicitly warned about and disabled rather than clamped.
+- Added portable parser contract tests and wired the new source into CMake's
+  source glob, the Visual Studio project, and the complete native test runner.
+
 ## Render tracker audio to TapeSister — 2026-09-04
 
 - Added seam-quantized Block Loop performance capture on plain `F7`. The first

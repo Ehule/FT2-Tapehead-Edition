@@ -14,6 +14,9 @@
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#else
+#include <dirent.h>
+#include <sys/stat.h>
 #endif
 #include "ft2_header.h"
 #include "ft2_gui.h"
@@ -28,6 +31,7 @@
 #include "ft2_structs.h"
 #include "ft2_tapesister_ack.h"
 #include "ft2_undo.h"
+#include "ft2_exs_manifest.h"
 
 bool detectFLAC(FILE *f);
 bool loadFLAC(FILE *f, uint32_t filesize);
@@ -649,11 +653,13 @@ typedef struct sampleFolderImportJob_t
 {
 	uint8_t mode, instrument, launcherBank, launcherBankCount;
 	uint8_t launcherInstrument[SAMPLE_LAUNCHER_BANK_COUNT][2];
-	bool autoMap, exchangePreserveUnlistedSamples;
+	bool autoMap, exchangePreserveUnlistedSamples, exsUsesProcessed;
 	uint32_t fileCount;
 	sampleFolderFile_t *files;
 	char launcherName[23];
 	UNICHAR *exchangeFolderU, *exchangeAcknowledgementU;
+	exsManifestSample_t *exsSamples;
+	char exsSourceModule[EXS_NAME_CAPACITY];
 	uint16_t matrixTiles[SAMPLE_LAUNCHER_MAX_TILES];
 	uint32_t matrixRequested, matrixOmitted;
 } sampleFolderImportJob_t;
@@ -678,6 +684,7 @@ static void freeSampleFolderJob(sampleFolderImportJob_t *job)
 	}
 	free(job->exchangeFolderU);
 	free(job->exchangeAcknowledgementU);
+	free(job->exsSamples);
 
 	free(job);
 }
@@ -797,6 +804,106 @@ static UNICHAR *joinFolderSamplePath(const UNICHAR *folderPathU, const UNICHAR *
 	}
 	UNICHAR_STRCAT(pathU, fileNameU);
 	return pathU;
+}
+
+static bool exsPathIsRegularFile(const UNICHAR *pathU)
+{
+#ifdef _WIN32
+	const DWORD attributes = GetFileAttributesW(pathU);
+	return attributes != INVALID_FILE_ATTRIBUTES &&
+		(attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
+#else
+	struct stat status;
+	return stat(pathU, &status) == 0 && S_ISREG(status.st_mode);
+#endif
+}
+
+static bool exsProcessedFolderHasEntries(const UNICHAR *folderPathU)
+{
+#ifdef _WIN32
+	static const UNICHAR wildcard[] = L"*";
+	UNICHAR *searchPathU = joinFolderSamplePath(folderPathU, wildcard);
+	if (searchPathU == NULL)
+		return false;
+
+	WIN32_FIND_DATAW data;
+	const HANDLE find = FindFirstFileW(searchPathU, &data);
+	free(searchPathU);
+	if (find == INVALID_HANDLE_VALUE)
+		return false;
+
+	bool hasEntries = false;
+	do
+	{
+		if (wcscmp(data.cFileName, L".") && wcscmp(data.cFileName, L".."))
+		{
+			hasEntries = true;
+			break;
+		}
+	}
+	while (FindNextFileW(find, &data));
+	FindClose(find);
+	return hasEntries;
+#else
+	DIR *directory = opendir(folderPathU);
+	if (directory == NULL)
+		return false;
+
+	bool hasEntries = false;
+	struct dirent *entry;
+	while ((entry = readdir(directory)) != NULL)
+	{
+		if (strcmp(entry->d_name, ".") && strcmp(entry->d_name, ".."))
+		{
+			hasEntries = true;
+			break;
+		}
+	}
+	closedir(directory);
+	return hasEntries;
+#endif
+}
+
+static const char *exsRelativeBasename(const char *path)
+{
+	const char *basename = path;
+	for (const char *p = path; *p != '\0'; p++)
+	{
+		if (*p == '/' || *p == '\\')
+			basename = p+1;
+	}
+	return basename;
+}
+
+static bool exsFlatBasenameIsUnique(const exsManifest_t *manifest,
+	uint32_t index)
+{
+	const char *basename = exsRelativeBasename(manifest->samples[index].file);
+	for (uint32_t i = 0; i < manifest->sampleCount; i++)
+	{
+		if (i != index && !_stricmp(basename,
+			exsRelativeBasename(manifest->samples[i].file)))
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+static UNICHAR *exsRelativePathToUnichar(const char *path)
+{
+	UNICHAR *relativeU = cp850ToUnichar((char *)path);
+	if (relativeU == NULL)
+		return NULL;
+	for (UNICHAR *p = relativeU; *p != 0; p++)
+	{
+#ifdef _WIN32
+		if (*p == L'/') *p = L'\\';
+#else
+		if (*p == '\\') *p = '/';
+#endif
+	}
+	return relativeU;
 }
 
 static void setImportedSampleName(sample_t *sample, const UNICHAR *filenameU)
@@ -1113,6 +1220,213 @@ allocationError:
 	return false;
 }
 
+static bool prepareEXSSample(sample_t *sample,
+	const exsManifestSample_t *metadata, bool *loopDisabled)
+{
+	if (sample == NULL || metadata == NULL || sample->dataPtr == NULL ||
+		sample->length <= 0)
+	{
+		return false;
+	}
+
+	const uint8_t decodedPrecision = sample->flags & SAMPLE_16BIT;
+	sample->flags = decodedPrecision;
+	sample->volume = (uint8_t)metadata->defaultVolume;
+	sample->panning = (uint8_t)metadata->defaultPanning;
+	memset(sample->name, 0, sizeof (sample->name));
+	memcpy(sample->name, metadata->sampleName, 22);
+	fixString(sample->name, 21);
+
+	const bool loopFits = metadata->loopType != EXS_LOOP_NONE &&
+		metadata->loopLength > 0 && metadata->loopStart >= 0 &&
+		(int64_t)metadata->loopStart + metadata->loopLength <= sample->length;
+	if (loopFits)
+	{
+		sample->loopStart = metadata->loopStart;
+		sample->loopLength = metadata->loopLength;
+		if (metadata->loopType == EXS_LOOP_FORWARD)
+		{
+			sample->flags |= LOOP_FORWARD;
+			if ((metadata->flags & SAMPLE_REVERSE_LOOP) != 0)
+				sample->flags |= SAMPLE_REVERSE_LOOP;
+		}
+		else
+		{
+			sample->flags |= LOOP_PINGPONG;
+		}
+	}
+	else
+	{
+		sample->loopStart = 0;
+		sample->loopLength = 0;
+		if (loopDisabled != NULL)
+			*loopDisabled = metadata->loopType != EXS_LOOP_NONE;
+	}
+
+	sanitizeSample(sample);
+	return true;
+}
+
+static bool confirmEXSRoundTrip(const sampleFolderImportJob_t *job,
+	const sample_t *decodedSamples, uint32_t loopDisabledCount)
+{
+	char message[4096];
+	char currentModule[64];
+	snprintf(currentModule, sizeof (currentModule), "%s.xm",
+		song.name[0] != '\0' ? song.name : "Untitled");
+	const bool sourceMismatch = _stricmp(job->exsSourceModule,
+		currentModule) != 0;
+	size_t used = (size_t)snprintf(message, sizeof (message),
+		"Export source: %s\nCurrent module: %s.xm\nInput WAVs: %s\nSamples ready: %u\n\n",
+		job->exsSourceModule[0] != '\0' ? job->exsSourceModule : "Unknown",
+		song.name[0] != '\0' ? song.name : "Untitled",
+		job->exsUsesProcessed ? "Processed" : "Original export",
+		(unsigned int)job->fileCount);
+	if (sourceMismatch && used < sizeof (message))
+	{
+		used += (size_t)snprintf(message + used, sizeof (message) - used,
+			"WARNING: source name differs from the loaded module.\n\n");
+	}
+	const uint32_t displayed = MIN(job->fileCount, 12);
+	for (uint32_t i = 0; i < displayed && used < sizeof (message); i++)
+	{
+		const exsManifestSample_t *metadata = &job->exsSamples[i];
+		const bool occupied = instr[metadata->instrumentIndex] != NULL &&
+			instr[metadata->instrumentIndex]->smp[metadata->sampleIndex].dataPtr != NULL;
+		const int written = snprintf(message + used, sizeof (message) - used,
+			"I%02u:S%02u  %d -> %d frames  %s\n",
+			metadata->instrumentIndex, metadata->sampleIndex,
+			metadata->lengthFrames, decodedSamples[i].length,
+			occupied ? "replace" : "new");
+		if (written < 0)
+			break;
+		used += (size_t)written;
+	}
+	if (job->fileCount > displayed && used < sizeof (message))
+	{
+		used += (size_t)snprintf(message + used, sizeof (message) - used,
+			"...and %u more\n", (unsigned int)(job->fileCount - displayed));
+	}
+	if (loopDisabledCount > 0 && used < sizeof (message))
+	{
+		used += (size_t)snprintf(message + used, sizeof (message) - used,
+			"\nWarning: %u original loop%s no longer fit and will be disabled.\n",
+			(unsigned int)loopDisabledCount, loopDisabledCount == 1 ? "" : "s");
+	}
+	if (used < sizeof (message))
+	{
+		snprintf(message + used, sizeof (message) - used,
+			"\nOnly listed slots change. One Undo restores the entire import.");
+	}
+	return okBoxThreadSafe(2, "Replace Samples from EXS", message, NULL) == 1;
+}
+
+static bool commitEXSRoundTrip(sampleFolderImportJob_t *job,
+	sample_t *decodedSamples, uint32_t decodedCount)
+{
+	instr_t *newInstruments[MAX_INST] = { NULL };
+	uint8_t destinations[MAX_INST] = { 0 };
+	char destinationNames[MAX_INST][23] = { { 0 } };
+	uint16_t instrumentCount = 0;
+	uint32_t loopDisabledCount = 0;
+
+	for (uint32_t i = 0; i < decodedCount; i++)
+	{
+		bool loopDisabled = false;
+		if (!prepareEXSSample(&decodedSamples[i], &job->exsSamples[i],
+			&loopDisabled))
+		{
+			goto allocationError;
+		}
+		loopDisabledCount += loopDisabled;
+	}
+
+	if (!confirmEXSRoundTrip(job, decodedSamples, loopDisabledCount))
+		goto cancelled;
+
+	for (uint32_t i = 0; i < decodedCount; i++)
+	{
+		const exsManifestSample_t *metadata = &job->exsSamples[i];
+		const uint8_t destination = metadata->instrumentIndex;
+		const uint8_t sample = metadata->sampleIndex;
+		instr_t *instrument = findOrCreateExchangeInstrument(newInstruments,
+			destinations, &instrumentCount, destination, true);
+		if (instrument == NULL)
+			goto allocationError;
+		freeTmpSample(&instrument->smp[sample]);
+		memcpy(&instrument->smp[sample], &decodedSamples[i], sizeof (sample_t));
+		memset(&decodedSamples[i], 0, sizeof (sample_t));
+		fixSample(&instrument->smp[sample]);
+	}
+
+	for (uint16_t i = 0; i < instrumentCount; i++)
+	{
+		const uint8_t destination = destinations[i];
+		if (song.instrName[destination][0] != '\0')
+		{
+			memcpy(destinationNames[i], song.instrName[destination],
+				sizeof (destinationNames[i]));
+		}
+		else
+		{
+			for (uint32_t entry = 0; entry < decodedCount; entry++)
+			{
+				if (job->exsSamples[entry].instrumentIndex == destination)
+				{
+					memcpy(destinationNames[i],
+						job->exsSamples[entry].instrumentName, 22);
+					break;
+				}
+			}
+		}
+		fixString(destinationNames[i], 21);
+	}
+
+	bool undoReady = undoTransactionBegin("Replace Samples from EXS");
+	for (uint16_t i = 0; i < instrumentCount && undoReady; i++)
+		undoReady = undoTransactionAddInstrument(destinations[i]);
+	for (uint16_t i = 0; i < instrumentCount && undoReady; i++)
+	{
+		undoReady = undoTransactionPrepareInstrumentAfter(destinations[i],
+			destinationNames[i], newInstruments[i]);
+	}
+	if (!undoReady || !undoTransactionPreparedInstrumentsFitMemoryLimit())
+	{
+		undoCancelTransaction();
+		loaderMsgBox("The EXS replacement exceeds available Undo memory. Nothing was changed.");
+		goto allocationError;
+	}
+
+	lockMixerCallback();
+	for (uint16_t i = 0; i < instrumentCount; i++)
+	{
+		const uint8_t destination = destinations[i];
+		freeInstr(destination);
+		instr[destination] = newInstruments[i];
+		newInstruments[i] = NULL;
+		memcpy(song.instrName[destination], destinationNames[i],
+			sizeof (song.instrName[destination]));
+	}
+	unlockMixerCallback();
+
+	setSongModifiedFlag();
+	undoTransactionCommit();
+	editor.curInstr = job->exsSamples[0].instrumentIndex;
+	editor.curSmp = job->exsSamples[0].sampleIndex;
+	editor.updateCurSmp = true;
+	loaderMsgBox("EXS replacement complete: %u samples. Save the module as a new XM.",
+		(unsigned int)decodedCount);
+	return true;
+
+cancelled:
+	return false;
+
+allocationError:
+	for (uint16_t i = 0; i < instrumentCount; i++)
+		freeFolderInstrument(newInstruments[i]);
+	return false;
+}
+
 static instr_t *makeLauncherBankInstrument(sample_t *samples,
 	uint32_t sampleCount, uint32_t first)
 {
@@ -1165,9 +1479,30 @@ static int32_t loadSampleFolderThread(void *ptr)
 	{
 		if (!decodeFolderSample(job->files[i].pathU,
 			&decodedSamples[decodedCount],
-			job->mode == SAMPLE_FOLDER_IMPORT_TAPESISTER))
+			job->mode == SAMPLE_FOLDER_IMPORT_TAPESISTER ||
+			job->mode == SAMPLE_FOLDER_IMPORT_EXS))
 		{
-			loaderMsgBox("Couldn't load one of the folder samples. Nothing was changed.");
+			if (job->mode == SAMPLE_FOLDER_IMPORT_EXS)
+			{
+				if (job->exsUsesProcessed)
+				{
+					loaderMsgBox("Processed is incomplete: missing or invalid WAV for I%02u:S%02u (%s). Nothing was changed.",
+						job->exsSamples[i].instrumentIndex,
+						job->exsSamples[i].sampleIndex,
+						job->exsSamples[i].file);
+				}
+				else
+				{
+					loaderMsgBox("Couldn't decode %s for I%02u:S%02u. Nothing was changed.",
+						job->exsSamples[i].file,
+						job->exsSamples[i].instrumentIndex,
+						job->exsSamples[i].sampleIndex);
+				}
+			}
+			else
+			{
+				loaderMsgBox("Couldn't load one of the folder samples. Nothing was changed.");
+			}
 			goto folderLoadError;
 		}
 		decodedCount++;
@@ -1186,6 +1521,16 @@ static int32_t loadSampleFolderThread(void *ptr)
 			setMouseBusy(false);
 			sampleIsLoading = false;
 		}
+		return committed;
+	}
+	if (job->mode == SAMPLE_FOLDER_IMPORT_EXS)
+	{
+		const bool committed = commitEXSRoundTrip(job, decodedSamples,
+			decodedCount);
+		freeDecodedFolderSamples(decodedSamples, decodedCount);
+		freeSampleFolderJob(job);
+		setMouseBusy(false);
+		sampleIsLoading = false;
 		return committed;
 	}
 
@@ -1769,6 +2114,120 @@ bool loadTapeSisterExchange(const UNICHAR *folderPathU,
 	mouseAnimOn();
 	thread = SDL_CreateThread(loadSampleFolderThread,
 		"TapeSister exchange import", job);
+	if (thread == NULL)
+	{
+		sampleIsLoading = false;
+		setMouseBusy(false);
+		freeSampleFolderJob(job);
+		return false;
+	}
+	SDL_DetachThread(thread);
+	return true;
+}
+
+bool loadEXSRoundTrip(const UNICHAR *folderPathU,
+	const exsManifest_t *manifest)
+{
+	if (sampleIsLoading || folderPathU == NULL || manifest == NULL ||
+		manifest->samples == NULL || manifest->sampleCount == 0 ||
+		manifest->sampleCount > EXS_MAX_ENTRIES)
+	{
+		return false;
+	}
+	if (!ensureSampleLoaderMutexes())
+		return false;
+
+	cancelSamplePreview();
+	loaderMsgBox = myLoaderMsgBoxThreadSafe;
+	loaderSysReq = okBoxThreadSafe;
+	sampleFolderImportJob_t *job = calloc(1, sizeof (*job));
+	if (job == NULL)
+		return false;
+	job->mode = SAMPLE_FOLDER_IMPORT_EXS;
+	job->fileCount = manifest->sampleCount;
+	job->files = calloc(job->fileCount, sizeof (*job->files));
+	job->exsSamples = calloc(job->fileCount, sizeof (*job->exsSamples));
+	if (job->files == NULL || job->exsSamples == NULL)
+	{
+		freeSampleFolderJob(job);
+		return false;
+	}
+	memcpy(job->exsSamples, manifest->samples,
+		job->fileCount * sizeof (*job->exsSamples));
+	memcpy(job->exsSourceModule, manifest->sourceModule,
+		sizeof (job->exsSourceModule));
+
+#ifdef _WIN32
+	static const UNICHAR processedName[] = L"Processed";
+#else
+	static const UNICHAR processedName[] = "Processed";
+#endif
+	UNICHAR *processedFolderU = joinFolderSamplePath(folderPathU, processedName);
+	if (processedFolderU == NULL)
+	{
+		freeSampleFolderJob(job);
+		return false;
+	}
+	job->exsUsesProcessed = exsProcessedFolderHasEntries(processedFolderU);
+
+	for (uint32_t i = 0; i < job->fileCount; i++)
+	{
+		UNICHAR *relativeU = exsRelativePathToUnichar(job->exsSamples[i].file);
+		if (relativeU != NULL && job->exsUsesProcessed)
+		{
+			UNICHAR *mirroredU = joinFolderSamplePath(processedFolderU, relativeU);
+			UNICHAR *flatU = NULL;
+#ifdef _WIN32
+			UNICHAR *basenameU = wcsrchr(relativeU, DIR_DELIMITER);
+#else
+			UNICHAR *basenameU = strrchr(relativeU, DIR_DELIMITER);
+#endif
+			basenameU = basenameU != NULL ? basenameU+1 : relativeU;
+			if (exsFlatBasenameIsUnique(manifest, i))
+				flatU = joinFolderSamplePath(processedFolderU, basenameU);
+
+			if (mirroredU != NULL && exsPathIsRegularFile(mirroredU))
+			{
+				job->files[i].pathU = mirroredU;
+				mirroredU = NULL;
+			}
+			else if (flatU != NULL && exsPathIsRegularFile(flatU))
+			{
+				job->files[i].pathU = flatU;
+				flatU = NULL;
+			}
+			else
+			{
+				/* Keep the expected mirrored path so the loader thread reports
+				** a precise incomplete-set error without changing the module. */
+				job->files[i].pathU = mirroredU;
+				mirroredU = NULL;
+			}
+			free(mirroredU);
+			free(flatU);
+		}
+		else if (relativeU != NULL)
+			job->files[i].pathU = joinFolderSamplePath(folderPathU, relativeU);
+		free(relativeU);
+		job->files[i].destinationInstrument =
+			job->exsSamples[i].instrumentIndex;
+		job->files[i].destinationSample = job->exsSamples[i].sampleIndex;
+		job->files[i].sortName = strdup(job->exsSamples[i].file);
+		if (job->files[i].pathU == NULL || job->files[i].sortName == NULL)
+		{
+			free(processedFolderU);
+			freeSampleFolderJob(job);
+			return false;
+		}
+	}
+	free(processedFolderU);
+
+	UNICHAR_STRNCPY(editor.tmpFilenameU, job->files[0].pathU, PATH_MAX);
+	editor.tmpFilenameU[PATH_MAX] = 0;
+	sampleIsLoading = true;
+	mouseAnimOn();
+	thread = SDL_CreateThread(loadSampleFolderThread,
+		"EXS round-trip import", job);
 	if (thread == NULL)
 	{
 		sampleIsLoading = false;
