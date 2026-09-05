@@ -424,8 +424,9 @@ size_t tapeLinkReaderRead(TapeLinkReader *reader, float *interleaved,
     memset(interleaved, 0, frames * TAPE_LINK_CHANNELS * sizeof(float));
     if (reader == NULL || output_rate == 0u) return frames;
     shared = (TapeLinkShared *)reader->shared;
-    if (atomic_load_u32(&shared->state) != TAPE_LINK_RUNNING ||
-        !shared_valid(shared) || shared->session != reader->session) {
+    if (shared == NULL || !shared_valid(shared) ||
+        atomic_load_u32(&shared->state) != TAPE_LINK_RUNNING ||
+        shared->session != reader->session) {
         reader->connected = 0;
         reader->primed = 0;
         reader_fade_tail(reader, interleaved, frames, output_rate);

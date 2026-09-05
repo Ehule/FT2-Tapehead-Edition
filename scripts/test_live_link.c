@@ -70,6 +70,10 @@ int main(int argc, char **argv)
     tapeLinkReaderInit(&reader);
     tapeLinkReaderInit(&replacement_reader);
     assert(!tapeLinkReaderOpenNamed(&reader, name, error, sizeof(error)));
+    memset(output, 0x7f, sizeof(output));
+    assert(tapeLinkReaderRead(&reader, output, 1024u, 48000u) == 1024u);
+    for (size_t sample = 0u; sample < 2048u; ++sample)
+        assert(output[sample] == 0.0f);
     assert(tapeLinkWriterOpenNamed(&writer, name, 44100u, error,
                                    sizeof(error)));
     assert(tapeLinkReaderOpenNamed(&reader, name, error, sizeof(error)));
@@ -129,6 +133,11 @@ int main(int argc, char **argv)
     assert(fabsf(output[2047]) < 0.0001f);
     tapeLinkReaderClose(&reader);
     tapeLinkReaderClose(&replacement_reader);
+    memset(output, 0x7f, sizeof(output));
+    assert(tapeLinkReaderRead(&replacement_reader, output, 1024u, 48000u) ==
+           1024u);
+    for (size_t sample = 0u; sample < 2048u; ++sample)
+        assert(output[sample] == 0.0f);
     puts("Tapehead/TapeSister Live Link transport tests passed");
     return 0;
 }
