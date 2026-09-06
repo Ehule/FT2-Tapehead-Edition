@@ -39,7 +39,9 @@ typedef struct {
     volatile uint32_t heartbeat;
     volatile uint32_t overruns;
     volatile uint32_t underruns;
-    uint32_t reserved[3];
+    volatile uint32_t command_sequence;
+    volatile uint32_t command;
+    volatile uint32_t command_acknowledged;
     float samples[TAPE_LINK_CAPACITY_FRAMES * TAPE_LINK_CHANNELS];
 } TapeLinkShared;
 
@@ -317,6 +319,27 @@ void tapeLinkWriterStatus(const TapeLinkWriter *writer, TapeLinkStatus *status)
     status->underruns = atomic_load_u32(&shared->underruns);
 }
 
+TapeLinkCommand tapeLinkWriterTakeCommand(TapeLinkWriter *writer)
+{
+    TapeLinkShared *shared;
+    uint32_t sequence;
+    uint32_t acknowledged;
+    uint32_t command;
+    if (writer == NULL) return TAPE_LINK_COMMAND_NONE;
+    shared = (TapeLinkShared *)writer->shared;
+    if (!shared_valid(shared) || shared->session != writer->session ||
+        atomic_load_u32(&shared->state) != TAPE_LINK_RUNNING)
+        return TAPE_LINK_COMMAND_NONE;
+    sequence = atomic_load_u32(&shared->command_sequence);
+    acknowledged = atomic_load_u32(&shared->command_acknowledged);
+    if (sequence == acknowledged) return TAPE_LINK_COMMAND_NONE;
+    command = atomic_load_u32(&shared->command);
+    atomic_store_u32(&shared->command_acknowledged, sequence);
+    return command == TAPE_LINK_COMMAND_TOGGLE_SONG ||
+           command == TAPE_LINK_COMMAND_TOGGLE_PATTERN ?
+           (TapeLinkCommand)command : TAPE_LINK_COMMAND_NONE;
+}
+
 void tapeLinkReaderInit(TapeLinkReader *reader)
 {
     if (reader == NULL) return;
@@ -556,4 +579,23 @@ void tapeLinkReaderStatus(const TapeLinkReader *reader, TapeLinkStatus *status)
     status->session = shared->session;
     status->overruns = atomic_load_u32(&shared->overruns);
     status->underruns = atomic_load_u32(&shared->underruns);
+}
+
+int tapeLinkReaderSendCommand(TapeLinkReader *reader, TapeLinkCommand command)
+{
+    TapeLinkShared *shared;
+    uint32_t sequence;
+    if (reader == NULL ||
+        (command != TAPE_LINK_COMMAND_TOGGLE_SONG &&
+         command != TAPE_LINK_COMMAND_TOGGLE_PATTERN)) return 0;
+    shared = (TapeLinkShared *)reader->shared;
+    if (!shared_valid(shared) || shared->session != reader->session ||
+        atomic_load_u32(&shared->state) != TAPE_LINK_RUNNING) return 0;
+    sequence = atomic_load_u32(&shared->command_sequence);
+    if (atomic_load_u32(&shared->command_acknowledged) != sequence) return 0;
+    atomic_store_u32(&shared->command, (uint32_t)command);
+    ++sequence;
+    if (sequence == 0u) sequence = 1u;
+    atomic_store_u32(&shared->command_sequence, sequence);
+    return 1;
 }

@@ -77,6 +77,17 @@ int main(int argc, char **argv)
     assert(tapeLinkWriterOpenNamed(&writer, name, 44100u, error,
                                    sizeof(error)));
     assert(tapeLinkReaderOpenNamed(&reader, name, error, sizeof(error)));
+    assert(tapeLinkReaderSendCommand(
+        &reader, TAPE_LINK_COMMAND_TOGGLE_SONG));
+    assert(!tapeLinkReaderSendCommand(
+        &reader, TAPE_LINK_COMMAND_TOGGLE_PATTERN));
+    assert(tapeLinkWriterTakeCommand(&writer) ==
+           TAPE_LINK_COMMAND_TOGGLE_SONG);
+    assert(tapeLinkWriterTakeCommand(&writer) == TAPE_LINK_COMMAND_NONE);
+    assert(tapeLinkReaderSendCommand(
+        &reader, TAPE_LINK_COMMAND_TOGGLE_PATTERN));
+    assert(tapeLinkWriterTakeCommand(&writer) ==
+           TAPE_LINK_COMMAND_TOGGLE_PATTERN);
     for (size_t frame = 0u; frame < 4096u; ++frame) {
         input[frame * 2u] = 0.25f;
         input[frame * 2u + 1u] = -0.5f;
@@ -124,6 +135,10 @@ int main(int argc, char **argv)
     assert(tapeLinkReaderOpenNamed(&replacement_reader, name, error,
                                    sizeof(error)));
     assert(tapeLinkWriterWrite(&replacement_writer, input, 4096u) == 4096u);
+    assert(tapeLinkReaderSendCommand(
+        &replacement_reader, TAPE_LINK_COMMAND_TOGGLE_SONG));
+    assert(tapeLinkWriterTakeCommand(&replacement_writer) ==
+           TAPE_LINK_COMMAND_TOGGLE_SONG);
     assert(tapeLinkReaderRead(&replacement_reader, output, 1024u, 48000u) ==
            1024u);
     assert(fabsf(output[2046] - 0.25f) < 0.001f);

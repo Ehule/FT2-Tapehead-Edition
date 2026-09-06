@@ -17,3 +17,4 @@ void tapeheadLiveLinkPause(bool pause);
 void tapeheadLiveLinkLock(void);
 void tapeheadLiveLinkUnlock(void);
 bool tapeheadLiveLinkIsOpen(void);
+void tapeheadLiveLinkPumpTransport(void);

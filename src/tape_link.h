@@ -8,6 +8,12 @@
 #define TAPE_LINK_CHANNELS 2u
 #define TAPE_LINK_CAPACITY_FRAMES 131072u
 
+typedef enum {
+    TAPE_LINK_COMMAND_NONE = 0,
+    TAPE_LINK_COMMAND_TOGGLE_SONG,
+    TAPE_LINK_COMMAND_TOGGLE_PATTERN
+} TapeLinkCommand;
+
 typedef struct {
     void *mapping;
     void *shared;
@@ -54,6 +60,7 @@ size_t tapeLinkWriterWrite(TapeLinkWriter *writer, const float *interleaved,
                            size_t frames);
 void tapeLinkWriterClose(TapeLinkWriter *writer);
 void tapeLinkWriterStatus(const TapeLinkWriter *writer, TapeLinkStatus *status);
+TapeLinkCommand tapeLinkWriterTakeCommand(TapeLinkWriter *writer);
 
 void tapeLinkReaderInit(TapeLinkReader *reader);
 int tapeLinkReaderOpen(TapeLinkReader *reader, char *error, size_t error_size);
@@ -63,5 +70,6 @@ size_t tapeLinkReaderRead(TapeLinkReader *reader, float *interleaved,
                           size_t frames, uint32_t output_rate);
 void tapeLinkReaderClose(TapeLinkReader *reader);
 void tapeLinkReaderStatus(const TapeLinkReader *reader, TapeLinkStatus *status);
+int tapeLinkReaderSendCommand(TapeLinkReader *reader, TapeLinkCommand command);
 
 #endif

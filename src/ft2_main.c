@@ -51,6 +51,7 @@
 #include "ft2_tapesister_exchange.h"
 #include "ft2_capture.h"
 #include "ft2_palette.h"
+#include "ft2_live_link.h"
 
 static void initializeVars(void);
 static void cleanUpAndExit(void); // never call this inside the main loop
@@ -322,6 +323,7 @@ int main(int argc, char *argv[])
 		handleThreadEvents();
 		readInput();
 		handleEvents();
+		tapeheadLiveLinkPumpTransport();
 		tapeSisterExchangePoll(false);
 		tapeheadCapturePoll();
 		handleRecPlusExhaustion();

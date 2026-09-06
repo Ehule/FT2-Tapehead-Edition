@@ -43,6 +43,13 @@ Once connected, Tapehead behaves like another live TapeSister instrument source:
 - use TapeSister's main Capture/Overdub workflow to print the performed output into a
   tile;
 - select a Sister tap and tile or FILE destination to capture the processed tape path.
+- select TapeSister's **TAPEHEAD** capture tap to record the raw linked stereo stream
+  directly to a tile, Overdub, or long-form FILE.
+
+TapeSister's TAPEHEAD source button can remotely control this transport without
+bringing Tapehead to the front. Plain click only changes source routing; Shift-click
+also toggles Song Play/Stop, and Ctrl-click also toggles Pattern Play/Stop. The command
+is handled on Tapehead's main thread and cannot run repeatedly from a held click.
 
 The TAPEHEAD mixer fader is independent and persists with TapeSister's configuration,
 projects, and Sister presets. Only the newest Tapehead instance selecting Live Link is
@@ -64,4 +71,5 @@ other normal DAW route when desired.
 - Test 44.1 kHz → 48 kHz and 96 kHz → 48 kHz.
 - Verify ordinary post-FX, Sister Machine, Fallout, pedalboard, tile Capture, and FILE
   capture.
+- Verify TapeSister Shift-click Song and Ctrl-click Pattern transport toggles.
 - Switch Tapehead back to a hardware output and confirm the link fades out cleanly.

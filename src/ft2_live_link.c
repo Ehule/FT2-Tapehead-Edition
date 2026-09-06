@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "tape_link.h"
+#include "ft2_replayer.h"
 
 static TapeLinkWriter liveLinkWriter = { NULL, NULL, -1, {0}, 0 };
 static SDL_Thread *liveLinkThread;
@@ -163,4 +164,22 @@ void tapeheadLiveLinkUnlock(void)
 bool tapeheadLiveLinkIsOpen(void)
 {
     return liveLinkWriter.shared != NULL;
+}
+
+void tapeheadLiveLinkPumpTransport(void)
+{
+    TapeLinkCommand command = tapeLinkWriterTakeCommand(&liveLinkWriter);
+    if (command == TAPE_LINK_COMMAND_TOGGLE_SONG) {
+        if (songPlaying &&
+            (playMode == PLAYMODE_SONG || playMode == PLAYMODE_RECSONG))
+            stopPlaying();
+        else
+            pbPlaySong();
+    } else if (command == TAPE_LINK_COMMAND_TOGGLE_PATTERN) {
+        if (songPlaying &&
+            (playMode == PLAYMODE_PATT || playMode == PLAYMODE_RECPATT))
+            stopPlaying();
+        else
+            pbPlayPtn();
+    }
 }
