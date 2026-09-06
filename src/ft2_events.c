@@ -37,6 +37,7 @@
 #include "ft2_sample_ed_features.h"
 #include "ft2_structs.h"
 #include "ft2_splash.h"
+#include "tape_companion.h"
 
 #define CRASH_TEXT "Oh no! Tapehead has crashed...\nA backup of the song was hopefully " \
                    "saved to the current module directory.\n\nPlease report this bug if you can.\n" \
@@ -44,6 +45,8 @@
                    "My email is on the bottom of https://16-bits.org"
 
 static bool backupMadeAfterCrash;
+static TapeCompanion companionFocus;
+static bool companionFocusInitialized;
 
 #ifdef _WIN32
 #define SYSMSG_FILE_ARG (WM_USER+1)
@@ -63,6 +66,32 @@ void readInput(void)
 	readKeyModifiers();
 	setSyncedReplayerVars();
 	handleSDLEvents();
+}
+
+void initCompanionFocus(void)
+{
+	char error[128];
+	tapeCompanionInit(&companionFocus);
+	companionFocusInitialized = true;
+	if (!tapeCompanionOpen(&companionFocus, TAPE_COMPANION_TAPEHEAD_NAME,
+		video.window, error, sizeof (error)))
+	{
+		fprintf(stderr, "Tapehead companion focus: %s\n", error);
+	}
+}
+
+void pumpCompanionFocus(void)
+{
+	if (companionFocusInitialized)
+		(void)tapeCompanionPump(&companionFocus);
+}
+
+void closeCompanionFocus(void)
+{
+	if (!companionFocusInitialized)
+		return;
+	tapeCompanionClose(&companionFocus);
+	companionFocusInitialized = false;
 }
 
 void handleThreadEvents(void)
@@ -403,6 +432,19 @@ static void handleSDLEvents(void)
 		handleWaitVblQuirk(&event);
 		if (tapeheadSplashConsumeDismissEvent(&event))
 			continue;
+
+		/* Ctrl+Tab crosses to TapeSister without changing any Tapehead UI or
+		** transport state. This companion channel is intentionally independent
+		** of Live Link, so it remains available with a physical audio output. */
+		if (event.type == SDL_KEYDOWN && !event.key.repeat &&
+			event.key.keysym.sym == SDLK_TAB &&
+			(event.key.keysym.mod & KMOD_CTRL) != 0 &&
+			(event.key.keysym.mod & (KMOD_SHIFT | KMOD_ALT | KMOD_GUI)) == 0)
+		{
+			(void)tapeCompanionRequestFocus(
+				TAPE_COMPANION_TAPESISTER_NAME);
+			continue;
+		}
 
 		/* Device recovery must run on the main thread, even while a long editor
 		** operation is otherwise suppressing normal input events. */

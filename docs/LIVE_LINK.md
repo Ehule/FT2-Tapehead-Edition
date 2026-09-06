@@ -57,6 +57,18 @@ The TAPEHEAD mixer fader is independent and persists with TapeSister's configura
 projects, and Sister presets. Only the newest Tapehead instance selecting Live Link is
 the active producer.
 
+## Companion window switching
+
+Press **Ctrl+Tab** in either application to move to the other one. This is an
+independent companion control channel, not part of the audio ring, so it also works
+while Tapehead uses a physical output and Live Link shows **WAIT**. It never launches a
+missing application or changes playback, routing, recording, or interface state.
+
+TapeSister remembers which of its two windows was last active. A performance can
+therefore move from Tapehead back to the main TapeSister window, Sister Machine,
+Fallout, or the pedalboard exactly as it was left. Tapehead likewise retains an open
+Config panel, editor, or performance surface.
+
 ## Windows coexistence
 
 Live Link opens no Tapehead hardware output. This avoids the DirectSound/WASAPI/ASIO
@@ -76,3 +88,5 @@ other normal DAW route when desired.
 - Verify independent TH SRC, TH SONG, and TH PATT behavior and truthful transport lights.
 - Run TapeSister at 256, 512, 1024, and 2048 frames without link underruns.
 - Switch Tapehead back to a hardware output and confirm the link fades out cleanly.
+- With Live Link both selected and unselected, use Ctrl+Tab in each direction and
+  confirm the last active windows and open panels are preserved.

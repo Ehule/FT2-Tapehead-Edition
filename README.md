@@ -111,6 +111,10 @@ and file-recording paths. The applications may start in either order, reconnect
 after restarts, and may use different sample rates. See the
 [Live Link guide](docs/LIVE_LINK.md).
 
+Press **Ctrl+Tab** to move directly to a running TapeSister and press it there
+to return. Companion switching works even when Live Link is not selected and
+does not open, close, or alter either application's current workspace.
+
 ### EXS sample round trip
 
 Disk Op's **Sample → EXS → Save** extracts either used instruments or every

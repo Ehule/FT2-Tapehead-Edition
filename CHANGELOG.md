@@ -11,6 +11,9 @@ map.
 
 ## Tapehead → TapeSister Live Link — 2026-09-05
 
+- Added bidirectional **Ctrl+Tab** companion switching. It focuses the already
+  running peer without launching it, changing either workspace, or depending
+  on Live Link audio; TapeSister returns to its last active main/Sister window.
 - Added **TapeSister Live Link** as a clocked virtual Tapehead output. It sends
   normalized post-mixer stereo through a versioned local shared-memory ring and
   never opens a physical audio device.

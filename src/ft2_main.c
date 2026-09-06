@@ -221,6 +221,7 @@ int main(int argc, char *argv[])
 		return 0; // close current instance, the main instance got a message now
 	}
 #endif
+	initCompanionFocus();
 
 	if (!setupDiskOp())
 	{
@@ -321,6 +322,7 @@ int main(int argc, char *argv[])
 	{
 		beginFPSCounter();
 		handleThreadEvents();
+		pumpCompanionFocus();
 		readInput();
 		handleEvents();
 		tapeheadLiveLinkPumpTransport();
@@ -487,6 +489,7 @@ static void cleanUpAndExit(void) // never call this inside the main loop!
 #ifdef _WIN32
 	closeSingleInstancing();
 #endif
+	closeCompanionFocus();
 
 	SDL_Quit();
 }

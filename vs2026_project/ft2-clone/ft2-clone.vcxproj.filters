@@ -22,6 +22,7 @@
     <ClCompile Include="..\..\src\ft2_jack.c" />
     <ClCompile Include="..\..\src\ft2_live_link.c" />
     <ClCompile Include="..\..\src\tape_link.c" />
+    <ClCompile Include="..\..\src\tape_companion.c" />
     <ClCompile Include="..\..\src\ft2_keyboard.c" />
     <ClCompile Include="..\..\src\ft2_main.c" />
     <ClCompile Include="..\..\src\ft2_midi.c" />
@@ -286,6 +287,7 @@
     </ClInclude>
     <ClInclude Include="..\..\src\ft2_live_link.h" />
     <ClInclude Include="..\..\src\tape_link.h" />
+    <ClInclude Include="..\..\src\tape_companion.h" />
     <ClInclude Include="..\..\src\ft2_fasttracks.h">
       <Filter>headers</Filter>
     </ClInclude>

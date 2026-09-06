@@ -15,6 +15,9 @@ enum
 void handleThreadEvents(void);
 void readInput(void);
 void handleEvents(void);
+void initCompanionFocus(void);
+void pumpCompanionFocus(void);
+void closeCompanionFocus(void);
 void setupCrashHandler(void);
 void handleWaitVblQuirk(SDL_Event *event);
 #ifdef _WIN32
