@@ -12,6 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 TEST_SCRIPTS = (
 	"test_identity_packaging.py",
 	"test_audio_hardening.py",
+	"test_live_link.py",
+	"test_companion_focus.py",
 	"test_track_trim.py",
 	"test_apc40_mk2.py",
     "test_sample_morph.py",

@@ -9,6 +9,25 @@ milestones and may contain limitations or planned work that later entries
 supersede. See [`docs/README.md`](docs/README.md) for the current documentation
 map.
 
+## Tapehead → TapeSister Live Link — 2026-09-05
+
+- Added bidirectional **Ctrl+Tab** companion switching. It focuses the already
+  running peer without launching it, changing either workspace, or depending
+  on Live Link audio; TapeSister returns to its last active main/Sister window.
+- Added **TapeSister Live Link** as a clocked virtual Tapehead output. It sends
+  normalized post-mixer stereo through a versioned local shared-memory ring and
+  never opens a physical audio device.
+- Added independent producer/consumer sessions, automatic TapeSister discovery,
+  restart recovery, underrun/overrun counters, input-rate conversion, adaptive
+  clock-drift correction, and short connection/disconnection fades.
+- Made stereo Live Link follow Tapehead's established multichannel fallback, so
+  logical and Mono Output routes fold to Bus A instead of disappearing.
+- Added portable Windows and POSIX transports, Visual Studio/CMake/Linux build
+  wiring, and a native cross-process transport regression test shared with the
+  matching TapeSister implementation.
+- Documented the single-output-owner workflow in which TapeSister controls the
+  speakers/interface and Tapehead becomes an internal TapeSister source.
+
 ## EXS extraction and round-trip replacement — 2026-09-04
 
 - Added a reusable `Processed` output directory to every EXS export. Round-trip

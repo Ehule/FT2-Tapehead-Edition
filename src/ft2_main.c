@@ -51,6 +51,7 @@
 #include "ft2_tapesister_exchange.h"
 #include "ft2_capture.h"
 #include "ft2_palette.h"
+#include "ft2_live_link.h"
 
 static void initializeVars(void);
 static void cleanUpAndExit(void); // never call this inside the main loop
@@ -220,6 +221,7 @@ int main(int argc, char *argv[])
 		return 0; // close current instance, the main instance got a message now
 	}
 #endif
+	initCompanionFocus();
 
 	if (!setupDiskOp())
 	{
@@ -320,8 +322,10 @@ int main(int argc, char *argv[])
 	{
 		beginFPSCounter();
 		handleThreadEvents();
+		pumpCompanionFocus();
 		readInput();
 		handleEvents();
+		tapeheadLiveLinkPumpTransport();
 		tapeSisterExchangePoll(false);
 		tapeheadCapturePoll();
 		handleRecPlusExhaustion();
@@ -485,6 +489,7 @@ static void cleanUpAndExit(void) // never call this inside the main loop!
 #ifdef _WIN32
 	closeSingleInstancing();
 #endif
+	closeCompanionFocus();
 
 	SDL_Quit();
 }

@@ -111,7 +111,7 @@ if(UNIX)
             target_link_libraries(Tapehead PRIVATE fts)
         endif()
         target_link_libraries(Tapehead
-            PRIVATE asound dl)
+            PRIVATE asound dl rt)
         target_compile_definitions(Tapehead
             PRIVATE __LINUX_ALSA__)
     endif()
