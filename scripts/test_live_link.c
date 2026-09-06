@@ -49,6 +49,49 @@ static int child_reader(const char *name)
     return 4;
 }
 
+static void test_short_producer_quantum(const char *base_name,
+                                        size_t receiver_frames)
+{
+    TapeLinkWriter writer;
+    TapeLinkReader reader;
+    TapeLinkStatus status;
+    float input[512];
+    float output[4096];
+    char name[128];
+    char error[160];
+    snprintf(name, sizeof(name), "%s_%zu", base_name, receiver_frames);
+    for (size_t frame = 0u; frame < 256u; ++frame) {
+        input[frame * 2u] = 0.125f;
+        input[frame * 2u + 1u] = -0.25f;
+    }
+    tapeLinkWriterInit(&writer);
+    tapeLinkReaderInit(&reader);
+    assert(tapeLinkWriterOpenNamed(&writer, name, 48000u, error,
+                                   sizeof(error)));
+    assert(tapeLinkReaderOpenNamed(&reader, name, error, sizeof(error)));
+    for (int cycle = 0; cycle < 32; ++cycle) {
+        size_t chunks = receiver_frames / 256u;
+        /* Model one late 256-frame producer wake and its next-cycle catch-up.
+           The 25 ms/two-consumer-callback reserve must absorb both. */
+        if (cycle == 12) --chunks;
+        else if (cycle == 13) ++chunks;
+        for (size_t chunk = 0u; chunk < chunks; ++chunk)
+            assert(tapeLinkWriterWrite(&writer, input, 256u) == 256u);
+        assert(tapeLinkReaderRead(&reader, output, receiver_frames, 48000u) ==
+               receiver_frames);
+        if (cycle >= 8) {
+            assert(fabsf(output[(receiver_frames - 1u) * 2u] - 0.125f) <
+                   0.001f);
+            assert(fabsf(output[(receiver_frames - 1u) * 2u + 1u] + 0.25f) <
+                   0.001f);
+        }
+    }
+    tapeLinkReaderStatus(&reader, &status);
+    assert(status.underruns == 0u);
+    tapeLinkReaderClose(&reader);
+    tapeLinkWriterClose(&writer);
+}
+
 int main(int argc, char **argv)
 {
     TapeLinkWriter writer;
@@ -65,6 +108,10 @@ int main(int argc, char **argv)
         return child_reader(argv[2]);
 
     snprintf(name, sizeof(name), "tape_link_test_%ld", (long)test_pid());
+    test_short_producer_quantum(name, 256u);
+    test_short_producer_quantum(name, 512u);
+    test_short_producer_quantum(name, 1024u);
+    test_short_producer_quantum(name, 2048u);
     tapeLinkWriterInit(&writer);
     tapeLinkWriterInit(&replacement_writer);
     tapeLinkReaderInit(&reader);
@@ -88,6 +135,16 @@ int main(int argc, char **argv)
         &reader, TAPE_LINK_COMMAND_TOGGLE_PATTERN));
     assert(tapeLinkWriterTakeCommand(&writer) ==
            TAPE_LINK_COMMAND_TOGGLE_PATTERN);
+    assert(tapeLinkReaderTransportState(&reader) ==
+           TAPE_LINK_TRANSPORT_STOPPED);
+    tapeLinkWriterSetTransportState(&writer, TAPE_LINK_TRANSPORT_SONG);
+    assert(tapeLinkReaderTransportState(&reader) ==
+           TAPE_LINK_TRANSPORT_SONG);
+    tapeLinkReaderStatus(&reader, &status);
+    assert(status.transport_state == TAPE_LINK_TRANSPORT_SONG);
+    tapeLinkWriterSetTransportState(&writer, TAPE_LINK_TRANSPORT_PATTERN);
+    assert(tapeLinkReaderTransportState(&reader) ==
+           TAPE_LINK_TRANSPORT_PATTERN);
     for (size_t frame = 0u; frame < 4096u; ++frame) {
         input[frame * 2u] = 0.25f;
         input[frame * 2u + 1u] = -0.5f;
@@ -143,9 +200,15 @@ int main(int argc, char **argv)
            1024u);
     assert(fabsf(output[2046] - 0.25f) < 0.001f);
     assert(fabsf(output[2047] + 0.5f) < 0.001f);
+    tapeLinkWriterSetTransportState(&replacement_writer,
+                                    TAPE_LINK_TRANSPORT_PATTERN);
+    assert(tapeLinkReaderTransportState(&replacement_reader) ==
+           TAPE_LINK_TRANSPORT_PATTERN);
     tapeLinkWriterClose(&replacement_writer);
     assert(tapeLinkReaderRead(&replacement_reader, output, 1024u, 48000u) ==
            1024u);
+    assert(tapeLinkReaderTransportState(&replacement_reader) ==
+           TAPE_LINK_TRANSPORT_STOPPED);
     assert(fabsf(output[2046]) < 0.0001f);
     assert(fabsf(output[2047]) < 0.0001f);
     tapeLinkReaderClose(&reader);

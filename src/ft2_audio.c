@@ -2106,7 +2106,11 @@ bool setupAudio(bool showErrorMsg)
 
 	if (useLiveLink)
 	{
-		if (!tapeheadLiveLinkOpen(config.audioFreq, configAudioBufSize,
+		/* Live Link is a software clock, not a hardware device. A fixed short
+		** quantum prevents 512/1024/2048-frame UI choices from turning its
+		** producer into sparse bursts that can starve TapeSister. */
+		if (!tapeheadLiveLinkOpen(config.audioFreq,
+			TAPEHEAD_LIVE_LINK_RENDER_QUANTUM_FRAMES,
 			liveLinkAudioCallback, NULL))
 		{
 			setAudioOpenFailure(TAPEHEAD_LIVE_LINK_DEVICE_NAME,
@@ -2120,7 +2124,7 @@ bool setupAudio(bool showErrorMsg)
 		}
 
 		openedFreq = config.audioFreq;
-		openedSamples = configAudioBufSize;
+		openedSamples = TAPEHEAD_LIVE_LINK_RENDER_QUANTUM_FRAMES;
 		openedChannels = 2;
 		openedFormat = AUDIO_F32;
 		audio.multichannelFallback = requestedOutputChannels > 2;

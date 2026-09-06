@@ -21,7 +21,7 @@
 
 enum {
     TAPE_LINK_MAGIC = 0x54484C4Bu,
-    TAPE_LINK_VERSION = 1u,
+    TAPE_LINK_VERSION = 2u,
     TAPE_LINK_RUNNING = 1u
 };
 
@@ -42,6 +42,7 @@ typedef struct {
     volatile uint32_t command_sequence;
     volatile uint32_t command;
     volatile uint32_t command_acknowledged;
+    volatile uint32_t transport_state;
     float samples[TAPE_LINK_CAPACITY_FRAMES * TAPE_LINK_CHANNELS];
 } TapeLinkShared;
 
@@ -317,6 +318,9 @@ void tapeLinkWriterStatus(const TapeLinkWriter *writer, TapeLinkStatus *status)
     status->session = shared->session;
     status->overruns = atomic_load_u32(&shared->overruns);
     status->underruns = atomic_load_u32(&shared->underruns);
+    status->transport_state = status->connected ?
+        atomic_load_u32(&shared->transport_state) & TAPE_LINK_TRANSPORT_MASK :
+        TAPE_LINK_TRANSPORT_STOPPED;
 }
 
 TapeLinkCommand tapeLinkWriterTakeCommand(TapeLinkWriter *writer)
@@ -338,6 +342,18 @@ TapeLinkCommand tapeLinkWriterTakeCommand(TapeLinkWriter *writer)
     return command == TAPE_LINK_COMMAND_TOGGLE_SONG ||
            command == TAPE_LINK_COMMAND_TOGGLE_PATTERN ?
            (TapeLinkCommand)command : TAPE_LINK_COMMAND_NONE;
+}
+
+void tapeLinkWriterSetTransportState(TapeLinkWriter *writer,
+                                     uint32_t transport_state)
+{
+    TapeLinkShared *shared;
+    if (writer == NULL) return;
+    shared = (TapeLinkShared *)writer->shared;
+    if (!shared_valid(shared) || shared->session != writer->session ||
+        atomic_load_u32(&shared->state) != TAPE_LINK_RUNNING) return;
+    atomic_store_u32(&shared->transport_state,
+                     transport_state & TAPE_LINK_TRANSPORT_MASK);
 }
 
 void tapeLinkReaderInit(TapeLinkReader *reader)
@@ -579,6 +595,9 @@ void tapeLinkReaderStatus(const TapeLinkReader *reader, TapeLinkStatus *status)
     status->session = shared->session;
     status->overruns = atomic_load_u32(&shared->overruns);
     status->underruns = atomic_load_u32(&shared->underruns);
+    status->transport_state = status->connected ?
+        atomic_load_u32(&shared->transport_state) & TAPE_LINK_TRANSPORT_MASK :
+        TAPE_LINK_TRANSPORT_STOPPED;
 }
 
 int tapeLinkReaderSendCommand(TapeLinkReader *reader, TapeLinkCommand command)
@@ -598,4 +617,17 @@ int tapeLinkReaderSendCommand(TapeLinkReader *reader, TapeLinkCommand command)
     if (sequence == 0u) sequence = 1u;
     atomic_store_u32(&shared->command_sequence, sequence);
     return 1;
+}
+
+uint32_t tapeLinkReaderTransportState(const TapeLinkReader *reader)
+{
+    const TapeLinkShared *shared;
+    if (reader == NULL) return TAPE_LINK_TRANSPORT_STOPPED;
+    shared = (const TapeLinkShared *)reader->shared;
+    if (!reader->connected || !shared_valid(shared) ||
+        shared->session != reader->session ||
+        atomic_load_u32(&shared->state) != TAPE_LINK_RUNNING)
+        return TAPE_LINK_TRANSPORT_STOPPED;
+    return atomic_load_u32(&shared->transport_state) &
+           TAPE_LINK_TRANSPORT_MASK;
 }

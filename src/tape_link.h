@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define TAPE_LINK_DEFAULT_NAME "tapehead_tapesister_livelink_v1"
+#define TAPE_LINK_DEFAULT_NAME "tapehead_tapesister_livelink_v2"
 #define TAPE_LINK_CHANNELS 2u
 #define TAPE_LINK_CAPACITY_FRAMES 131072u
 
@@ -13,6 +13,14 @@ typedef enum {
     TAPE_LINK_COMMAND_TOGGLE_SONG,
     TAPE_LINK_COMMAND_TOGGLE_PATTERN
 } TapeLinkCommand;
+
+enum {
+    TAPE_LINK_TRANSPORT_STOPPED = 0u,
+    TAPE_LINK_TRANSPORT_SONG = 1u << 0,
+    TAPE_LINK_TRANSPORT_PATTERN = 1u << 1,
+    TAPE_LINK_TRANSPORT_MASK = TAPE_LINK_TRANSPORT_SONG |
+                               TAPE_LINK_TRANSPORT_PATTERN
+};
 
 typedef struct {
     void *mapping;
@@ -48,6 +56,7 @@ typedef struct {
     uint32_t session;
     uint32_t overruns;
     uint32_t underruns;
+    uint32_t transport_state;
 } TapeLinkStatus;
 
 void tapeLinkWriterInit(TapeLinkWriter *writer);
@@ -61,6 +70,8 @@ size_t tapeLinkWriterWrite(TapeLinkWriter *writer, const float *interleaved,
 void tapeLinkWriterClose(TapeLinkWriter *writer);
 void tapeLinkWriterStatus(const TapeLinkWriter *writer, TapeLinkStatus *status);
 TapeLinkCommand tapeLinkWriterTakeCommand(TapeLinkWriter *writer);
+void tapeLinkWriterSetTransportState(TapeLinkWriter *writer,
+                                     uint32_t transport_state);
 
 void tapeLinkReaderInit(TapeLinkReader *reader);
 int tapeLinkReaderOpen(TapeLinkReader *reader, char *error, size_t error_size);
@@ -71,5 +82,6 @@ size_t tapeLinkReaderRead(TapeLinkReader *reader, float *interleaved,
 void tapeLinkReaderClose(TapeLinkReader *reader);
 void tapeLinkReaderStatus(const TapeLinkReader *reader, TapeLinkStatus *status);
 int tapeLinkReaderSendCommand(TapeLinkReader *reader, TapeLinkCommand command);
+uint32_t tapeLinkReaderTransportState(const TapeLinkReader *reader);
 
 #endif

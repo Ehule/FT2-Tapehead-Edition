@@ -16,9 +16,12 @@ def main() -> None:
     audio = (ROOT / "src/ft2_audio.c").read_text()
     selector = (ROOT / "src/ft2_audioselector.c").read_text()
     assert "TAPEHEAD_LIVE_LINK_DEVICE_NAME" in selector
+    assert "TAPEHEAD_LIVE_LINK_RENDER_QUANTUM_FRAMES" in audio
+    assert "openedSamples = TAPEHEAD_LIVE_LINK_RENDER_QUANTUM_FRAMES" in audio
     assert "renderAudioFrames(sampleFrames, 1)" in audio
     assert "tapeheadLiveLinkPause(true)" in audio
     assert "SDL_AtomicSet(&liveLinkPaused, pause ? 1 : 0);" in live_clock
+    assert "tapeLinkWriterSetTransportState" in live_clock
     pause_sync = live_clock.index("if (pause && liveLinkMutex != NULL)")
     assert live_clock.index("SDL_LockMutex(liveLinkMutex);", pause_sync) > pause_sync
     callback_lock = live_clock.index("SDL_LockMutex(liveLinkMutex);")

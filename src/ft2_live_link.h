@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #define TAPEHEAD_LIVE_LINK_DEVICE_NAME "TapeSister Live Link"
+#define TAPEHEAD_LIVE_LINK_RENDER_QUANTUM_FRAMES 256u
 
 typedef void (*tapeheadLiveLinkRenderCallback)(float *interleaved,
     uint32_t sampleFrames, void *userdata);

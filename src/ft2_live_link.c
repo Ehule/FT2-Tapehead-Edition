@@ -169,6 +169,7 @@ bool tapeheadLiveLinkIsOpen(void)
 void tapeheadLiveLinkPumpTransport(void)
 {
     TapeLinkCommand command = tapeLinkWriterTakeCommand(&liveLinkWriter);
+    uint32_t transportState = TAPE_LINK_TRANSPORT_STOPPED;
     if (command == TAPE_LINK_COMMAND_TOGGLE_SONG) {
         if (songPlaying &&
             (playMode == PLAYMODE_SONG || playMode == PLAYMODE_RECSONG))
@@ -182,4 +183,11 @@ void tapeheadLiveLinkPumpTransport(void)
         else
             pbPlayPtn();
     }
+    if (songPlaying) {
+        if (playMode == PLAYMODE_SONG || playMode == PLAYMODE_RECSONG)
+            transportState = TAPE_LINK_TRANSPORT_SONG;
+        else if (playMode == PLAYMODE_PATT || playMode == PLAYMODE_RECPATT)
+            transportState = TAPE_LINK_TRANSPORT_PATTERN;
+    }
+    tapeLinkWriterSetTransportState(&liveLinkWriter, transportState);
 }
